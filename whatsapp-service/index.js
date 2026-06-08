@@ -30,10 +30,11 @@ const wClient = new Client({
 })
 
 async function setState(status, qrCode = null) {
-  await supabase.from('whatsapp_state').upsert(
+  const { error } = await supabase.from('whatsapp_state').upsert(
     { id: 1, status, qr_code: qrCode, updated_at: new Date().toISOString() },
     { onConflict: 'id' }
   )
+  if (error) console.error('Erro ao salvar estado WhatsApp:', error.message)
 }
 
 wClient.on('qr', async (qr) => {
@@ -57,7 +58,10 @@ wClient.on('ready', async () => {
 wClient.on('disconnected', async (reason) => {
   console.log('Desconectado:', reason)
   await setState('disconnected')
-  setTimeout(() => wClient.initialize(), 5000)
+  setTimeout(() => {
+    console.log('Reiniciando cliente WhatsApp...')
+    wClient.initialize().catch((e) => console.error('Falha ao reiniciar:', e.message))
+  }, 5000)
 })
 
 wClient.on('auth_failure', async () => {
@@ -101,4 +105,13 @@ function startListening() {
 }
 
 console.log('🚀 TechFix WhatsApp Service iniciando...')
-wClient.initialize()
+setState('disconnected').then(() => {
+  wClient.initialize().catch(async (e) => {
+    console.error('Falha ao iniciar Chrome:', e.message)
+    await setState('disconnected')
+    setTimeout(() => {
+      console.log('Tentando novamente...')
+      wClient.initialize().catch((e2) => console.error('Segunda tentativa falhou:', e2.message))
+    }, 10000)
+  })
+})
