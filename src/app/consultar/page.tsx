@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ServiceRequest } from '@/lib/types'
 import { Smartphone, Search, Loader2, MapPin, Clock, CheckCircle, XCircle, Wrench, ChevronLeft, Package, Truck, AlertTriangle } from 'lucide-react'
@@ -26,7 +26,7 @@ function formatPhone(value: string) {
   return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7,11)}`
 }
 
-export default function ConsultarPage() {
+function ConsultarContent() {
   const searchParams = useSearchParams()
   const [phone, setPhone] = useState('')
   const [requests, setRequests] = useState<ServiceRequest[] | null>(null)
@@ -225,5 +225,13 @@ export default function ConsultarPage() {
         )}
       </div>
     </main>
+  )
+}
+
+export default function ConsultarPage() {
+  return (
+    <Suspense fallback={null}>
+      <ConsultarContent />
+    </Suspense>
   )
 }
