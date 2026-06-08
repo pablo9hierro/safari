@@ -1,5 +1,6 @@
 import ServiceRequestForm from '@/components/ServiceRequestForm'
-import { Smartphone, Wrench, Truck } from 'lucide-react'
+import { Smartphone, Wrench, Truck, Search } from 'lucide-react'
+import Link from 'next/link'
 
 export default function Home() {
   return (
@@ -32,10 +33,20 @@ export default function Home() {
         ))}
       </div>
 
-      <div className="mx-4 bg-white rounded-3xl shadow-2xl p-6 mb-8 max-w-lg md:mx-auto">
+      <div className="mx-4 bg-white rounded-3xl shadow-2xl p-6 mb-4 max-w-lg md:mx-auto">
         <h2 className="text-lg font-bold text-gray-900 mb-1">Solicitar orçamento</h2>
         <p className="text-gray-500 text-sm mb-6">Preencha os dados abaixo e responderemos em até 2h</p>
         <ServiceRequestForm />
+      </div>
+
+      <div className="mx-4 mb-8 max-w-lg md:mx-auto">
+        <Link
+          href="/consultar"
+          className="flex items-center justify-center gap-2 bg-white/15 hover:bg-white/25 text-white font-medium py-3 px-6 rounded-2xl transition-all text-sm w-full"
+        >
+          <Search className="w-4 h-4" />
+          Acompanhar solicitação existente
+        </Link>
       </div>
     </main>
   )

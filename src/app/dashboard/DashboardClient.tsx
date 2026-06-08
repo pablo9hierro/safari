@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import RequestDetailModal from '@/components/RequestDetailModal'
+import WhatsAppPanel from '@/components/WhatsAppPanel'
 
 const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: string }> = {
   pending: { label: 'Pendente', color: 'text-yellow-700', bg: 'bg-yellow-100' },
@@ -80,6 +81,8 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        <WhatsAppPanel />
+
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
           {[

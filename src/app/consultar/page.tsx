@@ -1,0 +1,155 @@
+'use client'
+
+import { useState } from 'react'
+import { ServiceRequest } from '@/lib/types'
+import { Smartphone, Search, Loader2, MapPin, Clock, CheckCircle, XCircle, Wrench, ChevronLeft, Package } from 'lucide-react'
+import Link from 'next/link'
+
+const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
+  pending:     { label: 'Aguardando avaliação', color: 'text-yellow-700', bg: 'bg-yellow-100' },
+  quoted:      { label: 'Orçamento disponível', color: 'text-blue-700',   bg: 'bg-blue-100'   },
+  accepted:    { label: 'Aceito',               color: 'text-green-700',  bg: 'bg-green-100'  },
+  rejected:    { label: 'Recusado',             color: 'text-red-700',    bg: 'bg-red-100'    },
+  in_progress: { label: 'Em reparo',            color: 'text-purple-700', bg: 'bg-purple-100' },
+  completed:   { label: 'Concluído',            color: 'text-gray-700',   bg: 'bg-gray-100'   },
+}
+
+function formatPhone(value: string) {
+  const d = value.replace(/\D/g, '')
+  if (d.length <= 2) return `(${d}`
+  if (d.length <= 7) return `(${d.slice(0,2)}) ${d.slice(2)}`
+  if (d.length <= 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`
+  return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7,11)}`
+}
+
+export default function ConsultarPage() {
+  const [phone, setPhone] = useState('')
+  const [requests, setRequests] = useState<ServiceRequest[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (phone.replace(/\D/g, '').length < 10) return
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/consultar?phone=${encodeURIComponent(phone.replace(/\D/g, ''))}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erro ao buscar')
+      setRequests(data.requests)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao buscar solicitações')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-gradient-to-b from-blue-600 to-blue-800">
+      <header className="px-5 pt-8 pb-6 text-white">
+        <Link href="/" className="flex items-center gap-1.5 text-blue-200 hover:text-white text-sm mb-5 w-fit transition-colors">
+          <ChevronLeft className="w-4 h-4" /> Início
+        </Link>
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center">
+            <Smartphone className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-xl font-bold">TechFix</span>
+        </div>
+        <h1 className="text-2xl font-bold">Minhas solicitações</h1>
+        <p className="text-blue-100 text-sm mt-1">Digite seu WhatsApp para ver o status dos seus pedidos</p>
+      </header>
+
+      <div className="px-4 max-w-lg md:mx-auto">
+        <form onSubmit={handleSearch} className="bg-white rounded-2xl p-5 shadow-xl mb-4">
+          <label className="label">Seu WhatsApp cadastrado</label>
+          <div className="flex gap-2">
+            <input
+              value={phone}
+              onChange={(e) => setPhone(formatPhone(e.target.value))}
+              placeholder="(11) 99999-9999"
+              inputMode="tel"
+              maxLength={15}
+              className="input-field flex-1"
+            />
+            <button
+              type="submit"
+              disabled={loading || phone.replace(/\D/g, '').length < 10}
+              className="btn-primary px-5 flex items-center gap-2"
+            >
+              {loading
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Search className="w-4 h-4" />}
+            </button>
+          </div>
+          {error && <p className="text-red-500 text-xs mt-2">{error}</p>}
+        </form>
+
+        {requests !== null && (
+          <div className="space-y-3 pb-8">
+            {requests.length === 0 ? (
+              <div className="bg-white rounded-2xl p-10 text-center shadow">
+                <Package className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 font-medium">Nenhuma solicitação encontrada</p>
+                <p className="text-gray-400 text-sm mt-1">Verifique o número digitado</p>
+              </div>
+            ) : (
+              requests.map((req) => {
+                const st = STATUS_MAP[req.status] ?? STATUS_MAP.pending
+                return (
+                  <div key={req.id} className="bg-white rounded-2xl p-5 shadow">
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <span className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full ${st.bg} ${st.color}`}>
+                        {req.status === 'pending' && <Clock className="w-3.5 h-3.5" />}
+                        {req.status === 'in_progress' && <Wrench className="w-3.5 h-3.5" />}
+                        {(req.status === 'accepted' || req.status === 'completed') && <CheckCircle className="w-3.5 h-3.5" />}
+                        {req.status === 'rejected' && <XCircle className="w-3.5 h-3.5" />}
+                        {st.label}
+                      </span>
+                      <span className="text-xs text-gray-400 flex-shrink-0">
+                        {new Date(req.created_at).toLocaleDateString('pt-BR')}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Smartphone className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <span className="font-semibold text-gray-900">{req.phone_model}</span>
+                      </div>
+                      <p className="text-sm text-gray-600 pl-6 leading-relaxed">{req.problem_description}</p>
+
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                        <span className="text-sm text-gray-500">
+                          {[req.address_street, req.address_number, req.address_city].filter(Boolean).join(', ') || `CEP ${req.address_cep}`}
+                        </span>
+                      </div>
+
+                      {req.quote_value && (
+                        <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5 mt-1">
+                          <p className="text-sm font-bold text-blue-700">
+                            💰 Orçamento: R$ {Number(req.quote_value).toFixed(2)}
+                          </p>
+                          {req.status === 'quoted' && (
+                            <p className="text-xs text-blue-500 mt-0.5">Aguardando sua confirmação via WhatsApp</p>
+                          )}
+                        </div>
+                      )}
+
+                      {req.owner_notes && (
+                        <p className="text-xs text-gray-500 pl-6 italic border-l-2 border-gray-100 ml-1">
+                          {req.owner_notes}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        )}
+      </div>
+    </main>
+  )
+}

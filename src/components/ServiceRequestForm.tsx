@@ -20,13 +20,15 @@ import {
 export default function ServiceRequestForm() {
   const [step, setStep] = useState(1)
   const [submitted, setSubmitted] = useState(false)
+  const [submittedPhone, setSubmittedPhone] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [addressData, setAddressData] = useState<{ street?: string; neighborhood?: string; city?: string; state?: string } | null>(null)
   const [cepLoading, setCepLoading] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const galleryInputRef = useRef<HTMLInputElement>(null)
 
   const {
     register,
@@ -117,7 +119,7 @@ export default function ServiceRequestForm() {
         image_url = publicUrl.publicUrl
       }
 
-      const { error: insertError } = await supabase.from('service_requests').insert({
+      const { error: insertError } = await supabase.from('service_requests').insert([{
         customer_name: data.customer_name,
         customer_phone: data.customer_phone,
         customer_email: data.customer_email,
@@ -134,9 +136,10 @@ export default function ServiceRequestForm() {
         status: 'pending',
         quote_value: null,
         owner_notes: null,
-      })
+      }])
 
       if (insertError) throw insertError
+      setSubmittedPhone(data.customer_phone)
       setSubmitted(true)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao enviar solicitação. Tente novamente.'
@@ -147,20 +150,27 @@ export default function ServiceRequestForm() {
   }
 
   if (submitted) {
+    const phoneDigits = submittedPhone.replace(/\D/g, '')
     return (
-      <div className="flex flex-col items-center justify-center text-center px-6 py-16 gap-4">
+      <div className="flex flex-col items-center justify-center text-center px-4 py-10 gap-4">
         <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center">
           <CheckCircle className="w-10 h-10 text-green-600" />
         </div>
         <h2 className="text-2xl font-bold text-gray-900">Solicitação enviada!</h2>
-        <p className="text-gray-500 max-w-sm">
-          Recebemos seu pedido de orçamento. Em breve entraremos em contato pelo WhatsApp ou e-mail.
+        <p className="text-gray-500 max-w-sm text-sm">
+          Recebemos seu pedido. Em breve entraremos em contato pelo WhatsApp com o orçamento.
         </p>
-        <button
-          onClick={() => { setSubmitted(false); setStep(1); setImageFile(null); setImagePreview(null) }}
-          className="btn-primary mt-4"
+        <a
+          href={`/consultar?phone=${phoneDigits}`}
+          className="w-full flex items-center justify-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 font-semibold py-3 px-6 rounded-xl hover:bg-blue-100 transition-all text-sm"
         >
-          Nova solicitação
+          📋 Acompanhar minha solicitação
+        </a>
+        <button
+          onClick={() => { setSubmitted(false); setStep(1); setImageFile(null); setImagePreview(null); setSubmittedPhone('') }}
+          className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+        >
+          Fazer nova solicitação
         </button>
       </div>
     )
@@ -252,35 +262,56 @@ export default function ServiceRequestForm() {
             {errors.problem_description && <p className="error-msg">{errors.problem_description.message}</p>}
           </div>
           <div>
-            <label className="label">Foto do celular (opcional)</label>
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-gray-200 rounded-xl p-4 flex flex-col items-center gap-2 cursor-pointer hover:border-blue-400 transition-all bg-gray-50"
-            >
-              {imagePreview ? (
-                <div className="relative">
-                  <img src={imagePreview} alt="Preview" className="w-32 h-32 object-cover rounded-lg" />
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setImageFile(null); setImagePreview(null) }}
-                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <Upload className="w-6 h-6 text-gray-400" />
-                  <span className="text-sm text-gray-500">Toque para adicionar foto</span>
-                  <span className="text-xs text-gray-400">JPG, PNG até 5MB</span>
-                </>
-              )}
-            </div>
+            <label className="label">
+              Foto do celular <span className="font-normal text-gray-400">(opcional)</span>
+            </label>
+
+            {imagePreview ? (
+              <div className="relative w-fit mx-auto">
+                <img src={imagePreview} alt="Preview" className="w-36 h-36 object-cover rounded-2xl border border-gray-200" />
+                <button
+                  type="button"
+                  onClick={() => { setImageFile(null); setImagePreview(null) }}
+                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center shadow"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="flex flex-col items-center gap-2 border-2 border-dashed border-gray-200 rounded-xl p-4 hover:border-blue-400 hover:bg-blue-50 transition-all bg-gray-50"
+                >
+                  <span className="text-2xl">📷</span>
+                  <span className="text-xs font-medium text-gray-600">Tirar foto</span>
+                  <span className="text-xs text-gray-400">Usar câmera</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => galleryInputRef.current?.click()}
+                  className="flex flex-col items-center gap-2 border-2 border-dashed border-gray-200 rounded-xl p-4 hover:border-blue-400 hover:bg-blue-50 transition-all bg-gray-50"
+                >
+                  <span className="text-2xl">🖼️</span>
+                  <span className="text-xs font-medium text-gray-600">Galeria</span>
+                  <span className="text-xs text-gray-400">Escolher foto</span>
+                </button>
+              </div>
+            )}
+
             <input
-              ref={fileInputRef}
+              ref={cameraInputRef}
               type="file"
               accept="image/*"
               capture="environment"
+              className="hidden"
+              onChange={handleImageChange}
+            />
+            <input
+              ref={galleryInputRef}
+              type="file"
+              accept="image/*"
               className="hidden"
               onChange={handleImageChange}
             />
