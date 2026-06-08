@@ -1,17 +1,21 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { ServiceRequest } from '@/lib/types'
-import { Smartphone, Search, Loader2, MapPin, Clock, CheckCircle, XCircle, Wrench, ChevronLeft, Package } from 'lucide-react'
+import { Smartphone, Search, Loader2, MapPin, Clock, CheckCircle, XCircle, Wrench, ChevronLeft, Package, Truck, AlertTriangle } from 'lucide-react'
 import Link from 'next/link'
 
-const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
-  pending:     { label: 'Aguardando avaliação', color: 'text-yellow-700', bg: 'bg-yellow-100' },
-  quoted:      { label: 'Orçamento disponível', color: 'text-blue-700',   bg: 'bg-blue-100'   },
-  accepted:    { label: 'Aceito',               color: 'text-green-700',  bg: 'bg-green-100'  },
-  rejected:    { label: 'Recusado',             color: 'text-red-700',    bg: 'bg-red-100'    },
-  in_progress: { label: 'Em reparo',            color: 'text-purple-700', bg: 'bg-purple-100' },
-  completed:   { label: 'Concluído',            color: 'text-gray-700',   bg: 'bg-gray-100'   },
+const STATUS_MAP: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
+  pending:     { label: 'Aguardando avaliação',  color: 'text-yellow-700', bg: 'bg-yellow-100', icon: <Clock className="w-3.5 h-3.5" /> },
+  quoted:      { label: 'Orçamento disponível',  color: 'text-blue-700',   bg: 'bg-blue-100',   icon: <Clock className="w-3.5 h-3.5" /> },
+  accepted:    { label: 'Aceito',                color: 'text-green-700',  bg: 'bg-green-100',  icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  rejected:    { label: 'Recusado',              color: 'text-red-700',    bg: 'bg-red-100',    icon: <XCircle className="w-3.5 h-3.5" /> },
+  em_busca:    { label: 'Motoboy a caminho',     color: 'text-orange-700', bg: 'bg-orange-100', icon: <Truck className="w-3.5 h-3.5" /> },
+  in_progress: { label: 'Em reparo',             color: 'text-purple-700', bg: 'bg-purple-100', icon: <Wrench className="w-3.5 h-3.5" /> },
+  em_entrega:  { label: 'Em rota de entrega',    color: 'text-indigo-700', bg: 'bg-indigo-100', icon: <Truck className="w-3.5 h-3.5" /> },
+  completed:   { label: 'Concluído',             color: 'text-gray-700',   bg: 'bg-gray-100',   icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  cancelled:   { label: 'Cancelado',             color: 'text-rose-700',   bg: 'bg-rose-100',   icon: <XCircle className="w-3.5 h-3.5" /> },
 }
 
 function formatPhone(value: string) {
@@ -23,18 +27,21 @@ function formatPhone(value: string) {
 }
 
 export default function ConsultarPage() {
+  const searchParams = useSearchParams()
   const [phone, setPhone] = useState('')
   const [requests, setRequests] = useState<ServiceRequest[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
+  const [cancelConfirm, setCancelConfirm] = useState<string | null>(null)
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (phone.replace(/\D/g, '').length < 10) return
+  const doSearch = useCallback(async (rawPhone: string) => {
+    const digits = rawPhone.replace(/\D/g, '')
+    if (digits.length < 10) return
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/consultar?phone=${encodeURIComponent(phone.replace(/\D/g, ''))}`)
+      const res = await fetch(`/api/consultar?phone=${encodeURIComponent(digits)}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erro ao buscar')
       setRequests(data.requests)
@@ -42,6 +49,40 @@ export default function ConsultarPage() {
       setError(err instanceof Error ? err.message : 'Erro ao buscar solicitações')
     } finally {
       setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const p = searchParams.get('phone')
+    if (p && p.length >= 10) {
+      const formatted = formatPhone(p)
+      setPhone(formatted)
+      doSearch(p)
+    }
+  }, [searchParams, doSearch])
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await doSearch(phone)
+  }
+
+  const handleCancel = async (id: string) => {
+    if (cancelConfirm !== id) { setCancelConfirm(id); return }
+    setCancelConfirm(null)
+    setCancellingId(id)
+    try {
+      const res = await fetch('/api/consultar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, phone: phone.replace(/\D/g, '') }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erro ao cancelar')
+      setRequests((prev) => prev?.map((r) => r.id === id ? { ...r, status: 'cancelled' } as ServiceRequest : r) ?? null)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao cancelar')
+    } finally {
+      setCancellingId(null)
     }
   }
 
@@ -97,14 +138,14 @@ export default function ConsultarPage() {
             ) : (
               requests.map((req) => {
                 const st = STATUS_MAP[req.status] ?? STATUS_MAP.pending
+                const cancellable = req.status === 'pending' || req.status === 'quoted'
+                const isCancelling = cancellingId === req.id
+                const awaitingConfirm = cancelConfirm === req.id
                 return (
                   <div key={req.id} className="bg-white rounded-2xl p-5 shadow">
                     <div className="flex items-start justify-between gap-2 mb-3">
                       <span className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full ${st.bg} ${st.color}`}>
-                        {req.status === 'pending' && <Clock className="w-3.5 h-3.5" />}
-                        {req.status === 'in_progress' && <Wrench className="w-3.5 h-3.5" />}
-                        {(req.status === 'accepted' || req.status === 'completed') && <CheckCircle className="w-3.5 h-3.5" />}
-                        {req.status === 'rejected' && <XCircle className="w-3.5 h-3.5" />}
+                        {st.icon}
                         {st.label}
                       </span>
                       <span className="text-xs text-gray-400 flex-shrink-0">
@@ -141,6 +182,39 @@ export default function ConsultarPage() {
                         <p className="text-xs text-gray-500 pl-6 italic border-l-2 border-gray-100 ml-1">
                           {req.owner_notes}
                         </p>
+                      )}
+
+                      {cancellable && req.status !== 'cancelled' && (
+                        <div className="pt-2 border-t border-gray-100">
+                          {awaitingConfirm ? (
+                            <div className="flex gap-2">
+                              <p className="text-xs text-gray-500 flex items-center gap-1 flex-1">
+                                <AlertTriangle className="w-3.5 h-3.5 text-orange-500 flex-shrink-0" />
+                                Confirmar cancelamento?
+                              </p>
+                              <button
+                                onClick={() => handleCancel(req.id)}
+                                disabled={isCancelling}
+                                className="text-xs font-semibold text-rose-600 hover:text-rose-700 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 transition-all"
+                              >
+                                {isCancelling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Sim, cancelar'}
+                              </button>
+                              <button
+                                onClick={() => setCancelConfirm(null)}
+                                className="text-xs font-semibold text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg bg-gray-50 hover:bg-gray-100 transition-all"
+                              >
+                                Não
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handleCancel(req.id)}
+                              className="text-xs text-rose-500 hover:text-rose-700 font-medium transition-colors"
+                            >
+                              Cancelar solicitação
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>

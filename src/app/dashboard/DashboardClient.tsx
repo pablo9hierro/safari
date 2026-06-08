@@ -21,21 +21,27 @@ import RequestDetailModal from '@/components/RequestDetailModal'
 import WhatsAppPanel from '@/components/WhatsAppPanel'
 
 const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: string }> = {
-  pending: { label: 'Pendente', color: 'text-yellow-700', bg: 'bg-yellow-100' },
-  quoted: { label: 'Orçado', color: 'text-blue-700', bg: 'bg-blue-100' },
-  accepted: { label: 'Aceito', color: 'text-green-700', bg: 'bg-green-100' },
-  rejected: { label: 'Recusado', color: 'text-red-700', bg: 'bg-red-100' },
-  in_progress: { label: 'Em reparo', color: 'text-purple-700', bg: 'bg-purple-100' },
-  completed: { label: 'Concluído', color: 'text-gray-700', bg: 'bg-gray-100' },
+  pending:     { label: 'Pendente',           color: 'text-yellow-700', bg: 'bg-yellow-100' },
+  quoted:      { label: 'Orçado',             color: 'text-blue-700',   bg: 'bg-blue-100'   },
+  accepted:    { label: 'Aceito',             color: 'text-green-700',  bg: 'bg-green-100'  },
+  rejected:    { label: 'Recusado',           color: 'text-red-700',    bg: 'bg-red-100'    },
+  em_busca:    { label: 'Em rota de busca',   color: 'text-orange-700', bg: 'bg-orange-100' },
+  in_progress: { label: 'Em reparo',          color: 'text-purple-700', bg: 'bg-purple-100' },
+  em_entrega:  { label: 'Em rota de entrega', color: 'text-indigo-700', bg: 'bg-indigo-100' },
+  completed:   { label: 'Concluído',          color: 'text-gray-700',   bg: 'bg-gray-100'   },
+  cancelled:   { label: 'Cancelado',          color: 'text-rose-700',   bg: 'bg-rose-100'   },
 }
 
 const FILTERS: { key: ServiceStatus | 'all'; label: string }[] = [
-  { key: 'all', label: 'Todos' },
-  { key: 'pending', label: 'Pendentes' },
-  { key: 'quoted', label: 'Orçados' },
-  { key: 'accepted', label: 'Aceitos' },
-  { key: 'in_progress', label: 'Em reparo' },
-  { key: 'completed', label: 'Concluídos' },
+  { key: 'all',        label: 'Todos' },
+  { key: 'pending',    label: 'Pendentes' },
+  { key: 'quoted',     label: 'Orçados' },
+  { key: 'accepted',   label: 'Aceitos' },
+  { key: 'em_busca',   label: 'Em busca' },
+  { key: 'in_progress',label: 'Em reparo' },
+  { key: 'em_entrega', label: 'Em entrega' },
+  { key: 'completed',  label: 'Concluídos' },
+  { key: 'cancelled',  label: 'Cancelados' },
 ]
 
 export default function DashboardClient({ initialRequests }: { initialRequests: ServiceRequest[] }) {

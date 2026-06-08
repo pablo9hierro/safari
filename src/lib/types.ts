@@ -1,4 +1,4 @@
-export type ServiceStatus = 'pending' | 'quoted' | 'accepted' | 'rejected' | 'in_progress' | 'completed'
+export type ServiceStatus = 'pending' | 'quoted' | 'accepted' | 'rejected' | 'em_busca' | 'in_progress' | 'em_entrega' | 'completed' | 'cancelled'
 
 export interface ServiceRequest {
   id: string

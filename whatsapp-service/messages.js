@@ -64,21 +64,47 @@ module.exports = {
     ].join('\n')
   },
 
+  em_busca(req) {
+    return [
+      `🛵 *${req.customer_name}*, nosso motoboy está a caminho para buscar seu *${req.phone_model}*!`,
+      '',
+      'Por favor, esteja disponível para recebê-lo. 😊',
+    ].join('\n')
+  },
+
   in_progress(req) {
     return [
-      `🔧 *${req.customer_name}*, seu *${req.phone_model}* está em reparo!`,
+      `🔧 *${req.customer_name}*, seu *${req.phone_model}* chegou e está em reparo!`,
       '',
       'Assim que concluirmos, entraremos em contato. ⏳',
     ].join('\n')
   },
 
+  em_entrega(req) {
+    return [
+      `📦 *${req.customer_name}*, seu *${req.phone_model}* foi consertado!`,
+      '',
+      'Nosso motoboy está a caminho para entregá-lo. 🛵',
+      '',
+      'Esteja disponível para receber! 😊',
+    ].join('\n')
+  },
+
   completed(req) {
     return [
-      `✅ Conserto concluído, *${req.customer_name}*! 🎉`,
+      `✅ Entrega concluída, *${req.customer_name}*! 🎉`,
       '',
-      `Seu *${req.phone_model}* está pronto e será entregue em breve.`,
+      `Seu *${req.phone_model}* foi entregue. Obrigado pela confiança!`,
       '',
-      'Obrigado pela confiança! 😊',
+      'Se precisar de qualquer coisa, estamos aqui. 😊',
+    ].join('\n')
+  },
+
+  cancelled(req) {
+    return [
+      `*${req.customer_name}*, sua solicitação para o *${req.phone_model}* foi cancelada.`,
+      '',
+      'Se mudar de ideia, pode nos chamar aqui a qualquer momento! 😊',
     ].join('\n')
   },
 }

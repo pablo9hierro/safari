@@ -18,12 +18,15 @@ import {
 } from 'lucide-react'
 
 const STATUS_OPTIONS: { value: ServiceStatus; label: string }[] = [
-  { value: 'pending', label: 'Pendente' },
-  { value: 'quoted', label: 'Orçado' },
-  { value: 'accepted', label: 'Aceito pelo cliente' },
-  { value: 'rejected', label: 'Recusado pelo cliente' },
-  { value: 'in_progress', label: 'Em reparo' },
-  { value: 'completed', label: 'Concluído' },
+  { value: 'pending',     label: 'Pendente' },
+  { value: 'quoted',      label: 'Orçado' },
+  { value: 'accepted',    label: 'Aceito pelo cliente' },
+  { value: 'rejected',    label: 'Recusado pelo cliente' },
+  { value: 'em_busca',    label: '🛵 Em rota de busca' },
+  { value: 'in_progress', label: '🔧 Em reparo' },
+  { value: 'em_entrega',  label: '📦 Em rota de entrega' },
+  { value: 'completed',   label: '✅ Concluído' },
+  { value: 'cancelled',   label: '❌ Cancelado' },
 ]
 
 export default function RequestDetailModal({
@@ -76,8 +79,10 @@ export default function RequestDetailModal({
   const waStatusMessages: Partial<Record<ServiceStatus, string>> = {
     quoted:      `Olá *${request.customer_name}*! Seu orçamento para o *${request.phone_model}* está pronto: R$ ${Number(request.quote_value || 0).toFixed(2)}. Responda SIM para aceitar ou NÃO para recusar.`,
     accepted:    `✅ Ótimo, *${request.customer_name}*! Orçamento aceito! Vamos buscar seu celular. Por favor, compartilhe sua *localização* nesta conversa para facilitar a coleta. 📍`,
-    in_progress: `🔧 *${request.customer_name}*, seu *${request.phone_model}* está em reparo! Avisamos quando ficar pronto.`,
-    completed:   `✅ Conserto concluído, *${request.customer_name}*! Seu *${request.phone_model}* está pronto. Entraremos em contato para combinar a entrega. 😊`,
+    em_busca:    `🛵 *${request.customer_name}*, nosso motoboy está a caminho para buscar seu *${request.phone_model}*! Por favor, esteja disponível. 😊`,
+    in_progress: `🔧 *${request.customer_name}*, seu *${request.phone_model}* chegou e está em reparo! Avisamos quando ficar pronto. ⏳`,
+    em_entrega:  `📦 *${request.customer_name}*, seu *${request.phone_model}* foi consertado e nosso motoboy está a caminho para entregá-lo! 🛵`,
+    completed:   `✅ Entrega concluída! Obrigado pela confiança, *${request.customer_name}*! 😊 Se precisar de algo, estamos aqui.`,
     rejected:    `Entendemos, *${request.customer_name}*. Se mudar de ideia, pode nos chamar aqui!`,
   }
 
