@@ -6,12 +6,9 @@ import { ServiceRequest, ServiceStatus } from '@/lib/types'
 import {
   Smartphone,
   MapPin,
-  User,
   Clock,
   CheckCircle,
-  XCircle,
   Wrench,
-  Eye,
   LogOut,
   ChevronRight,
   Package,
@@ -19,6 +16,7 @@ import {
 import { useRouter } from 'next/navigation'
 import RequestDetailModal from '@/components/RequestDetailModal'
 import WhatsAppPanel from '@/components/WhatsAppPanel'
+import Logo from '@/components/ui/Logo'
 
 const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: string }> = {
   pending:     { label: 'Pendente',           color: 'text-yellow-700', bg: 'bg-yellow-100' },
@@ -74,13 +72,10 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
       {/* Top bar */}
       <header className="bg-white border-b border-gray-100 px-4 py-4 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center">
-            <Smartphone className="w-4 h-4 text-white" />
-          </div>
-          <span className="font-bold text-gray-900">TechFix</span>
+          <Logo size="sm" light />
           <span className="text-gray-400 text-sm hidden sm:inline">— Dashboard</span>
         </div>
-        <button onClick={handleLogout} className="flex items-center gap-1.5 text-gray-500 hover:text-red-600 text-sm transition-colors">
+        <button onClick={handleLogout} className="flex items-center gap-1.5 text-gray-500 hover:text-vr-red text-sm transition-colors">
           <LogOut className="w-4 h-4" />
           Sair
         </button>
@@ -111,7 +106,7 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
               key={f.key}
               onClick={() => setFilter(f.key)}
               className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-all
-                ${filter === f.key ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                ${filter === f.key ? 'bg-vr-red text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
             >
               {f.label}
               {f.key !== 'all' && (
@@ -137,7 +132,7 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
                 <button
                   key={req.id}
                   onClick={() => setSelected(req)}
-                  className="w-full bg-white rounded-2xl border border-gray-100 p-4 text-left hover:shadow-md transition-all hover:border-blue-200 group"
+                  className="w-full bg-white rounded-2xl border border-gray-100 p-4 text-left hover:shadow-md transition-all hover:border-vr-red/30 group"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -146,7 +141,7 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
                           {sc.label}
                         </span>
                         {req.quote_value && (
-                          <span className="text-xs font-bold text-blue-600">
+                          <span className="text-xs font-bold text-vr-red">
                             R$ {Number(req.quote_value).toFixed(2)}
                           </span>
                         )}
@@ -167,7 +162,7 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
                       <span className="text-xs text-gray-400">
                         {new Date(req.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
                       </span>
-                      <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-blue-500 transition-colors" />
+                      <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-vr-red transition-colors" />
                     </div>
                   </div>
                 </button>

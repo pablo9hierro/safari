@@ -8,6 +8,7 @@ import {
   XCircle, Wrench, ChevronLeft, Package, Truck, AlertTriangle,
 } from 'lucide-react'
 import Link from 'next/link'
+import Logo from '@/components/ui/Logo'
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   pending:     { label: 'Aguardando avaliação',  color: 'text-yellow-700', bg: 'bg-yellow-100', icon: <Clock className="w-3.5 h-3.5" /> },
@@ -140,19 +141,14 @@ function ConsultarContent() {
         />
       )}
 
-      <main className="min-h-screen bg-gradient-to-b from-blue-600 to-blue-800">
+      <main className="min-h-screen bg-gradient-to-b from-vr-graphite to-vr-black">
         <header className="px-5 pt-8 pb-6 text-white">
-          <Link href="/" className="flex items-center gap-1.5 text-blue-200 hover:text-white text-sm mb-5 w-fit transition-colors">
+          <Link href="/" className="flex items-center gap-1.5 text-vr-silver hover:text-white text-sm mb-5 w-fit transition-colors">
             <ChevronLeft className="w-4 h-4" /> Início
           </Link>
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center">
-              <Smartphone className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-xl font-bold">TechFix</span>
-          </div>
+          <Logo size="sm" className="mb-3" />
           <h1 className="text-2xl font-bold">Minhas solicitações</h1>
-          <p className="text-blue-100 text-sm mt-1">Digite seu WhatsApp para ver o status dos seus pedidos</p>
+          <p className="text-vr-silver/70 text-sm mt-1">Digite seu WhatsApp para ver o status dos seus pedidos</p>
         </header>
 
         <div className="px-4 max-w-lg md:mx-auto">
@@ -217,12 +213,12 @@ function ConsultarContent() {
                         </div>
 
                         {req.quote_value && (
-                          <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5 mt-1">
-                            <p className="text-sm font-bold text-blue-700">
+                          <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-2.5 mt-1">
+                            <p className="text-sm font-bold text-vr-red">
                               💰 Orçamento: R$ {Number(req.quote_value).toFixed(2)}
                             </p>
                             {req.status === 'quoted' && (
-                              <p className="text-xs text-blue-500 mt-0.5">Aguardando sua confirmação via WhatsApp</p>
+                              <p className="text-xs text-vr-red/70 mt-0.5">Aguardando sua confirmação via WhatsApp</p>
                             )}
                           </div>
                         )}

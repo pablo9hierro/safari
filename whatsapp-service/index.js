@@ -104,7 +104,7 @@ function startListening() {
     .subscribe((status) => console.log('Canal Supabase:', status))
 }
 
-console.log('🚀 TechFix WhatsApp Service iniciando...')
+console.log('🚀 VR Tech WhatsApp Service iniciando...')
 setState('disconnected').then(() => {
   wClient.initialize().catch(async (e) => {
     console.error('Falha ao iniciar Chrome:', e.message)

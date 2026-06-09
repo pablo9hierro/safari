@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TechFix - Assistência Técnica de Celulares",
-  description: "Solicite o orçamento para o reparo do seu celular. Buscamos e entregamos no seu endereço.",
+  title: "VR Tech - Assistência Técnica Especializada",
+  description: "Conserto de celulares com agilidade e garantia. Solicite seu orçamento e acompanhe a coleta e entrega no seu endereço.",
 };
 
 export const viewport: Viewport = {
@@ -18,7 +18,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR" className="h-full">
-      <body className="min-h-full flex flex-col bg-slate-50">{children}</body>
+      <body className="min-h-full flex flex-col bg-vr-black">{children}</body>
     </html>
   );
 }

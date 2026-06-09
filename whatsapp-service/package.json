@@ -1,7 +1,7 @@
 {
-  "name": "techfix-whatsapp",
+  "name": "vrtech-whatsapp",
   "version": "1.0.0",
-  "description": "WhatsApp Web service for TechFix",
+  "description": "WhatsApp Web service for VR Tech",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"

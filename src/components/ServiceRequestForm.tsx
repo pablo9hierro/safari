@@ -162,7 +162,7 @@ export default function ServiceRequestForm() {
         </p>
         <a
           href={`/consultar?phone=${phoneDigits}`}
-          className="w-full flex items-center justify-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 font-semibold py-3 px-6 rounded-xl hover:bg-blue-100 transition-all text-sm"
+          className="w-full flex items-center justify-center gap-2 bg-red-50 border border-red-200 text-vr-red font-semibold py-3 px-6 rounded-xl hover:bg-red-100 transition-all text-sm"
         >
           📋 Acompanhar minha solicitação
         </a>
@@ -184,12 +184,12 @@ export default function ServiceRequestForm() {
           <div key={s} className="flex items-center gap-2 flex-1">
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all
-                ${step >= s ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400'}`}
+                ${step >= s ? 'bg-vr-red text-white' : 'bg-gray-100 text-gray-400'}`}
             >
               {step > s ? '✓' : s}
             </div>
             {s < 3 && (
-              <div className={`flex-1 h-1 rounded-full transition-all ${step > s ? 'bg-blue-600' : 'bg-gray-100'}`} />
+              <div className={`flex-1 h-1 rounded-full transition-all ${step > s ? 'bg-vr-red' : 'bg-gray-100'}`} />
             )}
           </div>
         ))}
@@ -199,7 +199,7 @@ export default function ServiceRequestForm() {
       {step === 1 && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2 mb-1">
-            <User className="w-5 h-5 text-blue-600" />
+            <User className="w-5 h-5 text-vr-red" />
             <h3 className="font-semibold text-gray-800">Seus dados</h3>
           </div>
           <div>
@@ -239,7 +239,7 @@ export default function ServiceRequestForm() {
       {step === 2 && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2 mb-1">
-            <Smartphone className="w-5 h-5 text-blue-600" />
+            <Smartphone className="w-5 h-5 text-vr-red" />
             <h3 className="font-semibold text-gray-800">Sobre o celular</h3>
           </div>
           <div>
@@ -282,7 +282,7 @@ export default function ServiceRequestForm() {
                 <button
                   type="button"
                   onClick={() => cameraInputRef.current?.click()}
-                  className="flex flex-col items-center gap-2 border-2 border-dashed border-gray-200 rounded-xl p-4 hover:border-blue-400 hover:bg-blue-50 transition-all bg-gray-50"
+                  className="flex flex-col items-center gap-2 border-2 border-dashed border-gray-200 rounded-xl p-4 hover:border-vr-red/50 hover:bg-red-50 transition-all bg-gray-50"
                 >
                   <span className="text-2xl">📷</span>
                   <span className="text-xs font-medium text-gray-600">Tirar foto</span>
@@ -291,7 +291,7 @@ export default function ServiceRequestForm() {
                 <button
                   type="button"
                   onClick={() => galleryInputRef.current?.click()}
-                  className="flex flex-col items-center gap-2 border-2 border-dashed border-gray-200 rounded-xl p-4 hover:border-blue-400 hover:bg-blue-50 transition-all bg-gray-50"
+                  className="flex flex-col items-center gap-2 border-2 border-dashed border-gray-200 rounded-xl p-4 hover:border-vr-red/50 hover:bg-red-50 transition-all bg-gray-50"
                 >
                   <span className="text-2xl">🖼️</span>
                   <span className="text-xs font-medium text-gray-600">Galeria</span>
@@ -323,7 +323,7 @@ export default function ServiceRequestForm() {
       {step === 3 && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2 mb-1">
-            <MapPin className="w-5 h-5 text-blue-600" />
+            <MapPin className="w-5 h-5 text-vr-red" />
             <h3 className="font-semibold text-gray-800">Endereço de coleta e entrega</h3>
           </div>
           <div>
