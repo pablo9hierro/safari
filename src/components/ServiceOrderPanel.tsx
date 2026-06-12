@@ -148,6 +148,7 @@ export default function ServiceOrderPanel({
 
   const [newMessage, setNewMessage] = useState('')
   const [newFiles, setNewFiles] = useState<File[]>([])
+  const [updateComponent, setUpdateComponent] = useState('')
   const [addingUpdate, setAddingUpdate] = useState(false)
 
   const [completedServices, setCompletedServices] = useState('')
@@ -156,9 +157,9 @@ export default function ServiceOrderPanel({
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [savingCompletion, setSavingCompletion] = useState(false)
 
-  const [revisedQuote, setRevisedQuote] = useState('')
-  const [quoteJustification, setQuoteJustification] = useState('')
-  const [quoteFiles, setQuoteFiles] = useState<File[]>([])
+  const [quoteValues, setQuoteValues] = useState<Record<number, string>>({})
+  const [quoteJustifications, setQuoteJustifications] = useState<Record<number, string>>({})
+  const [quoteFiles, setQuoteFiles] = useState<Record<number, File[]>>({})
   const [savingQuote, setSavingQuote] = useState(false)
 
   const load = useCallback(async () => {
@@ -303,37 +304,53 @@ export default function ServiceOrderPanel({
     setSavingChecklist(false)
   }
 
-  // Permite alterar o orçamento durante o reparo, mediante justificativa + mídia
+  // Re-cotação completa: cada componente reclamado recebe um novo valor + justificativa + mídia.
+  // O novo total do orçamento é a soma dos valores preenchidos.
   const handleSaveQuoteRevision = async () => {
     if (!order) return
-    const newValue = parseFloat(revisedQuote)
-    if (isNaN(newValue) || !quoteJustification.trim() || quoteFiles.length === 0) return
+    const revisedIndices = checklist
+      .map((_, idx) => idx)
+      .filter((idx) => (checklist[idx].checked) && (quoteValues[idx] ?? '').trim() !== '')
+
+    if (revisedIndices.length === 0) return
+    for (const idx of revisedIndices) {
+      const value = parseFloat(quoteValues[idx])
+      if (isNaN(value) || !quoteJustifications[idx]?.trim() || !(quoteFiles[idx]?.length)) return
+    }
+
     setSavingQuote(true)
     const supabase = createClient()
-    const mediaUrls = await uploadMedia(supabase, order.id, quoteFiles, 'quote-revision')
+    let newTotal = 0
 
-    const { error: updateErr } = await supabase
-      .from('service_requests')
-      .update({ quote_value: newValue })
-      .eq('id', requestId)
-
-    if (!updateErr) {
+    for (const idx of revisedIndices) {
+      const component = checklist[idx].component
+      const value = parseFloat(quoteValues[idx])
+      newTotal += value
+      const mediaUrls = await uploadMedia(supabase, order.id, quoteFiles[idx], `quote-${idx}`)
       const { data: logEntry } = await supabase
         .from('service_order_updates')
         .insert({
           service_order_id: order.id,
           action_type: 'update',
-          message: `Orçamento revisado para R$ ${newValue.toFixed(2)} — ${quoteJustification.trim()}`,
+          message: `Orçamento revisado — ${component}: novo valor R$ ${value.toFixed(2)} — ${quoteJustifications[idx].trim()}`,
           media_urls: mediaUrls,
         })
         .select()
         .single()
       if (logEntry) setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
+    }
 
-      onQuoteValueChange?.(newValue)
-      setRevisedQuote('')
-      setQuoteJustification('')
-      setQuoteFiles([])
+    const { error: updateErr } = await supabase
+      .from('service_requests')
+      .update({ quote_value: newTotal })
+      .eq('id', requestId)
+
+    if (!updateErr) {
+      onQuoteValueChange?.(newTotal)
+      setFinalValue(String(newTotal))
+      setQuoteValues({})
+      setQuoteJustifications({})
+      setQuoteFiles({})
     }
 
     setSavingQuote(false)
@@ -345,16 +362,20 @@ export default function ServiceOrderPanel({
     setAddingUpdate(true)
     const supabase = createClient()
     const mediaUrls = await uploadMedia(supabase, order.id, newFiles, 'update')
+    const component = updateComponent.trim()
+    const text = newMessage.trim()
+    const message = component ? (text ? `${component}: ${text}` : component) : (text || null)
 
     const { data: inserted } = await supabase
       .from('service_order_updates')
-      .insert({ service_order_id: order.id, message: newMessage.trim() || null, media_urls: mediaUrls, action_type: 'update' })
+      .insert({ service_order_id: order.id, message, media_urls: mediaUrls, action_type: 'update' })
       .select()
       .single()
 
     if (inserted) setUpdates((prev) => [...prev, inserted as ServiceOrderUpdate])
     setNewMessage('')
     setNewFiles([])
+    setUpdateComponent('')
     setAddingUpdate(false)
   }
 
@@ -436,12 +457,11 @@ export default function ServiceOrderPanel({
   const showTimeline = status === 'in_progress'
   const checklistEditable = showChecklist && !readOnly
   const updatesEditable = showTimeline && !readOnly && !order.closed_at
-  const quoteRevisable = showTimeline && !readOnly
   const showCompletion = status === 'completed' && !readOnly && !order.closed_at
   const showClosedSummary = !!order.closed_at
 
   // Fora dessas condições (ex: status "aceito pelo cliente"), nenhuma OS deve aparecer na tela
-  if (!showChecklist && !showTimeline && !quoteRevisable && !showCompletion && !showClosedSummary) return null
+  if (!showChecklist && !showTimeline && !showCompletion && !showClosedSummary) return null
 
   return (
     <section className="space-y-3">
@@ -581,6 +601,21 @@ export default function ServiceOrderPanel({
 
         {updatesEditable && (
           <div className="space-y-2 pt-2 border-t border-gray-200">
+            <div>
+              <label className="label">Componente (opcional)</label>
+              <input
+                value={updateComponent}
+                onChange={(e) => setUpdateComponent(e.target.value)}
+                list={`os-components-${order.id}`}
+                placeholder="Buscar componente do aparelho..."
+                className="input-field text-sm"
+              />
+              <datalist id={`os-components-${order.id}`}>
+                {SERVICE_ORDER_COMPONENTS.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </div>
             <textarea
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
@@ -616,65 +651,85 @@ export default function ServiceOrderPanel({
       </div>
       )}
 
-      {/* Revisão de orçamento (somente durante o reparo) */}
-      {quoteRevisable && (
-        <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Revisar valor do orçamento</p>
-          <p className="text-xs text-gray-400">
-            Valor atual: R$ {Number(quoteValue ?? 0).toFixed(2)}. Alterar o orçamento durante o reparo exige uma justificativa e ao menos uma foto/vídeo.
-          </p>
-          <div>
-            <label className="label">Novo valor (R$)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={revisedQuote}
-              onChange={(e) => setRevisedQuote(e.target.value)}
-              placeholder="0,00"
-              className="input-field"
-            />
-          </div>
-          <div>
-            <label className="label">Justificativa</label>
-            <textarea
-              value={quoteJustification}
-              onChange={(e) => setQuoteJustification(e.target.value)}
-              placeholder="Ex: identificada peça adicional danificada durante o reparo..."
-              rows={2}
-              className="input-field text-sm resize-none"
-            />
-          </div>
-          {quoteFiles.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {quoteFiles.map((f, i) => (
-                <span key={i} className="flex items-center gap-1 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
-                  {f.name}
-                  <button type="button" onClick={() => setQuoteFiles((prev) => prev.filter((_, idx) => idx !== i))}>
-                    <X className="w-3 h-3 text-gray-400" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <MediaPickerButtons onFiles={(files) => setQuoteFiles((prev) => [...prev, ...files])} />
-            <button
-              onClick={handleSaveQuoteRevision}
-              disabled={savingQuote || !revisedQuote || !quoteJustification.trim() || quoteFiles.length === 0}
-              className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold bg-vr-red text-white rounded-lg px-3 py-2 hover:bg-vr-red-dark transition-colors disabled:opacity-50"
-            >
-              {savingQuote ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-              Salvar novo orçamento
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Conclusão */}
       {showCompletion && (
         <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Concluir ordem de serviço</p>
+
+          {checkedItems.length > 0 && (
+            <div className="space-y-3 pb-3 border-b border-gray-200">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Revisar valor do orçamento</p>
+              <p className="text-xs text-gray-400">
+                Valor atual: R$ {Number(quoteValue ?? 0).toFixed(2)}. Informe o novo valor de cada componente reparado, com justificativa e mídia, para recalcular o orçamento total.
+              </p>
+              {checklist.map((item, idx) => {
+                if (!item.checked) return null
+                return (
+                  <div key={item.component} className="bg-white rounded-xl border border-gray-200 p-3 space-y-2">
+                    <p className="text-sm font-semibold text-gray-800">{item.component}</p>
+                    <div>
+                      <label className="label">Novo valor (R$)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={quoteValues[idx] ?? ''}
+                        onChange={(e) => setQuoteValues((prev) => ({ ...prev, [idx]: e.target.value }))}
+                        placeholder="0,00"
+                        className="input-field"
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Justificativa</label>
+                      <textarea
+                        value={quoteJustifications[idx] ?? ''}
+                        onChange={(e) => setQuoteJustifications((prev) => ({ ...prev, [idx]: e.target.value }))}
+                        placeholder="Ex: identificada peça adicional danificada durante o reparo..."
+                        rows={2}
+                        className="input-field text-sm resize-none"
+                      />
+                    </div>
+                    {(quoteFiles[idx]?.length ?? 0) > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {(quoteFiles[idx] ?? []).map((f, fi) => (
+                          <span key={fi} className="flex items-center gap-1 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
+                            {f.name}
+                            <button type="button" onClick={() => setQuoteFiles((prev) => ({ ...prev, [idx]: (prev[idx] ?? []).filter((_, i) => i !== fi) }))}>
+                              <X className="w-3 h-3 text-gray-400" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <MediaPickerButtons onFiles={(files) => setQuoteFiles((prev) => ({ ...prev, [idx]: [...(prev[idx] ?? []), ...files] }))} />
+                  </div>
+                )
+              })}
+              {(() => {
+                const filled = checklist
+                  .map((_, idx) => idx)
+                  .filter((idx) => checklist[idx].checked && (quoteValues[idx] ?? '').trim() !== '')
+                const newTotal = filled.reduce((sum, idx) => sum + (parseFloat(quoteValues[idx]) || 0), 0)
+                const valid = filled.length > 0 && filled.every((idx) => quoteJustifications[idx]?.trim() && (quoteFiles[idx]?.length ?? 0) > 0)
+                return (
+                  <>
+                    {filled.length > 0 && (
+                      <p className="text-sm font-bold text-gray-800">Novo total: R$ {newTotal.toFixed(2)}</p>
+                    )}
+                    <button
+                      onClick={handleSaveQuoteRevision}
+                      disabled={savingQuote || !valid}
+                      className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold bg-vr-red text-white rounded-lg px-3 py-2 hover:bg-vr-red-dark transition-colors disabled:opacity-50"
+                    >
+                      {savingQuote ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                      Salvar revisão de orçamento
+                    </button>
+                  </>
+                )
+              })()}
+            </div>
+          )}
+
           <div>
             <label className="label">Serviços realizados</label>
             <textarea
