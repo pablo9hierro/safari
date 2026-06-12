@@ -16,6 +16,7 @@ import {
   Loader2,
   AlertCircle,
   ExternalLink,
+  ArrowRight,
 } from 'lucide-react'
 
 const STATUS_LABELS: Record<ServiceStatus, string> = {
@@ -32,35 +33,66 @@ const STATUS_LABELS: Record<ServiceStatus, string> = {
   cancelled:      '✅ Atendimento concluído — Cancelado pelo cliente',
 }
 
+type AdvanceConfig =
+  | { type: 'terminal' }
+  | { type: 'single'; next: ServiceStatus; label: string; ready: boolean; blockedMessage?: string }
+  | { type: 'choice'; options: { next: ServiceStatus; label: string }[]; ready: boolean; blockedMessage?: string }
+
 // O status só avança um passo por vez, nunca retrocede e nunca pula etapas.
-// 'Em reparo' é definido automaticamente ao salvar a OS (formulário 1) — não aparece como opção manual.
-// Avançar de 'em reparo' ou 'reparo concluído' exige que a OS correspondente tenha sido preenchida.
-function getStatusOptions(current: ServiceStatus, osState: { closed: boolean; hasUpdate: boolean }): ServiceStatus[] {
+// Algumas transições exigem que a OS correspondente já tenha sido preenchida.
+function getAdvanceConfig(current: ServiceStatus, osState: { closed: boolean; hasUpdate: boolean }, quoteValue: string): AdvanceConfig {
   switch (current) {
-    case 'rejected':
-    case 'cancelled':
-    case 'finished':
-      return [current]
     case 'pending':
-      return [current, 'accepted', 'rejected', 'cancelled']
+      return {
+        type: 'single',
+        next: 'accepted',
+        label: 'Aceitar orçamento e avançar',
+        ready: !!quoteValue,
+        blockedMessage: 'Preencha o valor do orçamento antes de avançar.',
+      }
     case 'accepted':
       // O adm escolhe manualmente como o aparelho será coletado/entregue
-      return [current, 'retirada_local', 'em_busca', 'cancelled']
+      return {
+        type: 'choice',
+        options: [
+          { next: 'retirada_local', label: '🏠 Cliente vai trazer/retirar o aparelho' },
+          { next: 'em_busca', label: '🛵 Recolhimento do aparelho (motoboy)' },
+        ],
+        ready: true,
+      }
     case 'retirada_local':
     case 'em_busca':
-      // Travado: só avança automaticamente quando o formulário 1 da OS é submetido
-      return [current, 'cancelled']
+      return { type: 'single', next: 'in_progress', label: '🔧 Avançar para "Em reparo"', ready: true }
     case 'in_progress':
-      return osState.hasUpdate ? [current, 'completed', 'cancelled'] : [current, 'cancelled']
+      return {
+        type: 'single',
+        next: 'completed',
+        label: '✅ Avançar para "Reparo concluído"',
+        ready: osState.hasUpdate,
+        blockedMessage: 'Preencha o checklist de avaliação (formulário 1) e registre ao menos uma atualização no acompanhamento (formulário 2) antes de avançar.',
+      }
     case 'completed':
       // O adm escolhe manualmente o caminho de entrega: retirada pelo cliente ou rota de entrega
-      return osState.closed ? [current, 'delivered', 'em_entrega'] : [current, 'cancelled']
+      return {
+        type: 'choice',
+        options: [
+          { next: 'delivered', label: '📬 Aparelho entregue (retirada pelo cliente)' },
+          { next: 'em_entrega', label: '📦 Em rota de entrega (motoboy)' },
+        ],
+        ready: osState.closed,
+        blockedMessage: 'Conclua a ordem de serviço (formulário de conclusão) antes de avançar.',
+      }
     case 'em_entrega':
     case 'delivered':
-      return [current, 'finished']
+      return { type: 'single', next: 'finished', label: '✅ Avançar para "Atendimento concluído"', ready: true }
     default:
-      return [current]
+      return { type: 'terminal' }
   }
+}
+
+// Atendimento pode ser cancelado enquanto o aparelho ainda não foi devolvido/entregue.
+function canCancel(current: ServiceStatus) {
+  return (['pending', 'accepted', 'retirada_local', 'em_busca', 'in_progress'] as ServiceStatus[]).includes(current)
 }
 
 export default function RequestDetailModal({
@@ -74,12 +106,10 @@ export default function RequestDetailModal({
 }) {
   const [status, setStatus] = useState<ServiceStatus>(request.status)
   const [quoteValue, setQuoteValue] = useState(request.quote_value?.toString() ?? '')
-  const [ownerNotes, setOwnerNotes] = useState(request.owner_notes ?? '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [osState, setOsState] = useState({ closed: false, hasUpdate: false })
-  const initialStatus = request.status
 
   const phoneDigits = request.customer_phone.replace(/\D/g, '')
 
@@ -98,21 +128,14 @@ export default function RequestDetailModal({
     return messages[s]
   }
 
-  const handleSave = async () => {
+  const handleAdvance = async (next: ServiceStatus) => {
     setError(null)
-
-    if (initialStatus === 'pending' && status !== 'pending' && status !== 'rejected' && status !== 'cancelled' && !quoteValue) {
-      setError('Preencha o valor do orçamento antes de avançar o status.')
-      return
-    }
-
     setLoading(true)
     try {
       const supabase = createClient()
       const updates = {
-        status,
+        status: next,
         quote_value: quoteValue ? parseFloat(quoteValue) : null,
-        owner_notes: ownerNotes || null,
       }
       const { data, error: updateError } = await supabase
         .from('service_requests')
@@ -121,17 +144,16 @@ export default function RequestDetailModal({
         .select()
         .single()
       if (updateError) throw updateError
+      setStatus(next)
       onUpdate(data as ServiceRequest)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
 
-      // Auto-open WhatsApp if status changed and has a message template
-      if (status !== initialStatus) {
-        const waMsg = buildWaMessage(status, quoteValue)
-        if (waMsg) {
-          const link = `https://wa.me/55${phoneDigits}?text=${encodeURIComponent(waMsg)}`
-          window.open(link, '_blank')
-        }
+      // Auto-open WhatsApp if there's a message template for the new status
+      const waMsg = buildWaMessage(next, quoteValue)
+      if (waMsg) {
+        const link = `https://wa.me/55${phoneDigits}?text=${encodeURIComponent(waMsg)}`
+        window.open(link, '_blank')
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao salvar'
@@ -145,6 +167,7 @@ export default function RequestDetailModal({
   const waLinkWithMsg = waMsg
     ? `https://wa.me/55${phoneDigits}?text=${encodeURIComponent(waMsg)}`
     : `https://wa.me/55${phoneDigits}`
+  const advance = getAdvanceConfig(status, osState, quoteValue)
   const fullAddress = [
     request.address_street,
     request.address_number,
@@ -223,24 +246,10 @@ export default function RequestDetailModal({
             </div>
           </section>
 
-          {/* Ações do dono */}
-          <section className="space-y-3">
-            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Orçamento & Status</h3>
-
-            <div>
-              <label className="label">Status da solicitação</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as ServiceStatus)}
-                className="input-field"
-              >
-                {getStatusOptions(initialStatus, osState).map((value) => (
-                  <option key={value} value={value}>{STATUS_LABELS[value]}</option>
-                ))}
-              </select>
-            </div>
-
-            {status === 'pending' && (
+          {/* Orçamento */}
+          <section className="space-y-2">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Orçamento</h3>
+            {status === 'pending' ? (
               <div>
                 <label className="label">Valor do orçamento (R$)</label>
                 <div className="relative">
@@ -256,17 +265,38 @@ export default function RequestDetailModal({
                   />
                 </div>
               </div>
+            ) : (
+              <div className="bg-slate-50 rounded-2xl p-4">
+                <p className="text-sm text-gray-600">
+                  Valor atual: <span className="font-semibold text-gray-900">R$ {Number(quoteValue || 0).toFixed(2)}</span>
+                </p>
+              </div>
             )}
+          </section>
 
-            <div>
-              <label className="label">Observações internas</label>
-              <textarea
-                value={ownerNotes}
-                onChange={(e) => setOwnerNotes(e.target.value)}
-                placeholder="Notas sobre o reparo, peças necessárias..."
-                rows={3}
-                className="input-field resize-none"
-              />
+          {/* Ordem de serviço */}
+          {isServiceOrderStatus(status) && (
+            <ServiceOrderPanel
+              requestId={request.id}
+              status={status}
+              quoteValue={request.quote_value}
+              customerPhone={request.customer_phone}
+              phoneModel={request.phone_model}
+              onQuoteValueChange={(newValue) => {
+                setQuoteValue(String(newValue))
+                onUpdate({ ...request, quote_value: newValue })
+              }}
+              onOrderStateChange={setOsState}
+            />
+          )}
+
+          {/* Status do atendimento */}
+          <section className="space-y-3 pt-2 border-t border-gray-100">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Status do atendimento</h3>
+
+            <div className="bg-slate-50 rounded-2xl p-4">
+              <p className="text-xs text-gray-400 mb-1">Status atual</p>
+              <p className="font-semibold text-gray-900">{STATUS_LABELS[status]}</p>
             </div>
 
             {error && (
@@ -276,20 +306,64 @@ export default function RequestDetailModal({
               </div>
             )}
 
-            <button
-              onClick={handleSave}
-              disabled={loading}
-              className={`btn-primary w-full flex items-center justify-center gap-2 transition-all
-                ${saved ? 'bg-green-600 hover:bg-green-600' : ''}`}
-            >
-              {loading ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Salvando...</>
-              ) : saved ? (
-                '✓ Salvo! Abrindo WhatsApp...'
-              ) : (
-                'Salvar >>>avançar status'
-              )}
-            </button>
+            {advance.type !== 'terminal' && !advance.ready && advance.blockedMessage && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
+                {advance.blockedMessage}
+              </p>
+            )}
+
+            {advance.type === 'single' && (
+              <button
+                onClick={() => handleAdvance(advance.next)}
+                disabled={loading || !advance.ready}
+                className={`btn-primary w-full flex items-center justify-center gap-2 transition-all disabled:opacity-50
+                  ${saved ? 'bg-green-600 hover:bg-green-600' : ''}`}
+              >
+                {loading ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Salvando...</>
+                ) : saved ? (
+                  '✓ Status atualizado!'
+                ) : (
+                  <><ArrowRight className="w-4 h-4" /> {advance.label}</>
+                )}
+              </button>
+            )}
+
+            {advance.type === 'choice' && advance.ready && (
+              <div className="space-y-2">
+                {advance.options.map((opt) => (
+                  <button
+                    key={opt.next}
+                    onClick={() => handleAdvance(opt.next)}
+                    disabled={loading}
+                    className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {canCancel(status) && (
+              <div className="flex gap-2">
+                {status === 'pending' && (
+                  <button
+                    onClick={() => handleAdvance('rejected')}
+                    disabled={loading}
+                    className="flex-1 text-sm font-medium text-red-600 border border-red-200 rounded-xl py-2 hover:bg-red-50 transition-colors disabled:opacity-50"
+                  >
+                    Recusar
+                  </button>
+                )}
+                <button
+                  onClick={() => handleAdvance('cancelled')}
+                  disabled={loading}
+                  className="flex-1 text-sm font-medium text-gray-500 border border-gray-200 rounded-xl py-2 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
+                  Cancelar atendimento
+                </button>
+              </div>
+            )}
 
             {waMsg && (
               <a
@@ -302,26 +376,6 @@ export default function RequestDetailModal({
               </a>
             )}
           </section>
-
-          {/* Ordem de serviço */}
-          {isServiceOrderStatus(status) && (
-            <ServiceOrderPanel
-              requestId={request.id}
-              status={status}
-              quoteValue={request.quote_value}
-              customerPhone={request.customer_phone}
-              phoneModel={request.phone_model}
-              onStatusChange={(newStatus) => {
-                setStatus(newStatus)
-                onUpdate({ ...request, status: newStatus })
-              }}
-              onQuoteValueChange={(newValue) => {
-                setQuoteValue(String(newValue))
-                onUpdate({ ...request, quote_value: newValue })
-              }}
-              onOrderStateChange={setOsState}
-            />
-          )}
 
           <p className="text-xs text-gray-400 text-center pb-2">
             Solicitado em {new Date(request.created_at).toLocaleString('pt-BR')}

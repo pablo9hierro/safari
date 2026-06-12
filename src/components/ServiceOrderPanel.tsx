@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 
 const ACTIVE_STATUSES: ServiceStatus[] = [
-  'retirada_local', 'em_busca', 'in_progress', 'em_entrega', 'completed', 'delivered', 'finished',
+  'in_progress', 'em_entrega', 'completed', 'delivered', 'finished',
 ]
 
 export function isServiceOrderStatus(status: ServiceStatus) {
@@ -125,7 +125,6 @@ export default function ServiceOrderPanel({
   customerPhone,
   phoneModel,
   readOnly = false,
-  onStatusChange,
   onQuoteValueChange,
   onOrderStateChange,
 }: {
@@ -135,7 +134,6 @@ export default function ServiceOrderPanel({
   customerPhone?: string
   phoneModel?: string
   readOnly?: boolean
-  onStatusChange?: (status: ServiceStatus) => void
   onQuoteValueChange?: (value: number) => void
   onOrderStateChange?: (state: { closed: boolean; hasUpdate: boolean }) => void
 }) {
@@ -144,6 +142,7 @@ export default function ServiceOrderPanel({
   const [loading, setLoading] = useState(true)
   const [checklist, setChecklist] = useState<ServiceOrderChecklistItem[]>([])
   const [checklistFiles, setChecklistFiles] = useState<Record<number, File[]>>({})
+  const [checklistValues, setChecklistValues] = useState<Record<number, string>>({})
   const [savingChecklist, setSavingChecklist] = useState(false)
 
   const [newMessage, setNewMessage] = useState('')
@@ -253,8 +252,7 @@ export default function ServiceOrderPanel({
     setChecklistFiles((prev) => ({ ...prev, [idx]: (prev[idx] ?? []).filter((_, i) => i !== fileIdx) }))
   }
 
-  // Checklist só pode ser preenchido enquanto a solicitação está 'aceito pelo cliente'.
-  // Ao salvar, a OS é considerada iniciada e a solicitação avança para 'em reparo'.
+  // Checklist é preenchido após o status avançar para 'em reparo'.
   const handleSaveChecklist = async () => {
     if (!order) return
     setSavingChecklist(true)
@@ -263,9 +261,12 @@ export default function ServiceOrderPanel({
     const updatedChecklist = await Promise.all(
       checklist.map(async (item, idx) => {
         const files = checklistFiles[idx] ?? []
-        if (files.length === 0) return item
+        const value = checklistValues[idx]?.trim()
+          ? parseFloat(checklistValues[idx])
+          : (item.value ?? null)
+        if (files.length === 0) return { ...item, value }
         const uploaded = await uploadMedia(supabase, order.id, files, `checklist-${idx}`)
-        return { ...item, media_urls: [...(item.media_urls ?? []), ...uploaded] }
+        return { ...item, value, media_urls: [...(item.media_urls ?? []), ...uploaded] }
       })
     )
 
@@ -278,10 +279,11 @@ export default function ServiceOrderPanel({
     if (updated) setOrder(updated as ServiceOrder)
     setChecklist(updatedChecklist)
     setChecklistFiles({})
+    setChecklistValues({})
 
     const checkedItems = updatedChecklist.filter((i) => i.checked)
     const summary = checkedItems.length
-      ? checkedItems.map((i) => `${i.component}${i.description ? `: ${i.description}` : ''}`).join('; ')
+      ? checkedItems.map((i) => `${i.component}${i.description ? `: ${i.description}` : ''}${i.value != null ? ` (R$ ${Number(i.value).toFixed(2)})` : ''}`).join('; ')
       : 'Nenhum componente marcado'
 
     const { data: logEntry } = await supabase
@@ -291,14 +293,17 @@ export default function ServiceOrderPanel({
       .single()
     if (logEntry) setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
 
-    if (status === 'retirada_local' || status === 'em_busca') {
-      const { data: updatedReq } = await supabase
+    const itemsWithValue = checkedItems.filter((i) => i.value != null)
+    if (itemsWithValue.length > 0) {
+      const newTotal = itemsWithValue.reduce((sum, i) => sum + Number(i.value), 0)
+      const { error: quoteErr } = await supabase
         .from('service_requests')
-        .update({ status: 'in_progress' })
+        .update({ quote_value: newTotal })
         .eq('id', requestId)
-        .select()
-        .single()
-      if (updatedReq) onStatusChange?.('in_progress')
+      if (!quoteErr) {
+        onQuoteValueChange?.(newTotal)
+        setFinalValue(String(newTotal))
+      }
     }
 
     setSavingChecklist(false)
@@ -453,8 +458,9 @@ export default function ServiceOrderPanel({
   if (!order) return null
 
   const checkedItems = checklist.filter((i) => i.checked)
-  const showChecklist = status === 'retirada_local' || status === 'em_busca'
-  const showTimeline = status === 'in_progress'
+  const checklistSubmitted = updates.some((u) => u.action_type === 'checklist_update')
+  const showChecklist = status === 'in_progress' && !checklistSubmitted
+  const showTimeline = status === 'in_progress' && checklistSubmitted
   const checklistEditable = showChecklist && !readOnly
   const updatesEditable = showTimeline && !readOnly && !order.closed_at
   const showCompletion = status === 'completed' && !readOnly && !order.closed_at
@@ -477,7 +483,7 @@ export default function ServiceOrderPanel({
         {checklistEditable ? (
           <div className="space-y-2">
             <p className="text-xs text-gray-400">
-              Marque os componentes com problema, descreva o estado e anexe fotos/vídeos. Ao salvar, a solicitação avança para &quot;Em reparo&quot;.
+              Marque os componentes com problema, descreva o estado, informe o valor do reparo e anexe fotos/vídeos.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
               {checklist.map((item, idx) => (
@@ -503,6 +509,18 @@ export default function ServiceOrderPanel({
                         rows={2}
                         className="input-field text-xs resize-none"
                       />
+                      <div className="relative">
+                        <span className="absolute left-3 top-2 text-gray-400 text-xs font-medium">R$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={checklistValues[idx] ?? (item.value != null ? String(item.value) : '')}
+                          onChange={(e) => setChecklistValues((prev) => ({ ...prev, [idx]: e.target.value }))}
+                          placeholder="Valor do reparo (R$)"
+                          className="input-field text-xs pl-8"
+                        />
+                      </div>
                       <MediaPickerButtons onFiles={(files) => addChecklistFiles(idx, files)} />
                       {(item.media_urls?.length || checklistFiles[idx]?.length) ? (
                         <div className="flex flex-wrap gap-1.5">
@@ -539,7 +557,7 @@ export default function ServiceOrderPanel({
               className="btn-primary w-full flex items-center justify-center gap-2"
             >
               {savingChecklist ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wrench className="w-4 h-4" />}
-              Salvar checklist e iniciar reparo
+              Salvar checklist de avaliação
             </button>
           </div>
         ) : checkedItems.length === 0 ? (
@@ -550,6 +568,7 @@ export default function ServiceOrderPanel({
               <li key={item.component} className="text-sm">
                 <span className="font-semibold text-gray-800">{item.component}</span>
                 {item.description && <span className="text-gray-600"> — {item.description}</span>}
+                {item.value != null && <span className="text-gray-600"> — R$ {Number(item.value).toFixed(2)}</span>}
                 {item.media_urls?.length ? (
                   <div className="flex flex-wrap gap-1.5 mt-1">
                     {item.media_urls.map((url) => (

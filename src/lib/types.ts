@@ -50,6 +50,7 @@ export interface ServiceOrderChecklistItem {
   checked: boolean
   description: string
   media_urls?: string[]
+  value?: number | null
 }
 
 export type ServiceOrderActionType =
