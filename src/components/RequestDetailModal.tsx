@@ -42,10 +42,11 @@ function getStatusOptions(current: ServiceStatus, osState: { closed: boolean; ha
     case 'pending':
       return [current, 'accepted', 'rejected', 'cancelled']
     case 'accepted':
-      return [current, 'retirada_local', 'cancelled']
+      // O adm escolhe manualmente como o aparelho será coletado/entregue
+      return [current, 'retirada_local', 'em_busca', 'cancelled']
     case 'retirada_local':
-      return [current, 'em_busca', 'cancelled']
     case 'em_busca':
+      // Travado: só avança automaticamente quando o formulário 1 da OS é submetido
       return [current, 'cancelled']
     case 'in_progress':
       return osState.hasUpdate ? [current, 'completed', 'cancelled'] : [current, 'cancelled']
