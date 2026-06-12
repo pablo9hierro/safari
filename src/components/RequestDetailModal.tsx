@@ -18,18 +18,43 @@ import {
   ExternalLink,
 } from 'lucide-react'
 
-const STATUS_OPTIONS: { value: ServiceStatus; label: string }[] = [
-  { value: 'pending',        label: 'Pendente' },
-  { value: 'quoted',         label: 'Orçado' },
-  { value: 'accepted',       label: 'Aceito pelo cliente' },
-  { value: 'rejected',       label: 'Recusado pelo cliente' },
-  { value: 'retirada_local', label: '🏠 Retirada/entrega no local' },
-  { value: 'em_busca',       label: '🛵 Em rota de recolhimento' },
-  { value: 'in_progress',    label: '🔧 Em reparo' },
-  { value: 'em_entrega',     label: '📦 Em rota de entrega' },
-  { value: 'completed',      label: '✅ Reparo concluído' },
-  { value: 'cancelled',      label: '❌ Cancelado' },
-]
+const STATUS_LABELS: Record<ServiceStatus, string> = {
+  pending:        'Pendente',
+  accepted:       'Aceito pelo cliente (orçamento confirmado)',
+  rejected:       'Recusado pelo cliente',
+  retirada_local: '🏠 Retirada/entrega pelo cliente',
+  em_busca:       '🛵 Em rota de recolhimento',
+  in_progress:    '🔧 Em reparo',
+  completed:      '✅ Reparo concluído',
+  em_entrega:     '📦 Em rota de entrega',
+  cancelled:      '❌ Cancelado',
+}
+
+// O status só avança um passo por vez, nunca retrocede e nunca pula etapas.
+// 'Em reparo' é definido automaticamente ao salvar a OS (formulário 1) — não aparece como opção manual.
+// Avançar de 'em reparo' ou 'reparo concluído' exige que a OS correspondente tenha sido preenchida.
+function getStatusOptions(current: ServiceStatus, osState: { closed: boolean; hasUpdate: boolean }): ServiceStatus[] {
+  switch (current) {
+    case 'rejected':
+    case 'cancelled':
+    case 'em_entrega':
+      return [current]
+    case 'pending':
+      return [current, 'accepted', 'rejected', 'cancelled']
+    case 'accepted':
+      return [current, 'retirada_local', 'cancelled']
+    case 'retirada_local':
+      return [current, 'em_busca', 'cancelled']
+    case 'em_busca':
+      return [current, 'cancelled']
+    case 'in_progress':
+      return osState.hasUpdate ? [current, 'completed', 'cancelled'] : [current, 'cancelled']
+    case 'completed':
+      return osState.closed ? [current, 'em_entrega', 'cancelled'] : [current, 'cancelled']
+    default:
+      return [current]
+  }
+}
 
 export default function RequestDetailModal({
   request,
@@ -46,6 +71,7 @@ export default function RequestDetailModal({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [osState, setOsState] = useState({ closed: false, hasUpdate: false })
   const initialStatus = request.status
 
   const phoneDigits = request.customer_phone.replace(/\D/g, '')
@@ -53,8 +79,7 @@ export default function RequestDetailModal({
   const buildWaMessage = (s: ServiceStatus, qv: string): string | undefined => {
     const qFormatted = `R$ ${Number(qv || 0).toFixed(2)}`
     const messages: Partial<Record<ServiceStatus, string>> = {
-      quoted:         `Olá *${request.customer_name}*! Seu orçamento para o *${request.phone_model}* está pronto: ${qFormatted}. Responda SIM para aceitar ou NÃO para recusar.`,
-      accepted:       `Agradecemos pela preferência em nosso serviço! Por favor, compartilhe a sua localização fixa através do WhatsApp. Em breve recolheremos o aparelho celular para dar continuidade ao serviço. 📍`,
+      accepted:       `Olá *${request.customer_name}*! Seu orçamento para o *${request.phone_model}* ficou em ${qFormatted}. Agradecemos pela preferência em nosso serviço! Por favor, compartilhe a sua localização fixa através do WhatsApp. Em breve recolheremos o aparelho celular para dar continuidade ao serviço. 📍`,
       rejected:       `Entendemos, *${request.customer_name}*. Se mudar de ideia, pode nos chamar aqui!`,
       retirada_local: `Deseja trazer ou retirar o aparelho em nosso endereço?\n📍 ${STORE_ADDRESS.street}, ${STORE_ADDRESS.neighborhood}, ${STORE_ADDRESS.city}\n${STORE_ADDRESS.mapsUrl}`,
       em_busca:       `🛵 Recebemos sua localização e estamos iniciando a busca do seu aparelho celular.`,
@@ -65,8 +90,14 @@ export default function RequestDetailModal({
   }
 
   const handleSave = async () => {
-    setLoading(true)
     setError(null)
+
+    if (initialStatus === 'pending' && status !== 'pending' && status !== 'rejected' && status !== 'cancelled' && !quoteValue) {
+      setError('Preencha o valor do orçamento antes de avançar o status.')
+      return
+    }
+
+    setLoading(true)
     try {
       const supabase = createClient()
       const updates = {
@@ -194,27 +225,29 @@ export default function RequestDetailModal({
                 onChange={(e) => setStatus(e.target.value as ServiceStatus)}
                 className="input-field"
               >
-                {STATUS_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                {getStatusOptions(initialStatus, osState).map((value) => (
+                  <option key={value} value={value}>{STATUS_LABELS[value]}</option>
                 ))}
               </select>
             </div>
 
-            <div>
-              <label className="label">Valor do orçamento (R$)</label>
-              <div className="relative">
-                <span className="absolute left-4 top-3.5 text-gray-400 font-medium">R$</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={quoteValue}
-                  onChange={(e) => setQuoteValue(e.target.value)}
-                  placeholder="0,00"
-                  className="input-field pl-10"
-                />
+            {status === 'pending' && (
+              <div>
+                <label className="label">Valor do orçamento (R$)</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-3.5 text-gray-400 font-medium">R$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={quoteValue}
+                    onChange={(e) => setQuoteValue(e.target.value)}
+                    placeholder="0,00"
+                    className="input-field pl-10"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             <div>
               <label className="label">Observações internas</label>
@@ -269,6 +302,15 @@ export default function RequestDetailModal({
               quoteValue={request.quote_value}
               customerPhone={request.customer_phone}
               phoneModel={request.phone_model}
+              onStatusChange={(newStatus) => {
+                setStatus(newStatus)
+                onUpdate({ ...request, status: newStatus })
+              }}
+              onQuoteValueChange={(newValue) => {
+                setQuoteValue(String(newValue))
+                onUpdate({ ...request, quote_value: newValue })
+              }}
+              onOrderStateChange={setOsState}
             />
           )}
 

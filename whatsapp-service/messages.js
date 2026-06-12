@@ -46,20 +46,12 @@ module.exports = {
     ].join('\n')
   },
 
-  quoted(req) {
+  accepted(req) {
     return [
       `Olá *${req.customer_name}*! 👋`,
       '',
-      `Seu orçamento para o *${req.phone_model}* ficou pronto!`,
+      `Seu orçamento para o *${req.phone_model}* ficou em ${currency(req.quote_value)}.`,
       '',
-      `💰 *Valor:* ${currency(req.quote_value)}`,
-      '',
-      'Responda *SIM* para aceitar ou *NÃO* para recusar. 😊',
-    ].join('\n')
-  },
-
-  accepted(req) {
-    return [
       `Agradecemos pela preferência em nosso serviço! 🙏`,
       '',
       'Por favor, compartilhe a sua localização fixa através do WhatsApp (clique no clipe 📎 → Localização → Sua localização atual).',

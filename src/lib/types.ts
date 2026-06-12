@@ -1,6 +1,5 @@
 export type ServiceStatus =
   | 'pending'
-  | 'quoted'
   | 'accepted'
   | 'rejected'
   | 'retirada_local'
@@ -48,6 +47,7 @@ export interface ServiceOrderChecklistItem {
   component: string
   checked: boolean
   description: string
+  media_urls?: string[]
 }
 
 export type ServiceOrderActionType =

@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Telefone não confere' }, { status: 403 })
   }
 
-  const cancellable = ['pending', 'quoted']
+  const cancellable = ['pending']
   if (!cancellable.includes(existing.status)) {
     return NextResponse.json({ error: 'Esta solicitação não pode mais ser cancelada' }, { status: 400 })
   }

@@ -12,16 +12,15 @@ import Link from 'next/link'
 import Logo from '@/components/ui/Logo'
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
-  pending:        { label: 'Aguardando avaliação',     color: 'text-yellow-700', bg: 'bg-yellow-100', icon: <Clock className="w-3.5 h-3.5" /> },
-  quoted:         { label: 'Orçamento disponível',     color: 'text-blue-700',   bg: 'bg-blue-100',   icon: <Clock className="w-3.5 h-3.5" /> },
-  accepted:       { label: 'Aceito',                   color: 'text-green-700',  bg: 'bg-green-100',  icon: <CheckCircle className="w-3.5 h-3.5" /> },
-  rejected:       { label: 'Recusado',                 color: 'text-red-700',    bg: 'bg-red-100',    icon: <XCircle className="w-3.5 h-3.5" /> },
-  retirada_local: { label: 'Retirada/entrega no local', color: 'text-teal-700',  bg: 'bg-teal-100',   icon: <Home className="w-3.5 h-3.5" /> },
-  em_busca:       { label: 'Motoboy a caminho',        color: 'text-orange-700', bg: 'bg-orange-100', icon: <Truck className="w-3.5 h-3.5" /> },
-  in_progress:    { label: 'Em reparo',                color: 'text-purple-700', bg: 'bg-purple-100', icon: <Wrench className="w-3.5 h-3.5" /> },
-  em_entrega:     { label: 'Em rota de entrega',       color: 'text-indigo-700', bg: 'bg-indigo-100', icon: <Truck className="w-3.5 h-3.5" /> },
-  completed:      { label: 'Concluído',                color: 'text-gray-700',   bg: 'bg-gray-100',   icon: <CheckCircle className="w-3.5 h-3.5" /> },
-  cancelled:      { label: 'Cancelado',                color: 'text-rose-700',   bg: 'bg-rose-100',   icon: <XCircle className="w-3.5 h-3.5" /> },
+  pending:        { label: 'Aguardando avaliação',      color: 'text-yellow-700', bg: 'bg-yellow-100', icon: <Clock className="w-3.5 h-3.5" /> },
+  accepted:       { label: 'Aceito',                    color: 'text-green-700',  bg: 'bg-green-100',  icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  rejected:       { label: 'Recusado',                  color: 'text-red-700',    bg: 'bg-red-100',    icon: <XCircle className="w-3.5 h-3.5" /> },
+  retirada_local: { label: 'Retirada/entrega pelo cliente', color: 'text-teal-700', bg: 'bg-teal-100',  icon: <Home className="w-3.5 h-3.5" /> },
+  em_busca:       { label: 'Motoboy a caminho',         color: 'text-orange-700', bg: 'bg-orange-100', icon: <Truck className="w-3.5 h-3.5" /> },
+  in_progress:    { label: 'Em reparo',                 color: 'text-purple-700', bg: 'bg-purple-100', icon: <Wrench className="w-3.5 h-3.5" /> },
+  completed:      { label: 'Concluído',                 color: 'text-gray-700',   bg: 'bg-gray-100',   icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  em_entrega:     { label: 'Em rota de entrega',        color: 'text-indigo-700', bg: 'bg-indigo-100', icon: <Truck className="w-3.5 h-3.5" /> },
+  cancelled:      { label: 'Cancelado',                 color: 'text-rose-700',   bg: 'bg-rose-100',   icon: <XCircle className="w-3.5 h-3.5" /> },
 }
 
 function formatPhone(value: string) {
@@ -187,7 +186,7 @@ function ConsultarContent() {
               ) : (
                 requests.map((req) => {
                   const st = STATUS_MAP[req.status] ?? STATUS_MAP.pending
-                  const cancellable = req.status === 'pending' || req.status === 'quoted'
+                  const cancellable = req.status === 'pending'
                   return (
                     <div key={req.id} className="bg-white rounded-2xl p-5 shadow">
                       <div className="flex items-start justify-between gap-2 mb-3">
@@ -219,9 +218,6 @@ function ConsultarContent() {
                             <p className="text-sm font-bold text-vr-red">
                               💰 Orçamento: R$ {Number(req.quote_value).toFixed(2)}
                             </p>
-                            {req.status === 'quoted' && (
-                              <p className="text-xs text-vr-red/70 mt-0.5">Aguardando sua confirmação via WhatsApp</p>
-                            )}
                           </div>
                         )}
 

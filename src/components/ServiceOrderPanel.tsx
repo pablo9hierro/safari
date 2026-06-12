@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { ServiceOrder, ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceStatus } from '@/lib/types'
 import { SERVICE_ORDER_COMPONENTS, SITE_URL } from '@/lib/constants'
@@ -11,6 +12,7 @@ import {
   Square,
   Plus,
   Paperclip,
+  Camera,
   X,
   Wrench,
   PackageCheck,
@@ -19,7 +21,7 @@ import {
 } from 'lucide-react'
 
 const ACTIVE_STATUSES: ServiceStatus[] = [
-  'accepted', 'retirada_local', 'em_busca', 'in_progress', 'em_entrega', 'completed',
+  'retirada_local', 'em_busca', 'in_progress', 'em_entrega', 'completed',
 ]
 
 export function isServiceOrderStatus(status: ServiceStatus) {
@@ -31,7 +33,82 @@ function isVideo(url: string) {
 }
 
 function buildInitialChecklist(): ServiceOrderChecklistItem[] {
-  return SERVICE_ORDER_COMPONENTS.map((component) => ({ component, checked: false, description: '' }))
+  return SERVICE_ORDER_COMPONENTS.map((component) => ({ component, checked: false, description: '', media_urls: [] }))
+}
+
+async function uploadMedia(supabase: SupabaseClient, orderId: string, files: File[], prefix: string): Promise<string[]> {
+  const urls: string[] = []
+  for (const file of files) {
+    const ext = file.name.split('.').pop()
+    const fileName = `${orderId}/${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+    const { error } = await supabase.storage.from('service-order-media').upload(fileName, file)
+    if (!error) {
+      const { data: pub } = supabase.storage.from('service-order-media').getPublicUrl(fileName)
+      urls.push(pub.publicUrl)
+    }
+  }
+  return urls
+}
+
+function MediaThumb({ url, size = 'md' }: { url: string; size?: 'sm' | 'md' }) {
+  const cls = size === 'sm'
+    ? 'w-14 h-14 object-cover rounded-lg border border-gray-200'
+    : 'w-28 h-28 object-cover rounded-lg border border-gray-200'
+  return isVideo(url) ? (
+    <video src={url} controls className={cls} />
+  ) : (
+    <a href={url} target="_blank" rel="noreferrer">
+      <img src={url} alt="Mídia da OS" className={cls} />
+    </a>
+  )
+}
+
+function MediaPickerButtons({ onFiles }: { onFiles: (files: File[]) => void }) {
+  const cameraRef = useRef<HTMLInputElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={() => cameraRef.current?.click()}
+        className="flex items-center gap-1 text-xs text-gray-500 hover:text-vr-red transition-colors border border-gray-200 rounded-lg px-2 py-1.5"
+      >
+        <Camera className="w-3.5 h-3.5" />
+        Câmera
+      </button>
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*,video/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          onFiles(Array.from(e.target.files ?? []))
+          e.target.value = ''
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => fileRef.current?.click()}
+        className="flex items-center gap-1 text-xs text-gray-500 hover:text-vr-red transition-colors border border-gray-200 rounded-lg px-2 py-1.5"
+      >
+        <Paperclip className="w-3.5 h-3.5" />
+        Anexar
+      </button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          onFiles(Array.from(e.target.files ?? []))
+          e.target.value = ''
+        }}
+      />
+    </div>
+  )
 }
 
 const ACTION_LABELS: Record<string, { label: string; icon: React.ReactNode }> = {
@@ -48,6 +125,9 @@ export default function ServiceOrderPanel({
   customerPhone,
   phoneModel,
   readOnly = false,
+  onStatusChange,
+  onQuoteValueChange,
+  onOrderStateChange,
 }: {
   requestId: string
   status: ServiceStatus
@@ -55,23 +135,31 @@ export default function ServiceOrderPanel({
   customerPhone?: string
   phoneModel?: string
   readOnly?: boolean
+  onStatusChange?: (status: ServiceStatus) => void
+  onQuoteValueChange?: (value: number) => void
+  onOrderStateChange?: (state: { closed: boolean; hasUpdate: boolean }) => void
 }) {
   const [order, setOrder] = useState<ServiceOrder | null>(null)
   const [updates, setUpdates] = useState<ServiceOrderUpdate[]>([])
   const [loading, setLoading] = useState(true)
   const [checklist, setChecklist] = useState<ServiceOrderChecklistItem[]>([])
+  const [checklistFiles, setChecklistFiles] = useState<Record<number, File[]>>({})
   const [savingChecklist, setSavingChecklist] = useState(false)
 
   const [newMessage, setNewMessage] = useState('')
   const [newFiles, setNewFiles] = useState<File[]>([])
   const [addingUpdate, setAddingUpdate] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [completedServices, setCompletedServices] = useState('')
   const [warranty, setWarranty] = useState('')
   const [finalValue, setFinalValue] = useState('')
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [savingCompletion, setSavingCompletion] = useState(false)
+
+  const [revisedQuote, setRevisedQuote] = useState('')
+  const [quoteJustification, setQuoteJustification] = useState('')
+  const [quoteFiles, setQuoteFiles] = useState<File[]>([])
+  const [savingQuote, setSavingQuote] = useState(false)
 
   const load = useCallback(async () => {
     const supabase = createClient()
@@ -142,6 +230,11 @@ export default function ServiceOrderPanel({
     }
   }, [order?.id])
 
+  useEffect(() => {
+    const hasUpdate = updates.some((u) => u.action_type === 'update')
+    onOrderStateChange?.({ closed: !!order?.closed_at, hasUpdate })
+  }, [order?.closed_at, updates, onOrderStateChange])
+
   const toggleChecklistItem = (idx: number, checked: boolean) => {
     setChecklist((prev) => prev.map((item, i) => (i === idx ? { ...item, checked } : item)))
   }
@@ -150,30 +243,100 @@ export default function ServiceOrderPanel({
     setChecklist((prev) => prev.map((item, i) => (i === idx ? { ...item, description } : item)))
   }
 
+  const addChecklistFiles = (idx: number, files: File[]) => {
+    if (files.length === 0) return
+    setChecklistFiles((prev) => ({ ...prev, [idx]: [...(prev[idx] ?? []), ...files] }))
+  }
+
+  const removeChecklistFile = (idx: number, fileIdx: number) => {
+    setChecklistFiles((prev) => ({ ...prev, [idx]: (prev[idx] ?? []).filter((_, i) => i !== fileIdx) }))
+  }
+
+  // Checklist só pode ser preenchido enquanto a solicitação está 'aceito pelo cliente'.
+  // Ao salvar, a OS é considerada iniciada e a solicitação avança para 'em reparo'.
   const handleSaveChecklist = async () => {
     if (!order) return
     setSavingChecklist(true)
     const supabase = createClient()
+
+    const updatedChecklist = await Promise.all(
+      checklist.map(async (item, idx) => {
+        const files = checklistFiles[idx] ?? []
+        if (files.length === 0) return item
+        const uploaded = await uploadMedia(supabase, order.id, files, `checklist-${idx}`)
+        return { ...item, media_urls: [...(item.media_urls ?? []), ...uploaded] }
+      })
+    )
+
     const { data: updated } = await supabase
       .from('service_orders')
-      .update({ checklist, updated_at: new Date().toISOString() })
+      .update({ checklist: updatedChecklist, warranty: warranty || null, updated_at: new Date().toISOString() })
       .eq('id', order.id)
       .select()
       .single()
     if (updated) setOrder(updated as ServiceOrder)
+    setChecklist(updatedChecklist)
+    setChecklistFiles({})
 
-    const checkedItems = checklist.filter((i) => i.checked)
+    const checkedItems = updatedChecklist.filter((i) => i.checked)
     const summary = checkedItems.length
       ? checkedItems.map((i) => `${i.component}${i.description ? `: ${i.description}` : ''}`).join('; ')
       : 'Nenhum componente marcado'
 
     const { data: logEntry } = await supabase
       .from('service_order_updates')
-      .insert({ service_order_id: order.id, action_type: 'checklist_update', message: `Checklist atualizado — ${summary}` })
+      .insert({ service_order_id: order.id, action_type: 'checklist_update', message: `Checklist de avaliação registrado — ${summary}` })
       .select()
       .single()
     if (logEntry) setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
+
+    if (status === 'retirada_local' || status === 'em_busca') {
+      const { data: updatedReq } = await supabase
+        .from('service_requests')
+        .update({ status: 'in_progress' })
+        .eq('id', requestId)
+        .select()
+        .single()
+      if (updatedReq) onStatusChange?.('in_progress')
+    }
+
     setSavingChecklist(false)
+  }
+
+  // Permite alterar o orçamento durante o reparo, mediante justificativa + mídia
+  const handleSaveQuoteRevision = async () => {
+    if (!order) return
+    const newValue = parseFloat(revisedQuote)
+    if (isNaN(newValue) || !quoteJustification.trim() || quoteFiles.length === 0) return
+    setSavingQuote(true)
+    const supabase = createClient()
+    const mediaUrls = await uploadMedia(supabase, order.id, quoteFiles, 'quote-revision')
+
+    const { error: updateErr } = await supabase
+      .from('service_requests')
+      .update({ quote_value: newValue })
+      .eq('id', requestId)
+
+    if (!updateErr) {
+      const { data: logEntry } = await supabase
+        .from('service_order_updates')
+        .insert({
+          service_order_id: order.id,
+          action_type: 'update',
+          message: `Orçamento revisado para R$ ${newValue.toFixed(2)} — ${quoteJustification.trim()}`,
+          media_urls: mediaUrls,
+        })
+        .select()
+        .single()
+      if (logEntry) setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
+
+      onQuoteValueChange?.(newValue)
+      setRevisedQuote('')
+      setQuoteJustification('')
+      setQuoteFiles([])
+    }
+
+    setSavingQuote(false)
   }
 
   const handleAddUpdate = async () => {
@@ -181,17 +344,7 @@ export default function ServiceOrderPanel({
     if (!newMessage.trim() && newFiles.length === 0) return
     setAddingUpdate(true)
     const supabase = createClient()
-    const mediaUrls: string[] = []
-
-    for (const file of newFiles) {
-      const ext = file.name.split('.').pop()
-      const fileName = `${order.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-      const { error: upErr } = await supabase.storage.from('service-order-media').upload(fileName, file)
-      if (!upErr) {
-        const { data: pub } = supabase.storage.from('service-order-media').getPublicUrl(fileName)
-        mediaUrls.push(pub.publicUrl)
-      }
-    }
+    const mediaUrls = await uploadMedia(supabase, order.id, newFiles, 'update')
 
     const { data: inserted } = await supabase
       .from('service_order_updates')
@@ -279,6 +432,16 @@ export default function ServiceOrderPanel({
   if (!order) return null
 
   const checkedItems = checklist.filter((i) => i.checked)
+  const showChecklist = status === 'retirada_local' || status === 'em_busca'
+  const showTimeline = status === 'in_progress'
+  const checklistEditable = showChecklist && !readOnly
+  const updatesEditable = showTimeline && !readOnly && !order.closed_at
+  const quoteRevisable = showTimeline && !readOnly
+  const showCompletion = status === 'completed' && !readOnly && !order.closed_at
+  const showClosedSummary = !!order.closed_at
+
+  // Fora dessas condições (ex: status "aceito pelo cliente"), nenhuma OS deve aparecer na tela
+  if (!showChecklist && !showTimeline && !quoteRevisable && !showCompletion && !showClosedSummary) return null
 
   return (
     <section className="space-y-3">
@@ -287,24 +450,15 @@ export default function ServiceOrderPanel({
         Ordem de serviço
       </h3>
 
-      {/* Checklist */}
+      {/* Checklist — formulário 1: disponível só até o aparelho ser recolhido/entregue */}
+      {showChecklist && (
       <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Checklist de avaliação</p>
-        {readOnly ? (
-          checkedItems.length === 0 ? (
-            <p className="text-sm text-gray-400">Nenhum item registrado ainda.</p>
-          ) : (
-            <ul className="space-y-2">
-              {checkedItems.map((item) => (
-                <li key={item.component} className="text-sm">
-                  <span className="font-semibold text-gray-800">{item.component}</span>
-                  {item.description && <span className="text-gray-600"> — {item.description}</span>}
-                </li>
-              ))}
-            </ul>
-          )
-        ) : (
+        {checklistEditable ? (
           <div className="space-y-2">
+            <p className="text-xs text-gray-400">
+              Marque os componentes com problema, descreva o estado e anexe fotos/vídeos. Ao salvar, a solicitação avança para &quot;Em reparo&quot;.
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
               {checklist.map((item, idx) => (
                 <div key={item.component} className="flex flex-col">
@@ -321,30 +475,77 @@ export default function ServiceOrderPanel({
                     {item.component}
                   </button>
                   {item.checked && (
-                    <textarea
-                      value={item.description}
-                      onChange={(e) => updateChecklistDescription(idx, e.target.value)}
-                      placeholder="Descreva o estado atual deste item..."
-                      rows={2}
-                      className="input-field text-xs resize-none mt-1"
-                    />
+                    <div className="space-y-1.5 mt-1">
+                      <textarea
+                        value={item.description}
+                        onChange={(e) => updateChecklistDescription(idx, e.target.value)}
+                        placeholder="Descreva o estado atual deste item..."
+                        rows={2}
+                        className="input-field text-xs resize-none"
+                      />
+                      <MediaPickerButtons onFiles={(files) => addChecklistFiles(idx, files)} />
+                      {(item.media_urls?.length || checklistFiles[idx]?.length) ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {item.media_urls?.map((url) => (
+                            <MediaThumb key={url} url={url} size="sm" />
+                          ))}
+                          {(checklistFiles[idx] ?? []).map((f, fi) => (
+                            <span key={fi} className="flex items-center gap-1 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
+                              {f.name}
+                              <button type="button" onClick={() => removeChecklistFile(idx, fi)}>
+                                <X className="w-3 h-3 text-gray-400" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                   )}
                 </div>
               ))}
             </div>
+            <div>
+              <label className="label">Garantia do serviço</label>
+              <input
+                value={warranty}
+                onChange={(e) => setWarranty(e.target.value)}
+                placeholder="Ex: 90 dias"
+                className="input-field"
+              />
+            </div>
             <button
               onClick={handleSaveChecklist}
               disabled={savingChecklist}
-              className="text-xs font-semibold text-vr-red hover:text-vr-red-dark transition-colors flex items-center gap-1"
+              className="btn-primary w-full flex items-center justify-center gap-2"
             >
-              {savingChecklist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckSquare className="w-3.5 h-3.5" />}
-              Salvar checklist
+              {savingChecklist ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wrench className="w-4 h-4" />}
+              Salvar checklist e iniciar reparo
             </button>
           </div>
+        ) : checkedItems.length === 0 ? (
+          <p className="text-sm text-gray-400">Nenhum item registrado ainda.</p>
+        ) : (
+          <ul className="space-y-2">
+            {checkedItems.map((item) => (
+              <li key={item.component} className="text-sm">
+                <span className="font-semibold text-gray-800">{item.component}</span>
+                {item.description && <span className="text-gray-600"> — {item.description}</span>}
+                {item.media_urls?.length ? (
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {item.media_urls.map((url) => (
+                      <MediaThumb key={url} url={url} size="sm" />
+                    ))}
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
         )}
       </div>
+      )}
 
-      {/* Timeline */}
+      {/* Timeline — formulário 2: disponível só durante o reparo */}
+      {showTimeline && (
       <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Acompanhamento / linha do tempo</p>
         {updates.length === 0 ? (
@@ -367,13 +568,7 @@ export default function ServiceOrderPanel({
                     {u.media_urls?.length > 0 && (
                       <div className="flex flex-wrap gap-2 mt-2">
                         {u.media_urls.map((url) => (
-                          isVideo(url) ? (
-                            <video key={url} src={url} controls className="w-28 h-28 object-cover rounded-lg border border-gray-200" />
-                          ) : (
-                            <a key={url} href={url} target="_blank" rel="noreferrer">
-                              <img src={url} alt="Mídia da OS" className="w-28 h-28 object-cover rounded-lg border border-gray-200" />
-                            </a>
-                          )
+                          <MediaThumb key={url} url={url} />
                         ))}
                       </div>
                     )}
@@ -384,7 +579,7 @@ export default function ServiceOrderPanel({
           </ul>
         )}
 
-        {!readOnly && (
+        {updatesEditable && (
           <div className="space-y-2 pt-2 border-t border-gray-200">
             <textarea
               value={newMessage}
@@ -406,22 +601,7 @@ export default function ServiceOrderPanel({
               </div>
             )}
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1 text-xs text-gray-500 hover:text-vr-red transition-colors border border-gray-200 rounded-lg px-3 py-2"
-              >
-                <Paperclip className="w-3.5 h-3.5" />
-                Anexar mídia
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,video/*"
-                multiple
-                className="hidden"
-                onChange={(e) => setNewFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])])}
-              />
+              <MediaPickerButtons onFiles={(files) => setNewFiles((prev) => [...prev, ...files])} />
               <button
                 onClick={handleAddUpdate}
                 disabled={addingUpdate || (!newMessage.trim() && newFiles.length === 0)}
@@ -434,9 +614,65 @@ export default function ServiceOrderPanel({
           </div>
         )}
       </div>
+      )}
+
+      {/* Revisão de orçamento (somente durante o reparo) */}
+      {quoteRevisable && (
+        <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Revisar valor do orçamento</p>
+          <p className="text-xs text-gray-400">
+            Valor atual: R$ {Number(quoteValue ?? 0).toFixed(2)}. Alterar o orçamento durante o reparo exige uma justificativa e ao menos uma foto/vídeo.
+          </p>
+          <div>
+            <label className="label">Novo valor (R$)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={revisedQuote}
+              onChange={(e) => setRevisedQuote(e.target.value)}
+              placeholder="0,00"
+              className="input-field"
+            />
+          </div>
+          <div>
+            <label className="label">Justificativa</label>
+            <textarea
+              value={quoteJustification}
+              onChange={(e) => setQuoteJustification(e.target.value)}
+              placeholder="Ex: identificada peça adicional danificada durante o reparo..."
+              rows={2}
+              className="input-field text-sm resize-none"
+            />
+          </div>
+          {quoteFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {quoteFiles.map((f, i) => (
+                <span key={i} className="flex items-center gap-1 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
+                  {f.name}
+                  <button type="button" onClick={() => setQuoteFiles((prev) => prev.filter((_, idx) => idx !== i))}>
+                    <X className="w-3 h-3 text-gray-400" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <MediaPickerButtons onFiles={(files) => setQuoteFiles((prev) => [...prev, ...files])} />
+            <button
+              onClick={handleSaveQuoteRevision}
+              disabled={savingQuote || !revisedQuote || !quoteJustification.trim() || quoteFiles.length === 0}
+              className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold bg-vr-red text-white rounded-lg px-3 py-2 hover:bg-vr-red-dark transition-colors disabled:opacity-50"
+            >
+              {savingQuote ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              Salvar novo orçamento
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Conclusão */}
-      {status === 'completed' && !readOnly && !order.closed_at && (
+      {showCompletion && (
         <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Concluir ordem de serviço</p>
           <div>
