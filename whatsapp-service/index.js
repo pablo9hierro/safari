@@ -84,6 +84,12 @@ function startListening() {
         } catch (e) {
           console.error('Erro ao notificar dono:', e.message)
         }
+        try {
+          await wClient.sendMessage(msg.fmt(req.customer_phone), msg.pendingCustomer(req))
+          console.log(`Mensagem de boas-vindas enviada para ${req.customer_phone}`)
+        } catch (e) {
+          console.error('Erro ao notificar cliente:', e.message)
+        }
       }
     )
     .on(
@@ -94,7 +100,16 @@ function startListening() {
         const fn = msg[req.status]
         if (!fn) return
         try {
-          await wClient.sendMessage(msg.fmt(req.customer_phone), fn(req))
+          let order = null
+          if (req.status === 'completed') {
+            const { data } = await supabase
+              .from('service_orders')
+              .select('completed_services, warranty, final_value, pdf_url')
+              .eq('request_id', req.id)
+              .maybeSingle()
+            order = data
+          }
+          await wClient.sendMessage(msg.fmt(req.customer_phone), fn(req, order))
           console.log(`Mensagem '${req.status}' enviada para ${req.customer_phone}`)
         } catch (e) {
           console.error('Erro ao enviar mensagem:', e.message)

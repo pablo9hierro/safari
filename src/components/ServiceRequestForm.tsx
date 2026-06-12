@@ -5,12 +5,13 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { serviceRequestSchema, ServiceRequestSchema } from '@/lib/validations'
 import { createClient } from '@/lib/supabase/client'
+import { Autocomplete } from '@/components/ui'
+import { JOAO_PESSOA_BAIRROS } from '@/lib/joaoPessoaBairros'
 import {
   Smartphone,
   MapPin,
   User,
   Wrench,
-  Upload,
   CheckCircle,
   Loader2,
   X,
@@ -25,8 +26,6 @@ export default function ServiceRequestForm() {
   const [error, setError] = useState<string | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [addressData, setAddressData] = useState<{ street?: string; neighborhood?: string; city?: string; state?: string } | null>(null)
-  const [cepLoading, setCepLoading] = useState(false)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
 
@@ -42,39 +41,12 @@ export default function ServiceRequestForm() {
     mode: 'onBlur',
   })
 
-  const cepValue = watch('address_cep')
-
-  const formatCep = (value: string) => {
-    const digits = value.replace(/\D/g, '')
-    if (digits.length <= 5) return digits
-    return `${digits.slice(0, 5)}-${digits.slice(5, 8)}`
-  }
-
   const formatPhone = (value: string) => {
     const digits = value.replace(/\D/g, '')
     if (digits.length <= 2) return `(${digits}`
     if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
     if (digits.length <= 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`
-  }
-
-  const fetchCep = async (cep: string) => {
-    const digits = cep.replace(/\D/g, '')
-    if (digits.length !== 8) return
-    setCepLoading(true)
-    try {
-      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`)
-      const data = await res.json()
-      if (!data.erro) {
-        setAddressData({
-          street: data.logradouro,
-          neighborhood: data.bairro,
-          city: data.localidade,
-          state: data.uf,
-        })
-      }
-    } catch {}
-    setCepLoading(false)
   }
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -93,7 +65,7 @@ export default function ServiceRequestForm() {
     const fields: Record<number, (keyof ServiceRequestSchema)[]> = {
       1: ['customer_name', 'customer_phone', 'customer_email'],
       2: ['phone_model', 'problem_description'],
-      3: ['address_cep', 'address_number', 'address_reference'],
+      3: ['address_neighborhood', 'address_street', 'address_number', 'address_reference'],
     }
     const valid = await trigger(fields[step])
     if (valid) setStep((s) => s + 1)
@@ -125,13 +97,12 @@ export default function ServiceRequestForm() {
         customer_email: data.customer_email,
         phone_model: data.phone_model,
         problem_description: data.problem_description,
-        address_cep: data.address_cep,
         address_number: data.address_number,
         address_reference: data.address_reference,
-        address_street: addressData?.street || null,
-        address_neighborhood: addressData?.neighborhood || null,
-        address_city: addressData?.city || null,
-        address_state: addressData?.state || null,
+        address_street: data.address_street,
+        address_neighborhood: data.address_neighborhood,
+        address_city: 'João Pessoa',
+        address_state: 'PB',
         image_url,
         status: 'pending',
         quote_value: null,
@@ -327,30 +298,24 @@ export default function ServiceRequestForm() {
             <h3 className="font-semibold text-gray-800">Endereço de coleta e entrega</h3>
           </div>
           <div>
-            <label className="label">CEP</label>
-            <div className="relative">
-              <input
-                {...register('address_cep')}
-                placeholder="00000-000"
-                inputMode="numeric"
-                className="input-field pr-10"
-                maxLength={9}
-                onChange={(e) => {
-                  const formatted = formatCep(e.target.value)
-                  setValue('address_cep', formatted)
-                  if (formatted.length === 9) fetchCep(formatted)
-                }}
-              />
-              {cepLoading && (
-                <Loader2 className="absolute right-3 top-3.5 w-5 h-5 text-gray-400 animate-spin" />
-              )}
-            </div>
-            {errors.address_cep && <p className="error-msg">{errors.address_cep.message}</p>}
-            {addressData && (
-              <p className="text-xs text-green-600 mt-1">
-                {[addressData.street, addressData.neighborhood, addressData.city, addressData.state].filter(Boolean).join(', ')}
-              </p>
-            )}
+            <label className="label">Bairro</label>
+            <Autocomplete
+              value={watch('address_neighborhood') ?? ''}
+              onChange={(v) => setValue('address_neighborhood', v, { shouldValidate: true })}
+              onBlur={() => trigger('address_neighborhood')}
+              options={JOAO_PESSOA_BAIRROS}
+              placeholder="Digite para buscar o bairro em João Pessoa..."
+            />
+            {errors.address_neighborhood && <p className="error-msg">{errors.address_neighborhood.message}</p>}
+          </div>
+          <div>
+            <label className="label">Nome da rua</label>
+            <input
+              {...register('address_street')}
+              placeholder="Ex: Rua das Flores"
+              className="input-field"
+            />
+            {errors.address_street && <p className="error-msg">{errors.address_street.message}</p>}
           </div>
           <div>
             <label className="label">Número</label>

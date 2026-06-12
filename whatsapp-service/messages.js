@@ -1,4 +1,12 @@
 const OWNER_PHONE = process.env.OWNER_PHONE || '5583987516699'
+const SITE_URL = process.env.SITE_URL || 'https://safari-nine-silk.vercel.app'
+
+const STORE_ADDRESS = {
+  street: process.env.STORE_STREET || 'Rua Aposentado Cláudio de Santana, 37',
+  neighborhood: process.env.STORE_NEIGHBORHOOD || 'Valentina de Figueiredo',
+  city: process.env.STORE_CITY || 'João Pessoa - PB',
+  mapsUrl: process.env.STORE_MAPS_URL || 'https://www.google.com/maps/search/?api=1&query=Rua+Aposentado+Cl%C3%A1udio+de+Santana+37+Valentina+de+Figueiredo+Jo%C3%A3o+Pessoa',
+}
 
 function fmt(phone) {
   const d = phone.replace(/\D/g, '')
@@ -22,10 +30,19 @@ module.exports = {
       `📞 *Tel:* ${req.customer_phone}`,
       `📱 *Celular:* ${req.phone_model}`,
       `🔧 *Problema:* ${req.problem_description}`,
-      `📍 *Endereço:* CEP ${req.address_cep}, Nº ${req.address_number}`,
+      `📍 *Endereço:* ${[req.address_street, req.address_number, req.address_neighborhood, req.address_city].filter(Boolean).join(', ')}`,
       `🏠 *Ref:* ${req.address_reference}`,
       '',
       '👉 Acesse o dashboard para responder.',
+    ].join('\n')
+  },
+
+  // Enviada ao cliente assim que a solicitação é criada (status inicial: pending)
+  pendingCustomer(req) {
+    return [
+      `Recebemos sua solicitação de serviço da VR Tech! 👋`,
+      '',
+      'Em breve te informo o orçamento inicial (pode variar pelo estado do aparelho quando analisado).',
     ].join('\n')
   },
 
@@ -42,17 +59,12 @@ module.exports = {
   },
 
   accepted(req) {
-    const addr = [req.address_street, req.address_number, req.address_neighborhood, req.address_city]
-      .filter(Boolean).join(', ') || `CEP ${req.address_cep}, Nº ${req.address_number}`
     return [
-      `✅ Ótimo, *${req.customer_name}*! Orçamento aceito!`,
+      `Agradecemos pela preferência em nosso serviço! 🙏`,
       '',
-      'Vamos buscar seu celular em breve. 🚗',
+      'Por favor, compartilhe a sua localização fixa através do WhatsApp (clique no clipe 📎 → Localização → Sua localização atual).',
       '',
-      '📍 Para facilitar a coleta, *compartilhe sua localização* nesta conversa (clique no clipe 📎 → Localização → Sua localização atual).',
-      '',
-      `Endereço cadastrado: ${addr}`,
-      `Ponto de ref: ${req.address_reference}`,
+      'Em breve recolheremos o aparelho celular para dar continuidade ao serviço.',
     ].join('\n')
   },
 
@@ -64,40 +76,55 @@ module.exports = {
     ].join('\n')
   },
 
+  // Cliente optou por levar/retirar o aparelho na loja
+  retirada_local(req) {
+    return [
+      'Deseja trazer ou retirar o aparelho em nosso endereço?',
+      '',
+      `📍 ${STORE_ADDRESS.street}, ${STORE_ADDRESS.neighborhood}, ${STORE_ADDRESS.city}`,
+      STORE_ADDRESS.mapsUrl,
+    ].join('\n')
+  },
+
   em_busca(req) {
     return [
-      `🛵 *${req.customer_name}*, nosso motoboy está a caminho para buscar seu *${req.phone_model}*!`,
-      '',
-      'Por favor, esteja disponível para recebê-lo. 😊',
+      '🛵 Recebemos sua localização e estamos iniciando a busca do seu aparelho celular.',
     ].join('\n')
   },
 
   in_progress(req) {
+    const digits = req.customer_phone.replace(/\D/g, '')
     return [
-      `🔧 *${req.customer_name}*, seu *${req.phone_model}* chegou e está em reparo!`,
+      `🔧 Seu aparelho celular está sendo reparado neste momento.`,
       '',
-      'Assim que concluirmos, entraremos em contato. ⏳',
+      'Acompanhe qualquer atualização do serviço em tempo real através do link:',
+      `${SITE_URL}/consultar?phone=${digits}`,
     ].join('\n')
   },
 
   em_entrega(req) {
     return [
-      `📦 *${req.customer_name}*, seu *${req.phone_model}* foi consertado!`,
-      '',
-      'Nosso motoboy está a caminho para entregá-lo. 🛵',
-      '',
-      'Esteja disponível para receber! 😊',
+      '📦 Em rota de entrega para devolução do aparelho.',
     ].join('\n')
   },
 
-  completed(req) {
+  // order: linha da tabela service_orders (pode ser null se ainda não existir)
+  completed(req, order) {
+    const services = (order?.completed_services || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => `*${s}*`)
+      .join(', ')
+    const digits = req.customer_phone.replace(/\D/g, '')
+
     return [
-      `✅ Entrega concluída, *${req.customer_name}*! 🎉`,
-      '',
-      `Seu *${req.phone_model}* foi entregue. Obrigado pela confiança!`,
-      '',
-      'Se precisar de qualquer coisa, estamos aqui. 😊',
-    ].join('\n')
+      `Seu aparelho${req.phone_model ? ` *${req.phone_model}*` : ''} foi reparado com sucesso! 🎉`,
+      services ? `Serviços realizados: ${services}` : null,
+      `Orçamento no valor de: ${currency(order?.final_value ?? req.quote_value ?? 0)}`,
+      `Garantia do serviço: ${order?.warranty || 'não informada'}`,
+      `Ordem de serviço: ${order?.pdf_url || `${SITE_URL}/consultar?phone=${digits}`}`,
+    ].filter(Boolean).join('\n')
   },
 
   cancelled(req) {

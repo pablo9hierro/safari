@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { ServiceRequest, ServiceStatus } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
+import { STORE_ADDRESS, SITE_URL } from '@/lib/constants'
+import ServiceOrderPanel, { isServiceOrderStatus } from '@/components/ServiceOrderPanel'
 import {
   X,
   Smartphone,
@@ -11,22 +13,22 @@ import {
   Phone,
   Mail,
   MessageSquare,
-  DollarSign,
   Loader2,
   AlertCircle,
   ExternalLink,
 } from 'lucide-react'
 
 const STATUS_OPTIONS: { value: ServiceStatus; label: string }[] = [
-  { value: 'pending',     label: 'Pendente' },
-  { value: 'quoted',      label: 'Orçado' },
-  { value: 'accepted',    label: 'Aceito pelo cliente' },
-  { value: 'rejected',    label: 'Recusado pelo cliente' },
-  { value: 'em_busca',    label: '🛵 Em rota de busca' },
-  { value: 'in_progress', label: '🔧 Em reparo' },
-  { value: 'em_entrega',  label: '📦 Em rota de entrega' },
-  { value: 'completed',   label: '✅ Concluído' },
-  { value: 'cancelled',   label: '❌ Cancelado' },
+  { value: 'pending',        label: 'Pendente' },
+  { value: 'quoted',         label: 'Orçado' },
+  { value: 'accepted',       label: 'Aceito pelo cliente' },
+  { value: 'rejected',       label: 'Recusado pelo cliente' },
+  { value: 'retirada_local', label: '🏠 Retirada/entrega no local' },
+  { value: 'em_busca',       label: '🛵 Em rota de recolhimento' },
+  { value: 'in_progress',    label: '🔧 Em reparo' },
+  { value: 'em_entrega',     label: '📦 Em rota de entrega' },
+  { value: 'completed',      label: '✅ Reparo concluído' },
+  { value: 'cancelled',      label: '❌ Cancelado' },
 ]
 
 export default function RequestDetailModal({
@@ -51,13 +53,13 @@ export default function RequestDetailModal({
   const buildWaMessage = (s: ServiceStatus, qv: string): string | undefined => {
     const qFormatted = `R$ ${Number(qv || 0).toFixed(2)}`
     const messages: Partial<Record<ServiceStatus, string>> = {
-      quoted:      `Olá *${request.customer_name}*! Seu orçamento para o *${request.phone_model}* está pronto: ${qFormatted}. Responda SIM para aceitar ou NÃO para recusar.`,
-      accepted:    `✅ Ótimo, *${request.customer_name}*! Orçamento aceito! Vamos buscar seu celular. Por favor, compartilhe sua *localização* nesta conversa para facilitar a coleta. 📍`,
-      em_busca:    `🛵 *${request.customer_name}*, nosso motoboy está a caminho para buscar seu *${request.phone_model}*! Por favor, esteja disponível. 😊`,
-      in_progress: `🔧 *${request.customer_name}*, seu *${request.phone_model}* chegou e está em reparo! Avisamos quando ficar pronto. ⏳`,
-      em_entrega:  `📦 *${request.customer_name}*, seu *${request.phone_model}* foi consertado e nosso motoboy está a caminho para entregá-lo! 🛵`,
-      completed:   `✅ Entrega concluída! Obrigado pela confiança, *${request.customer_name}*! 😊 Se precisar de algo, estamos aqui.`,
-      rejected:    `Entendemos, *${request.customer_name}*. Se mudar de ideia, pode nos chamar aqui!`,
+      quoted:         `Olá *${request.customer_name}*! Seu orçamento para o *${request.phone_model}* está pronto: ${qFormatted}. Responda SIM para aceitar ou NÃO para recusar.`,
+      accepted:       `Agradecemos pela preferência em nosso serviço! Por favor, compartilhe a sua localização fixa através do WhatsApp. Em breve recolheremos o aparelho celular para dar continuidade ao serviço. 📍`,
+      rejected:       `Entendemos, *${request.customer_name}*. Se mudar de ideia, pode nos chamar aqui!`,
+      retirada_local: `Deseja trazer ou retirar o aparelho em nosso endereço?\n📍 ${STORE_ADDRESS.street}, ${STORE_ADDRESS.neighborhood}, ${STORE_ADDRESS.city}\n${STORE_ADDRESS.mapsUrl}`,
+      em_busca:       `🛵 Recebemos sua localização e estamos iniciando a busca do seu aparelho celular.`,
+      in_progress:    `🔧 Seu aparelho celular está sendo reparado neste momento. Acompanhe qualquer atualização do serviço em tempo real através do link:\n${SITE_URL}/consultar?phone=${phoneDigits}`,
+      em_entrega:     `📦 Em rota de entrega para devolução do aparelho.`,
     }
     return messages[s]
   }
@@ -109,8 +111,7 @@ export default function RequestDetailModal({
     request.address_neighborhood,
     request.address_city,
     request.address_state,
-    request.address_cep,
-  ].filter(Boolean).join(', ') || `${request.address_reference} - CEP ${request.address_cep}`
+  ].filter(Boolean).join(', ') || (request.address_cep ? `CEP ${request.address_cep}` : 'Endereço não informado')
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -259,6 +260,17 @@ export default function RequestDetailModal({
               </a>
             )}
           </section>
+
+          {/* Ordem de serviço */}
+          {isServiceOrderStatus(status) && (
+            <ServiceOrderPanel
+              requestId={request.id}
+              status={status}
+              quoteValue={request.quote_value}
+              customerPhone={request.customer_phone}
+              phoneModel={request.phone_model}
+            />
+          )}
 
           <p className="text-xs text-gray-400 text-center pb-2">
             Solicitado em {new Date(request.created_at).toLocaleString('pt-BR')}

@@ -3,23 +3,25 @@
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ServiceRequest } from '@/lib/types'
+import ServiceOrderPanel from '@/components/ServiceOrderPanel'
 import {
   Smartphone, Search, Loader2, MapPin, Clock, CheckCircle,
-  XCircle, Wrench, ChevronLeft, Package, Truck, AlertTriangle,
+  XCircle, Wrench, ChevronLeft, Package, Truck, AlertTriangle, Home,
 } from 'lucide-react'
 import Link from 'next/link'
 import Logo from '@/components/ui/Logo'
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
-  pending:     { label: 'Aguardando avaliação',  color: 'text-yellow-700', bg: 'bg-yellow-100', icon: <Clock className="w-3.5 h-3.5" /> },
-  quoted:      { label: 'Orçamento disponível',  color: 'text-blue-700',   bg: 'bg-blue-100',   icon: <Clock className="w-3.5 h-3.5" /> },
-  accepted:    { label: 'Aceito',                color: 'text-green-700',  bg: 'bg-green-100',  icon: <CheckCircle className="w-3.5 h-3.5" /> },
-  rejected:    { label: 'Recusado',              color: 'text-red-700',    bg: 'bg-red-100',    icon: <XCircle className="w-3.5 h-3.5" /> },
-  em_busca:    { label: 'Motoboy a caminho',     color: 'text-orange-700', bg: 'bg-orange-100', icon: <Truck className="w-3.5 h-3.5" /> },
-  in_progress: { label: 'Em reparo',             color: 'text-purple-700', bg: 'bg-purple-100', icon: <Wrench className="w-3.5 h-3.5" /> },
-  em_entrega:  { label: 'Em rota de entrega',    color: 'text-indigo-700', bg: 'bg-indigo-100', icon: <Truck className="w-3.5 h-3.5" /> },
-  completed:   { label: 'Concluído',             color: 'text-gray-700',   bg: 'bg-gray-100',   icon: <CheckCircle className="w-3.5 h-3.5" /> },
-  cancelled:   { label: 'Cancelado',             color: 'text-rose-700',   bg: 'bg-rose-100',   icon: <XCircle className="w-3.5 h-3.5" /> },
+  pending:        { label: 'Aguardando avaliação',     color: 'text-yellow-700', bg: 'bg-yellow-100', icon: <Clock className="w-3.5 h-3.5" /> },
+  quoted:         { label: 'Orçamento disponível',     color: 'text-blue-700',   bg: 'bg-blue-100',   icon: <Clock className="w-3.5 h-3.5" /> },
+  accepted:       { label: 'Aceito',                   color: 'text-green-700',  bg: 'bg-green-100',  icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  rejected:       { label: 'Recusado',                 color: 'text-red-700',    bg: 'bg-red-100',    icon: <XCircle className="w-3.5 h-3.5" /> },
+  retirada_local: { label: 'Retirada/entrega no local', color: 'text-teal-700',  bg: 'bg-teal-100',   icon: <Home className="w-3.5 h-3.5" /> },
+  em_busca:       { label: 'Motoboy a caminho',        color: 'text-orange-700', bg: 'bg-orange-100', icon: <Truck className="w-3.5 h-3.5" /> },
+  in_progress:    { label: 'Em reparo',                color: 'text-purple-700', bg: 'bg-purple-100', icon: <Wrench className="w-3.5 h-3.5" /> },
+  em_entrega:     { label: 'Em rota de entrega',       color: 'text-indigo-700', bg: 'bg-indigo-100', icon: <Truck className="w-3.5 h-3.5" /> },
+  completed:      { label: 'Concluído',                color: 'text-gray-700',   bg: 'bg-gray-100',   icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  cancelled:      { label: 'Cancelado',                color: 'text-rose-700',   bg: 'bg-rose-100',   icon: <XCircle className="w-3.5 h-3.5" /> },
 }
 
 function formatPhone(value: string) {
@@ -208,7 +210,7 @@ function ConsultarContent() {
                         <div className="flex items-start gap-2">
                           <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
                           <span className="text-sm text-gray-500">
-                            {[req.address_street, req.address_number, req.address_city].filter(Boolean).join(', ') || `CEP ${req.address_cep}`}
+                            {[req.address_street, req.address_number, req.address_neighborhood, req.address_city].filter(Boolean).join(', ') || (req.address_cep ? `CEP ${req.address_cep}` : 'Endereço não informado')}
                           </span>
                         </div>
 
@@ -239,6 +241,8 @@ function ConsultarContent() {
                             </button>
                           </div>
                         )}
+
+                        <ServiceOrderPanel requestId={req.id} status={req.status} readOnly />
                       </div>
                     </div>
                   )

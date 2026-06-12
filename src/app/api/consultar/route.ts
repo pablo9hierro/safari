@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const SELECT_COLS = 'id, created_at, phone_model, problem_description, address_cep, address_number, address_street, address_city, status, quote_value, owner_notes'
+const SELECT_COLS = 'id, created_at, phone_model, problem_description, address_cep, address_number, address_street, address_neighborhood, address_city, status, quote_value, owner_notes'
 
 function makeClient() {
   return createClient(
