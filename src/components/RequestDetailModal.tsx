@@ -21,13 +21,15 @@ import {
 const STATUS_LABELS: Record<ServiceStatus, string> = {
   pending:        'Pendente',
   accepted:       'Aceito pelo cliente (orçamento confirmado)',
-  rejected:       'Recusado pelo cliente',
+  rejected:       '✅ Atendimento concluído — Recusado pelo cliente',
   retirada_local: '🏠 Retirada/entrega pelo cliente',
   em_busca:       '🛵 Em rota de recolhimento',
   in_progress:    '🔧 Em reparo',
   completed:      '✅ Reparo concluído',
   em_entrega:     '📦 Em rota de entrega',
-  cancelled:      '❌ Cancelado',
+  delivered:      '📬 Aparelho entregue',
+  finished:       '✅ Atendimento concluído',
+  cancelled:      '✅ Atendimento concluído — Cancelado pelo cliente',
 }
 
 // O status só avança um passo por vez, nunca retrocede e nunca pula etapas.
@@ -37,7 +39,7 @@ function getStatusOptions(current: ServiceStatus, osState: { closed: boolean; ha
   switch (current) {
     case 'rejected':
     case 'cancelled':
-    case 'em_entrega':
+    case 'finished':
       return [current]
     case 'pending':
       return [current, 'accepted', 'rejected', 'cancelled']
@@ -51,7 +53,11 @@ function getStatusOptions(current: ServiceStatus, osState: { closed: boolean; ha
     case 'in_progress':
       return osState.hasUpdate ? [current, 'completed', 'cancelled'] : [current, 'cancelled']
     case 'completed':
-      return osState.closed ? [current, 'em_entrega', 'cancelled'] : [current, 'cancelled']
+      // O adm escolhe manualmente o caminho de entrega: retirada pelo cliente ou rota de entrega
+      return osState.closed ? [current, 'delivered', 'em_entrega'] : [current, 'cancelled']
+    case 'em_entrega':
+    case 'delivered':
+      return [current, 'finished']
     default:
       return [current]
   }
@@ -86,6 +92,8 @@ export default function RequestDetailModal({
       em_busca:       `🛵 Recebemos sua localização e estamos iniciando a busca do seu aparelho celular.`,
       in_progress:    `🔧 Seu aparelho celular está sendo reparado neste momento. Acompanhe qualquer atualização do serviço em tempo real através do link:\n${SITE_URL}/consultar?phone=${phoneDigits}`,
       em_entrega:     `📦 Em rota de entrega para devolução do aparelho.`,
+      delivered:      `📬 Aparelho entregue! Agradecemos a confiança, *${request.customer_name}*. Caso precise de algo, estamos à disposição!`,
+      finished:       `✅ Atendimento concluído. Agradecemos a confiança, *${request.customer_name}*! Caso precise de algo, estamos à disposição.`,
     }
     return messages[s]
   }
@@ -279,7 +287,7 @@ export default function RequestDetailModal({
               ) : saved ? (
                 '✓ Salvo! Abrindo WhatsApp...'
               ) : (
-                'Salvar e notificar cliente'
+                'Salvar >>>avançar status'
               )}
             </button>
 

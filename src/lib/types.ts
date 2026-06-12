@@ -7,6 +7,8 @@ export type ServiceStatus =
   | 'in_progress'
   | 'em_entrega'
   | 'completed'
+  | 'delivered'
+  | 'finished'
   | 'cancelled'
 
 export interface ServiceRequest {

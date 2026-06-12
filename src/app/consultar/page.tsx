@@ -7,6 +7,7 @@ import ServiceOrderPanel from '@/components/ServiceOrderPanel'
 import {
   Smartphone, Search, Loader2, MapPin, Clock, CheckCircle,
   XCircle, Wrench, ChevronLeft, Package, Truck, AlertTriangle, Home,
+  PackageCheck, PartyPopper,
 } from 'lucide-react'
 import Link from 'next/link'
 import Logo from '@/components/ui/Logo'
@@ -20,6 +21,8 @@ const STATUS_MAP: Record<string, { label: string; color: string; bg: string; ico
   in_progress:    { label: 'Em reparo',                 color: 'text-purple-700', bg: 'bg-purple-100', icon: <Wrench className="w-3.5 h-3.5" /> },
   completed:      { label: 'Concluído',                 color: 'text-gray-700',   bg: 'bg-gray-100',   icon: <CheckCircle className="w-3.5 h-3.5" /> },
   em_entrega:     { label: 'Em rota de entrega',        color: 'text-indigo-700', bg: 'bg-indigo-100', icon: <Truck className="w-3.5 h-3.5" /> },
+  delivered:      { label: 'Aparelho entregue',         color: 'text-cyan-700',   bg: 'bg-cyan-100',   icon: <PackageCheck className="w-3.5 h-3.5" /> },
+  finished:       { label: 'Atendimento concluído',     color: 'text-emerald-700', bg: 'bg-emerald-100', icon: <PartyPopper className="w-3.5 h-3.5" /> },
   cancelled:      { label: 'Cancelado',                 color: 'text-rose-700',   bg: 'bg-rose-100',   icon: <XCircle className="w-3.5 h-3.5" /> },
 }
 

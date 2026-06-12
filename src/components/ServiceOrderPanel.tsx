@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 
 const ACTIVE_STATUSES: ServiceStatus[] = [
-  'retirada_local', 'em_busca', 'in_progress', 'em_entrega', 'completed',
+  'retirada_local', 'em_busca', 'in_progress', 'em_entrega', 'completed', 'delivered', 'finished',
 ]
 
 export function isServiceOrderStatus(status: ServiceStatus) {

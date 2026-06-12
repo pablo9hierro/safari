@@ -27,6 +27,8 @@ const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: s
   in_progress:    { label: 'Em reparo',                    color: 'text-purple-700', bg: 'bg-purple-100' },
   completed:      { label: 'Concluído',                    color: 'text-gray-700',   bg: 'bg-gray-100'   },
   em_entrega:     { label: 'Em rota de entrega',           color: 'text-indigo-700', bg: 'bg-indigo-100' },
+  delivered:      { label: 'Aparelho entregue',            color: 'text-cyan-700',   bg: 'bg-cyan-100'   },
+  finished:       { label: 'Atendimento concluído',        color: 'text-emerald-700', bg: 'bg-emerald-100' },
   cancelled:      { label: 'Cancelado',                    color: 'text-rose-700',   bg: 'bg-rose-100'   },
 }
 
@@ -40,6 +42,8 @@ const FILTERS: { key: ServiceStatus | 'all'; label: string }[] = [
   { key: 'in_progress',    label: 'Em reparo' },
   { key: 'completed',      label: 'Concluídos' },
   { key: 'em_entrega',     label: 'Em entrega' },
+  { key: 'delivered',      label: 'Entregues' },
+  { key: 'finished',       label: 'Concluídos (final)' },
   { key: 'cancelled',      label: 'Cancelados' },
 ]
 

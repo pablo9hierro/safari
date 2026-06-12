@@ -126,4 +126,20 @@ module.exports = {
       'Se mudar de ideia, pode nos chamar aqui a qualquer momento! 😊',
     ].join('\n')
   },
+
+  delivered(req) {
+    return [
+      `📬 Aparelho entregue!`,
+      '',
+      `Agradecemos a confiança, *${req.customer_name}*! Caso precise de algo, estamos à disposição.`,
+    ].join('\n')
+  },
+
+  finished(req) {
+    return [
+      `✅ Atendimento concluído.`,
+      '',
+      `Agradecemos a confiança, *${req.customer_name}*! Caso precise de algo, estamos à disposição.`,
+    ].join('\n')
+  },
 }
