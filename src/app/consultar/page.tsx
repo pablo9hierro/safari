@@ -241,7 +241,7 @@ function ConsultarContent() {
                           </div>
                         )}
 
-                        <ServiceOrderPanel requestId={req.id} status={req.status} readOnly />
+                        <ServiceOrderPanel request={req} status={req.status} readOnly />
                       </div>
                     </div>
                   )

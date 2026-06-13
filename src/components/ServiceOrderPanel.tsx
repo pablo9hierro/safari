@@ -3,8 +3,9 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
-import { ServiceOrder, ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceStatus } from '@/lib/types'
+import { ServiceOrder, ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceRequest, ServiceStatus } from '@/lib/types'
 import { SERVICE_ORDER_COMPONENTS, SITE_URL } from '@/lib/constants'
+import { generateServiceOrderPdf } from '@/lib/generateServiceOrderPdf'
 import {
   ClipboardList,
   Loader2,
@@ -18,6 +19,8 @@ import {
   PackageCheck,
   FileText,
   ShieldCheck,
+  Eye,
+  Download,
 } from 'lucide-react'
 
 const ACTIVE_STATUSES: ServiceStatus[] = [
@@ -48,6 +51,27 @@ async function uploadMedia(supabase: SupabaseClient, orderId: string, files: Fil
     }
   }
   return urls
+}
+
+async function uploadPdf(supabase: SupabaseClient, orderId: string, blob: Blob): Promise<string | null> {
+  const fileName = `${orderId}/os-${Date.now()}.pdf`
+  const { error } = await supabase.storage.from('service-order-media').upload(fileName, blob, { contentType: 'application/pdf' })
+  if (error) return null
+  const { data: pub } = supabase.storage.from('service-order-media').getPublicUrl(fileName)
+  return pub.publicUrl
+}
+
+async function downloadPdf(url: string, fileName: string) {
+  const res = await fetch(url)
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objectUrl
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(objectUrl)
 }
 
 function MediaThumb({ url, size = 'md' }: { url: string; size?: 'sm' | 'md' }) {
@@ -119,24 +143,22 @@ const ACTION_LABELS: Record<string, { label: string; icon: React.ReactNode }> = 
 }
 
 export default function ServiceOrderPanel({
-  requestId,
+  request,
   status,
-  quoteValue,
-  customerPhone,
-  phoneModel,
   readOnly = false,
   onQuoteValueChange,
   onOrderStateChange,
 }: {
-  requestId: string
+  request: ServiceRequest
   status: ServiceStatus
-  quoteValue?: number | null
-  customerPhone?: string
-  phoneModel?: string
   readOnly?: boolean
   onQuoteValueChange?: (value: number) => void
   onOrderStateChange?: (state: { closed: boolean; hasUpdate: boolean }) => void
 }) {
+  const requestId = request.id
+  const quoteValue = request.quote_value
+  const customerPhone = request.customer_phone
+  const phoneModel = request.phone_model
   const [order, setOrder] = useState<ServiceOrder | null>(null)
   const [updates, setUpdates] = useState<ServiceOrderUpdate[]>([])
   const [loading, setLoading] = useState(true)
@@ -151,9 +173,10 @@ export default function ServiceOrderPanel({
   const [addingUpdate, setAddingUpdate] = useState(false)
 
   const [completedServices, setCompletedServices] = useState('')
-  const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [savingCompletion, setSavingCompletion] = useState(false)
   const [completionError, setCompletionError] = useState<string | null>(null)
+  const [generatingPdf, setGeneratingPdf] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
 
   const [quoteValues, setQuoteValues] = useState<Record<number, string>>({})
   const [quoteJustifications, setQuoteJustifications] = useState<Record<number, string>>({})
@@ -391,14 +414,23 @@ export default function ServiceOrderPanel({
       ? revisionIndices.map((idx) => `${updatedChecklist[idx].component}: ${updatedChecklist[idx].warranty || 'não informada'}`).join('; ')
       : null
 
-    let pdf_url = order.pdf_url
-    if (pdfFile) {
-      const fileName = `${order.id}/os-${Date.now()}.pdf`
-      const { error: upErr } = await supabase.storage.from('service-order-media').upload(fileName, pdfFile)
-      if (!upErr) {
-        const { data: pub } = supabase.storage.from('service-order-media').getPublicUrl(fileName)
-        pdf_url = pub.publicUrl
-      }
+    const closedAt = new Date().toISOString()
+    let pdf_url: string | null = null
+    try {
+      const pdfBlob = generateServiceOrderPdf({
+        request,
+        orderId: order.id,
+        checklist: updatedChecklist,
+        completedServices: completedServices || null,
+        warranty: warrantySummary,
+        finalValue,
+        closedAt,
+      })
+      pdf_url = await uploadPdf(supabase, order.id, pdfBlob)
+      if (!pdf_url) setPdfError('Não foi possível salvar o PDF no servidor. Tente gerar novamente abaixo.')
+    } catch (err) {
+      console.error('Erro ao gerar PDF da OS:', err)
+      setPdfError('Não foi possível gerar o PDF. Tente novamente abaixo.')
     }
 
     const { data: updated } = await supabase
@@ -409,8 +441,8 @@ export default function ServiceOrderPanel({
         warranty: warrantySummary,
         final_value: finalValue,
         pdf_url,
-        closed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        closed_at: closedAt,
+        updated_at: closedAt,
       })
       .eq('id', order.id)
       .select()
@@ -457,6 +489,41 @@ export default function ServiceOrderPanel({
     }
 
     setSavingCompletion(false)
+  }
+
+  // Gera o PDF para OS já concluídas antes desta funcionalidade existir (sem pdf_url).
+  const handleGeneratePdf = async () => {
+    if (!order || !order.closed_at) return
+    setGeneratingPdf(true)
+    setPdfError(null)
+    try {
+      const supabase = createClient()
+      const pdfBlob = generateServiceOrderPdf({
+        request,
+        orderId: order.id,
+        checklist: order.checklist,
+        completedServices: order.completed_services,
+        warranty: order.warranty,
+        finalValue: order.final_value,
+        closedAt: order.closed_at,
+      })
+      const pdf_url = await uploadPdf(supabase, order.id, pdfBlob)
+      if (pdf_url) {
+        const { data: updated } = await supabase
+          .from('service_orders')
+          .update({ pdf_url })
+          .eq('id', order.id)
+          .select()
+          .single()
+        if (updated) setOrder(updated as ServiceOrder)
+      } else {
+        setPdfError('Não foi possível salvar o PDF no servidor. Verifique o bucket "service-order-media" no Supabase.')
+      }
+    } catch (err) {
+      console.error('Erro ao gerar PDF da OS:', err)
+      setPdfError('Não foi possível gerar o PDF.')
+    }
+    setGeneratingPdf(false)
   }
 
   if (loading) {
@@ -756,15 +823,6 @@ export default function ServiceOrderPanel({
               className="input-field resize-none"
             />
           </div>
-          <div>
-            <label className="label">Arquivo da OS (PDF) <span className="font-normal text-gray-400">(opcional)</span></label>
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
-              className="text-sm"
-            />
-          </div>
           {completionError && <p className="text-xs text-red-500">{completionError}</p>}
           <button
             onClick={handleSaveCompletion}
@@ -786,11 +844,34 @@ export default function ServiceOrderPanel({
           {order.completed_services && <p className="text-sm text-gray-700"><strong>Serviços:</strong> {order.completed_services}</p>}
           {order.final_value != null && <p className="text-sm text-gray-700"><strong>Valor:</strong> R$ {Number(order.final_value).toFixed(2)}</p>}
           {order.warranty && <p className="text-sm text-gray-700"><strong>Garantia:</strong> {order.warranty}</p>}
-          {order.pdf_url && (
-            <a href={order.pdf_url} target="_blank" rel="noreferrer" className="text-sm text-vr-red hover:text-vr-red-dark font-semibold flex items-center gap-1 mt-1">
-              <FileText className="w-3.5 h-3.5" />
-              Ver ordem de serviço (PDF)
-            </a>
+          {order.pdf_url ? (
+            <div className="flex items-center gap-3 mt-1">
+              <a href={order.pdf_url} target="_blank" rel="noreferrer" className="text-sm text-vr-red hover:text-vr-red-dark font-semibold flex items-center gap-1.5">
+                <Eye className="w-3.5 h-3.5" />
+                Visualizar OS
+              </a>
+              <button
+                type="button"
+                onClick={() => downloadPdf(order.pdf_url!, `OS-${order.id.slice(0, 8)}.pdf`)}
+                className="text-sm text-vr-red hover:text-vr-red-dark font-semibold flex items-center gap-1.5"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Baixar PDF
+              </button>
+            </div>
+          ) : !readOnly && (
+            <div className="mt-1 space-y-1">
+              <button
+                type="button"
+                onClick={handleGeneratePdf}
+                disabled={generatingPdf}
+                className="text-sm text-vr-red hover:text-vr-red-dark font-semibold flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {generatingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+                Gerar PDF da OS
+              </button>
+              {pdfError && <p className="text-xs text-red-500">{pdfError}</p>}
+            </div>
           )}
         </div>
       )}

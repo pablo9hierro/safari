@@ -277,11 +277,8 @@ export default function RequestDetailModal({
           {/* Ordem de serviço */}
           {isServiceOrderStatus(status) && (
             <ServiceOrderPanel
-              requestId={request.id}
+              request={request}
               status={status}
-              quoteValue={request.quote_value}
-              customerPhone={request.customer_phone}
-              phoneModel={request.phone_model}
               onQuoteValueChange={(newValue) => {
                 setQuoteValue(String(newValue))
                 onUpdate({ ...request, quote_value: newValue })
