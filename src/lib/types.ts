@@ -51,6 +51,7 @@ export interface ServiceOrderChecklistItem {
   description: string
   media_urls?: string[]
   value?: number | null
+  warranty?: string | null
 }
 
 export type ServiceOrderActionType =

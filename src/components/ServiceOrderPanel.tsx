@@ -151,15 +151,14 @@ export default function ServiceOrderPanel({
   const [addingUpdate, setAddingUpdate] = useState(false)
 
   const [completedServices, setCompletedServices] = useState('')
-  const [warranty, setWarranty] = useState('')
-  const [finalValue, setFinalValue] = useState('')
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [savingCompletion, setSavingCompletion] = useState(false)
+  const [completionError, setCompletionError] = useState<string | null>(null)
 
   const [quoteValues, setQuoteValues] = useState<Record<number, string>>({})
   const [quoteJustifications, setQuoteJustifications] = useState<Record<number, string>>({})
   const [quoteFiles, setQuoteFiles] = useState<Record<number, File[]>>({})
-  const [savingQuote, setSavingQuote] = useState(false)
+  const [quoteWarranties, setQuoteWarranties] = useState<Record<number, string>>({})
 
   const load = useCallback(async () => {
     const supabase = createClient()
@@ -175,8 +174,6 @@ export default function ServiceOrderPanel({
       setChecklist((rest.checklist as ServiceOrderChecklistItem[])?.length ? rest.checklist : buildInitialChecklist())
       setUpdates([...(service_order_updates ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at)))
       setCompletedServices(rest.completed_services ?? '')
-      setWarranty(rest.warranty ?? '')
-      setFinalValue(rest.final_value != null ? String(rest.final_value) : (quoteValue != null ? String(quoteValue) : ''))
     } else if (!readOnly) {
       const initialChecklist = buildInitialChecklist()
       const { data: created } = await supabase
@@ -188,7 +185,6 @@ export default function ServiceOrderPanel({
       if (created) {
         setOrder(created as ServiceOrder)
         setChecklist(initialChecklist)
-        setFinalValue(quoteValue != null ? String(quoteValue) : '')
         const { data: logEntry } = await supabase
           .from('service_order_updates')
           .insert({ service_order_id: created.id, action_type: 'created', message: 'Ordem de serviço aberta' })
@@ -198,7 +194,7 @@ export default function ServiceOrderPanel({
       }
     }
     setLoading(false)
-  }, [requestId, readOnly, quoteValue])
+  }, [requestId, readOnly])
 
   useEffect(() => {
     load()
@@ -272,7 +268,7 @@ export default function ServiceOrderPanel({
 
     const { data: updated } = await supabase
       .from('service_orders')
-      .update({ checklist: updatedChecklist, warranty: warranty || null, updated_at: new Date().toISOString() })
+      .update({ checklist: updatedChecklist, updated_at: new Date().toISOString() })
       .eq('id', order.id)
       .select()
       .single()
@@ -300,65 +296,10 @@ export default function ServiceOrderPanel({
         .from('service_requests')
         .update({ quote_value: newTotal })
         .eq('id', requestId)
-      if (!quoteErr) {
-        onQuoteValueChange?.(newTotal)
-        setFinalValue(String(newTotal))
-      }
+      if (!quoteErr) onQuoteValueChange?.(newTotal)
     }
 
     setSavingChecklist(false)
-  }
-
-  // Re-cotação completa: cada componente reclamado recebe um novo valor + justificativa + mídia.
-  // O novo total do orçamento é a soma dos valores preenchidos.
-  const handleSaveQuoteRevision = async () => {
-    if (!order) return
-    const revisedIndices = checklist
-      .map((_, idx) => idx)
-      .filter((idx) => (checklist[idx].checked) && (quoteValues[idx] ?? '').trim() !== '')
-
-    if (revisedIndices.length === 0) return
-    for (const idx of revisedIndices) {
-      const value = parseFloat(quoteValues[idx])
-      if (isNaN(value) || !quoteJustifications[idx]?.trim() || !(quoteFiles[idx]?.length)) return
-    }
-
-    setSavingQuote(true)
-    const supabase = createClient()
-    let newTotal = 0
-
-    for (const idx of revisedIndices) {
-      const component = checklist[idx].component
-      const value = parseFloat(quoteValues[idx])
-      newTotal += value
-      const mediaUrls = await uploadMedia(supabase, order.id, quoteFiles[idx], `quote-${idx}`)
-      const { data: logEntry } = await supabase
-        .from('service_order_updates')
-        .insert({
-          service_order_id: order.id,
-          action_type: 'update',
-          message: `Orçamento revisado — ${component}: novo valor R$ ${value.toFixed(2)} — ${quoteJustifications[idx].trim()}`,
-          media_urls: mediaUrls,
-        })
-        .select()
-        .single()
-      if (logEntry) setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
-    }
-
-    const { error: updateErr } = await supabase
-      .from('service_requests')
-      .update({ quote_value: newTotal })
-      .eq('id', requestId)
-
-    if (!updateErr) {
-      onQuoteValueChange?.(newTotal)
-      setFinalValue(String(newTotal))
-      setQuoteValues({})
-      setQuoteJustifications({})
-      setQuoteFiles({})
-    }
-
-    setSavingQuote(false)
   }
 
   const handleAddUpdate = async () => {
@@ -384,12 +325,73 @@ export default function ServiceOrderPanel({
     setAddingUpdate(false)
   }
 
+  // Itens "selecionados" no formulário de conclusão = marcados na OS 1 (checklist)
+  // ou citados como componente em alguma atualização da OS 2 (linha do tempo).
+  const getRevisionIndices = () => {
+    const form2Components = new Set<string>()
+    for (const u of updates) {
+      if (u.action_type !== 'update' || !u.message) continue
+      for (const c of SERVICE_ORDER_COMPONENTS) {
+        if (u.message === c || u.message.startsWith(`${c}: `)) form2Components.add(c)
+      }
+    }
+    return checklist
+      .map((_, idx) => idx)
+      .filter((idx) => checklist[idx].checked || form2Components.has(checklist[idx].component))
+  }
+
+  // Conclusão = revisão de orçamento e garantia (todos os itens da OS1+OS2) + dados finais da OS.
   const handleSaveCompletion = async () => {
     if (!order) return
+    setCompletionError(null)
+
+    const revisionIndices = getRevisionIndices()
+    for (const idx of revisionIndices) {
+      if (!quoteJustifications[idx]?.trim() || !(quoteFiles[idx]?.length)) {
+        setCompletionError(`Preencha a justificativa e anexe uma mídia para "${checklist[idx].component}" na revisão de orçamento e garantia.`)
+        return
+      }
+    }
+
     setSavingCompletion(true)
     const supabase = createClient()
-    let pdf_url = order.pdf_url
 
+    const updatedChecklist = [...checklist]
+    let newTotal = 0
+
+    for (const idx of revisionIndices) {
+      const item = checklist[idx]
+      const value = quoteValues[idx]?.trim() ? parseFloat(quoteValues[idx]) : (item.value ?? 0)
+      const itemWarranty = quoteWarranties[idx]?.trim() || null
+      newTotal += value
+      const mediaUrls = await uploadMedia(supabase, order.id, quoteFiles[idx] ?? [], `quote-${idx}`)
+      updatedChecklist[idx] = {
+        ...item,
+        checked: true,
+        value,
+        warranty: itemWarranty,
+        media_urls: [...(item.media_urls ?? []), ...mediaUrls],
+      }
+
+      const { data: logEntry } = await supabase
+        .from('service_order_updates')
+        .insert({
+          service_order_id: order.id,
+          action_type: 'update',
+          message: `Revisão de orçamento — ${item.component}: R$ ${value.toFixed(2)} — ${quoteJustifications[idx].trim()} — Garantia: ${itemWarranty || 'não informada'}`,
+          media_urls: mediaUrls,
+        })
+        .select()
+        .single()
+      if (logEntry) setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
+    }
+
+    const finalValue = revisionIndices.length > 0 ? newTotal : (quoteValue ?? 0)
+    const warrantySummary = revisionIndices.length > 0
+      ? revisionIndices.map((idx) => `${updatedChecklist[idx].component}: ${updatedChecklist[idx].warranty || 'não informada'}`).join('; ')
+      : null
+
+    let pdf_url = order.pdf_url
     if (pdfFile) {
       const fileName = `${order.id}/os-${Date.now()}.pdf`
       const { error: upErr } = await supabase.storage.from('service-order-media').upload(fileName, pdfFile)
@@ -402,9 +404,10 @@ export default function ServiceOrderPanel({
     const { data: updated } = await supabase
       .from('service_orders')
       .update({
+        checklist: updatedChecklist,
         completed_services: completedServices || null,
-        warranty: warranty || null,
-        final_value: finalValue ? parseFloat(finalValue) : null,
+        warranty: warrantySummary,
+        final_value: finalValue,
         pdf_url,
         closed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -414,13 +417,22 @@ export default function ServiceOrderPanel({
       .single()
 
     if (updated) setOrder(updated as ServiceOrder)
+    setChecklist(updatedChecklist)
+
+    if (revisionIndices.length > 0) {
+      const { error: quoteErr } = await supabase
+        .from('service_requests')
+        .update({ quote_value: finalValue })
+        .eq('id', requestId)
+      if (!quoteErr) onQuoteValueChange?.(finalValue)
+    }
 
     const { data: logEntry } = await supabase
       .from('service_order_updates')
       .insert({
         service_order_id: order.id,
         action_type: 'completed',
-        message: `Reparo concluído — ${completedServices || 'serviços realizados'}. Valor: R$ ${Number(finalValue || 0).toFixed(2)}. Garantia: ${warranty || 'não informada'}.`,
+        message: `Reparo concluído — ${completedServices || 'serviços realizados'}. Valor: R$ ${Number(finalValue || 0).toFixed(2)}. Garantia: ${warrantySummary || 'não informada'}.`,
       })
       .select()
       .single()
@@ -438,7 +450,7 @@ export default function ServiceOrderPanel({
         `Seu aparelho${phoneModel ? ` *${phoneModel}*` : ''} foi reparado com sucesso! 🎉`,
         services ? `Serviços realizados: ${services}` : null,
         `Orçamento no valor de: R$ ${Number(finalValue || 0).toFixed(2)}`,
-        `Garantia do serviço: ${warranty || 'não informada'}`,
+        `Garantia do serviço: ${warrantySummary || 'não informada'}`,
         `Ordem de serviço: ${pdf_url || `${SITE_URL}/consultar?phone=${phoneDigits}`}`,
       ].filter(Boolean).join('\n')
       window.open(`https://wa.me/55${phoneDigits}?text=${encodeURIComponent(waMsg)}`, '_blank')
@@ -465,6 +477,7 @@ export default function ServiceOrderPanel({
   const updatesEditable = showTimeline && !readOnly && !order.closed_at
   const showCompletion = status === 'completed' && !readOnly && !order.closed_at
   const showClosedSummary = !!order.closed_at
+  const revisionIndices = showCompletion ? getRevisionIndices() : []
 
   // Fora dessas condições (ex: status "aceito pelo cliente"), nenhuma OS deve aparecer na tela
   if (!showChecklist && !showTimeline && !showCompletion && !showClosedSummary) return null
@@ -541,15 +554,6 @@ export default function ServiceOrderPanel({
                   )}
                 </div>
               ))}
-            </div>
-            <div>
-              <label className="label">Garantia do serviço</label>
-              <input
-                value={warranty}
-                onChange={(e) => setWarranty(e.target.value)}
-                placeholder="Ex: 90 dias"
-                className="input-field"
-              />
             </div>
             <button
               onClick={handleSaveChecklist}
@@ -675,24 +679,24 @@ export default function ServiceOrderPanel({
         <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Concluir ordem de serviço</p>
 
-          {checkedItems.length > 0 && (
+          {revisionIndices.length > 0 && (
             <div className="space-y-3 pb-3 border-b border-gray-200">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Revisar valor do orçamento</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Revisão de orçamento e garantia</p>
               <p className="text-xs text-gray-400">
-                Valor atual: R$ {Number(quoteValue ?? 0).toFixed(2)}. Informe o novo valor de cada componente reparado, com justificativa e mídia, para recalcular o orçamento total.
+                Confirme ou reprecifique o valor de cada item identificado na OS 1 e na OS 2, informe a justificativa, anexe mídia e defina a garantia.
               </p>
-              {checklist.map((item, idx) => {
-                if (!item.checked) return null
+              {revisionIndices.map((idx) => {
+                const item = checklist[idx]
                 return (
                   <div key={item.component} className="bg-white rounded-xl border border-gray-200 p-3 space-y-2">
                     <p className="text-sm font-semibold text-gray-800">{item.component}</p>
                     <div>
-                      <label className="label">Novo valor (R$)</label>
+                      <label className="label">Valor do orçamento (R$)</label>
                       <input
                         type="number"
                         step="0.01"
                         min="0"
-                        value={quoteValues[idx] ?? ''}
+                        value={quoteValues[idx] ?? (item.value != null ? String(item.value) : '')}
                         onChange={(e) => setQuoteValues((prev) => ({ ...prev, [idx]: e.target.value }))}
                         placeholder="0,00"
                         className="input-field"
@@ -703,9 +707,18 @@ export default function ServiceOrderPanel({
                       <textarea
                         value={quoteJustifications[idx] ?? ''}
                         onChange={(e) => setQuoteJustifications((prev) => ({ ...prev, [idx]: e.target.value }))}
-                        placeholder="Ex: identificada peça adicional danificada durante o reparo..."
+                        placeholder="Descreva o que foi feito/identificado neste item..."
                         rows={2}
                         className="input-field text-sm resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Garantia</label>
+                      <input
+                        value={quoteWarranties[idx] ?? (item.warranty ?? '')}
+                        onChange={(e) => setQuoteWarranties((prev) => ({ ...prev, [idx]: e.target.value }))}
+                        placeholder="Ex: 90 dias"
+                        className="input-field"
                       />
                     </div>
                     {(quoteFiles[idx]?.length ?? 0) > 0 && (
@@ -724,28 +737,12 @@ export default function ServiceOrderPanel({
                   </div>
                 )
               })}
-              {(() => {
-                const filled = checklist
-                  .map((_, idx) => idx)
-                  .filter((idx) => checklist[idx].checked && (quoteValues[idx] ?? '').trim() !== '')
-                const newTotal = filled.reduce((sum, idx) => sum + (parseFloat(quoteValues[idx]) || 0), 0)
-                const valid = filled.length > 0 && filled.every((idx) => quoteJustifications[idx]?.trim() && (quoteFiles[idx]?.length ?? 0) > 0)
-                return (
-                  <>
-                    {filled.length > 0 && (
-                      <p className="text-sm font-bold text-gray-800">Novo total: R$ {newTotal.toFixed(2)}</p>
-                    )}
-                    <button
-                      onClick={handleSaveQuoteRevision}
-                      disabled={savingQuote || !valid}
-                      className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold bg-vr-red text-white rounded-lg px-3 py-2 hover:bg-vr-red-dark transition-colors disabled:opacity-50"
-                    >
-                      {savingQuote ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                      Salvar revisão de orçamento
-                    </button>
-                  </>
-                )
-              })()}
+              <p className="text-sm font-bold text-gray-800">
+                Novo total: R$ {revisionIndices.reduce((sum, idx) => {
+                  const value = quoteValues[idx]?.trim() ? parseFloat(quoteValues[idx]) : (checklist[idx].value ?? 0)
+                  return sum + (isNaN(value) ? 0 : value)
+                }, 0).toFixed(2)}
+              </p>
             </div>
           )}
 
@@ -759,28 +756,6 @@ export default function ServiceOrderPanel({
               className="input-field resize-none"
             />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="label">Valor final (R$)</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={finalValue}
-                onChange={(e) => setFinalValue(e.target.value)}
-                className="input-field"
-              />
-            </div>
-            <div>
-              <label className="label">Garantia</label>
-              <input
-                value={warranty}
-                onChange={(e) => setWarranty(e.target.value)}
-                placeholder="Ex: 90 dias"
-                className="input-field"
-              />
-            </div>
-          </div>
           <div>
             <label className="label">Arquivo da OS (PDF) <span className="font-normal text-gray-400">(opcional)</span></label>
             <input
@@ -790,6 +765,7 @@ export default function ServiceOrderPanel({
               className="text-sm"
             />
           </div>
+          {completionError && <p className="text-xs text-red-500">{completionError}</p>}
           <button
             onClick={handleSaveCompletion}
             disabled={savingCompletion}
