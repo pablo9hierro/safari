@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { serviceRequestSchema, ServiceRequestSchema } from '@/lib/validations'
 import { createClient } from '@/lib/supabase/client'
 import { Autocomplete } from '@/components/ui'
+import DevicePicker from '@/components/DevicePicker'
 import { JOAO_PESSOA_BAIRROS } from '@/lib/joaoPessoaBairros'
 import {
   Smartphone,
@@ -206,21 +207,20 @@ export default function ServiceRequestForm() {
         </div>
       )}
 
-      {/* Step 2 – Celular */}
+      {/* Step 2 – Aparelho */}
       {step === 2 && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2 mb-1">
             <Smartphone className="w-5 h-5 text-vr-red" />
-            <h3 className="font-semibold text-gray-800">Sobre o celular</h3>
+            <h3 className="font-semibold text-gray-800">Sobre o aparelho</h3>
           </div>
           <div>
-            <label className="label">Modelo do celular</label>
-            <input
-              {...register('phone_model')}
-              placeholder="Ex: Samsung Galaxy A54, iPhone 13..."
-              className="input-field"
+            <label className="label">Aparelho</label>
+            <DevicePicker
+              value={watch('phone_model') ?? ''}
+              onChange={(val) => setValue('phone_model', val, { shouldValidate: true })}
+              error={errors.phone_model?.message}
             />
-            {errors.phone_model && <p className="error-msg">{errors.phone_model.message}</p>}
           </div>
           <div>
             <label className="label">Descreva o problema</label>
