@@ -98,7 +98,8 @@ CREATE POLICY "public_read_service_order_media" ON storage.objects
 -- ─── 8. Função RPC: busca por telefone ──────────────
 -- Usada pelo /api/consultar para comparar dígitos sem formatação.
 -- Cria ou substitui com segurança.
-CREATE OR REPLACE FUNCTION public.search_requests_by_phone(phone_digits text)
+DROP FUNCTION IF EXISTS public.search_requests_by_phone(text);
+CREATE FUNCTION public.search_requests_by_phone(phone_digits text)
 RETURNS SETOF public.service_requests
 LANGUAGE sql STABLE SECURITY DEFINER
 AS $$
