@@ -16,6 +16,7 @@ export default function WhatsAppPanel() {
   const [state, setState] = useState<WState | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
+  const [connectDebug, setConnectDebug] = useState<string | null>(null)
   const lastConnectAttempt = useRef(0)
 
   // Pede pra Evolution API gerar/renovar o QR sozinha — sem precisar abrir o Manager.
@@ -28,11 +29,14 @@ export default function WhatsAppPanel() {
       const data = await res.json().catch(() => null)
       if (!res.ok) {
         setConnectError(data?.error || `Erro ${res.status} ao conectar`)
+        setConnectDebug(null)
       } else {
         setConnectError(null)
+        setConnectDebug(JSON.stringify(data?.data ?? data).slice(0, 500))
       }
     } catch (e) {
       setConnectError(e instanceof Error ? e.message : 'Erro ao conectar WhatsApp')
+      setConnectDebug(null)
     }
   }, [])
 
@@ -134,6 +138,12 @@ export default function WhatsAppPanel() {
       {connectError && (
         <p className="text-xs text-vr-red-light mt-1 break-all">
           Erro ao conectar: {connectError}
+        </p>
+      )}
+
+      {status !== 'connected' && !state?.qr_code && connectDebug && (
+        <p className="text-[10px] text-vr-silver/30 mt-2 break-all font-mono">
+          Resposta da Evolution API (debug): {connectDebug}
         </p>
       )}
 
