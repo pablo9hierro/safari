@@ -30,3 +30,20 @@ export async function sendWhatsAppText(phone: string, text: string) {
 
   return res.json()
 }
+
+// Pede pra Evolution API (re)iniciar a conexão da instância e gerar um QR code.
+// Chamado automaticamente pelo painel quando detecta status "disconnected" — sem ação manual no Manager.
+export async function connectInstance() {
+  const { baseUrl, apiKey, instance } = getConfig()
+
+  const res = await fetch(`${baseUrl}/instance/connect/${instance}`, {
+    headers: { apikey: apiKey },
+  })
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Evolution API: falha ao conectar instância (${res.status}) ${body}`)
+  }
+
+  return res.json()
+}

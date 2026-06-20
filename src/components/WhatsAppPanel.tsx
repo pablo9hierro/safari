@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Wifi, WifiOff, RefreshCw, Smartphone } from 'lucide-react'
 
@@ -10,9 +10,24 @@ type WState = {
   updated_at: string
 }
 
+const AUTO_CONNECT_COOLDOWN_MS = 25000
+
 export default function WhatsAppPanel() {
   const [state, setState] = useState<WState | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const lastConnectAttempt = useRef(0)
+
+  // Pede pra Evolution API gerar/renovar o QR sozinha — sem precisar abrir o Manager.
+  const autoConnect = useCallback(async (force = false) => {
+    const now = Date.now()
+    if (!force && now - lastConnectAttempt.current < AUTO_CONNECT_COOLDOWN_MS) return
+    lastConnectAttempt.current = now
+    try {
+      await fetch('/api/whatsapp/connect', { method: 'POST' })
+    } catch (e) {
+      console.error('Erro ao conectar WhatsApp automaticamente:', e)
+    }
+  }, [])
 
   const load = useCallback(async () => {
     const supabase = createClient()
@@ -22,10 +37,14 @@ export default function WhatsAppPanel() {
       .eq('id', 1)
       .single()
     if (data) setState(data as WState)
-  }, [])
+
+    const currentStatus = (data as WState | null)?.status ?? 'disconnected'
+    if (currentStatus === 'disconnected') autoConnect()
+  }, [autoConnect])
 
   const manualRefresh = async () => {
     setRefreshing(true)
+    if ((state?.status ?? 'disconnected') === 'disconnected') await autoConnect(true)
     await load()
     setRefreshing(false)
   }
@@ -98,9 +117,7 @@ export default function WhatsAppPanel() {
 
       {status === 'disconnected' && !state?.qr_code && (
         <p className="text-xs text-vr-silver/40 mt-1">
-          {state
-            ? 'Instância desconectada na Evolution API. Reconecte e escaneie o QR.'
-            : 'Aguardando conexão com a Evolution API...'}
+          Conectando à Evolution API automaticamente... o QR aparece aqui em poucos segundos.
         </p>
       )}
 
