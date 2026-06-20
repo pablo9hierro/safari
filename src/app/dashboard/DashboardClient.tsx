@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { ServiceRequest, ServiceStatus } from '@/lib/types'
 import {
   Smartphone,
@@ -9,14 +8,11 @@ import {
   Clock,
   CheckCircle,
   Wrench,
-  LogOut,
   ChevronRight,
   Package,
 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import RequestDetailModal from '@/components/RequestDetailModal'
 import WhatsAppPanel from '@/components/WhatsAppPanel'
-import Logo from '@/components/ui/Logo'
 
 const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: string }> = {
   pending:        { label: 'Pendente',                     color: 'text-yellow-700', bg: 'bg-yellow-100' },
@@ -51,15 +47,8 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
   const [requests, setRequests] = useState<ServiceRequest[]>(initialRequests)
   const [filter, setFilter] = useState<ServiceStatus | 'all'>('all')
   const [selected, setSelected] = useState<ServiceRequest | null>(null)
-  const router = useRouter()
 
   const filtered = filter === 'all' ? requests : requests.filter((r) => r.status === filter)
-
-  const handleLogout = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
 
   const handleUpdate = (updated: ServiceRequest) => {
     setRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
@@ -73,20 +62,9 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
   }
 
   return (
-    <div className="min-h-screen bg-vr-black">
-      {/* Top bar */}
-      <header className="bg-vr-graphite border-b border-white/5 px-4 py-4 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-2">
-          <Logo size="sm" />
-          <span className="text-vr-silver/40 text-sm hidden sm:inline">— Dashboard</span>
-        </div>
-        <button onClick={handleLogout} className="flex items-center gap-1.5 text-vr-silver/70 hover:text-vr-red text-sm transition-colors">
-          <LogOut className="w-4 h-4" />
-          Sair
-        </button>
-      </header>
-
+    <>
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        <h1 className="text-lg font-bold text-white">Solicitações</h1>
         <WhatsAppPanel />
 
         {/* Stats */}
@@ -184,6 +162,6 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
           onUpdate={handleUpdate}
         />
       )}
-    </div>
+    </>
   )
 }

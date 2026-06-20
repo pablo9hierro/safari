@@ -21,6 +21,8 @@ import {
   ShieldCheck,
   Eye,
   Download,
+  RotateCcw,
+  AlertTriangle,
 } from 'lucide-react'
 
 const ACTIVE_STATUSES: ServiceStatus[] = [
@@ -140,6 +142,7 @@ const ACTION_LABELS: Record<string, { label: string; icon: React.ReactNode }> = 
   checklist_update: { label: 'Checklist atualizado', icon: <Wrench className="w-4 h-4" /> },
   update: { label: 'Atualização', icon: <Wrench className="w-4 h-4" /> },
   completed: { label: 'Reparo concluído', icon: <PackageCheck className="w-4 h-4" /> },
+  reopened: { label: 'OS reaberta', icon: <RotateCcw className="w-4 h-4" /> },
 }
 
 export default function ServiceOrderPanel({
@@ -176,6 +179,8 @@ export default function ServiceOrderPanel({
   const [completionError, setCompletionError] = useState<string | null>(null)
   const [generatingPdf, setGeneratingPdf] = useState(false)
   const [pdfError, setPdfError] = useState<string | null>(null)
+  const [confirmingReopen, setConfirmingReopen] = useState(false)
+  const [reopening, setReopening] = useState(false)
 
   const [quoteValues, setQuoteValues] = useState<Record<number, string>>({})
   const [quoteJustifications, setQuoteJustifications] = useState<Record<number, string>>({})
@@ -515,6 +520,32 @@ export default function ServiceOrderPanel({
     setGeneratingPdf(false)
   }
 
+  // Reabre uma OS já concluída para que o admin possa atualizar checklist, valores e gerar uma nova OS.
+  const handleReopen = async () => {
+    if (!order) return
+    setReopening(true)
+    const supabase = createClient()
+
+    const { data: updated } = await supabase
+      .from('service_orders')
+      .update({ closed_at: null, updated_at: new Date().toISOString() })
+      .eq('id', order.id)
+      .select()
+      .single()
+
+    if (updated) setOrder(updated as ServiceOrder)
+
+    const { data: logEntry } = await supabase
+      .from('service_order_updates')
+      .insert({ service_order_id: order.id, action_type: 'reopened', message: 'Ordem de serviço reaberta para atualização' })
+      .select()
+      .single()
+    if (logEntry) setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
+
+    setConfirmingReopen(false)
+    setReopening(false)
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-6 text-gray-400">
@@ -531,7 +562,9 @@ export default function ServiceOrderPanel({
   const showTimeline = status === 'in_progress' && checklistSubmitted
   const checklistEditable = showChecklist && !readOnly
   const updatesEditable = showTimeline && !readOnly && !order.closed_at
-  const showCompletion = status === 'completed' && !readOnly && !order.closed_at
+  // Cobre tanto a conclusão original (status 'completed') quanto uma OS reaberta depois
+  // que o atendimento já avançou para uma etapa posterior (entrega, finalizado etc.).
+  const showCompletion = !readOnly && !order.closed_at && checklistSubmitted && !showTimeline
   const showClosedSummary = !!order.closed_at
   const revisionIndices = showCompletion ? getRevisionIndices() : []
 
@@ -860,6 +893,47 @@ export default function ServiceOrderPanel({
                 Gerar PDF da OS
               </button>
               {pdfError && <p className="text-xs text-red-500">{pdfError}</p>}
+            </div>
+          )}
+
+          {!readOnly && (
+            <div className="pt-2 mt-1 border-t border-green-100">
+              {confirmingReopen ? (
+                <div className="bg-white border border-amber-200 rounded-xl p-3 space-y-2">
+                  <p className="text-xs text-amber-700 flex items-start gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                    Reabrir a OS libera o formulário de conclusão para edição. O PDF atual continuará acessível até que um novo seja gerado.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleReopen}
+                      disabled={reopening}
+                      className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold bg-amber-500 text-white rounded-lg px-3 py-2 hover:bg-amber-600 transition-colors disabled:opacity-50"
+                    >
+                      {reopening ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                      Confirmar reabertura
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingReopen(false)}
+                      disabled={reopening}
+                      className="text-xs font-semibold text-gray-500 hover:text-gray-700 px-3 py-2"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingReopen(true)}
+                  className="text-sm text-gray-500 hover:text-amber-600 font-semibold flex items-center gap-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Reabrir ordem de serviço
+                </button>
+              )}
             </div>
           )}
         </div>

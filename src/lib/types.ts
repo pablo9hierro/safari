@@ -59,6 +59,7 @@ export type ServiceOrderActionType =
   | 'checklist_update'
   | 'update'
   | 'completed'
+  | 'reopened'
 
 export interface ServiceOrderUpdate {
   id: string
@@ -81,4 +82,27 @@ export interface ServiceOrder {
   pdf_url: string | null
   closed_at: string | null
   service_order_updates?: ServiceOrderUpdate[]
+}
+
+export type StockUnit = 'unidade' | 'caixa'
+export type StockMovementType = 'entrada' | 'saida'
+
+export interface StockItem {
+  id: string
+  name: string
+  unit: StockUnit
+  quantity: number
+  created_at: string
+  updated_at: string
+}
+
+export interface StockMovement {
+  id: string
+  item_id: string
+  type: StockMovementType
+  quantity: number
+  unit: StockUnit
+  moved_at: string
+  created_at: string
+  stock_items?: { name: string; unit: StockUnit } | null
 }
