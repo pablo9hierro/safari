@@ -11,6 +11,25 @@ import { SITE_URL } from '@/lib/constants'
 
 const WEBHOOK_EVENTS = ['QRCODE_UPDATED', 'CONNECTION_UPDATE']
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+// A instância recém-criada às vezes ainda não está "visível" pro endpoint de
+// connect por um instante (race condition entre criar e registrar) — tenta
+// de novo algumas vezes em vez de desistir no primeiro 404.
+async function connectWithRetry(maxAttempts = 5, delayMs = 1500) {
+  let lastErr: unknown
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      return await connectInstance()
+    } catch (e) {
+      lastErr = e
+      console.error(`Tentativa ${i + 1}/${maxAttempts} de connect falhou:`, e)
+      await sleep(delayMs)
+    }
+  }
+  throw lastErr
+}
+
 // Aciona a Evolution API para (re)iniciar a conexão e gerar um QR code novo.
 // Chamado automaticamente pelo WhatsAppPanel quando o status não é "connected" —
 // não exige nenhuma ação manual no Evolution Manager.
@@ -32,6 +51,9 @@ export async function POST() {
       console.error('Delete da instância falhou (seguindo mesmo assim):', e)
     }
 
+    // Dá tempo da Evolution API processar o delete antes de criar de novo com o mesmo nome.
+    await sleep(1000)
+
     const created = await createInstance()
     console.log('Evolution API /instance/create response:', JSON.stringify(created))
 
@@ -43,12 +65,13 @@ export async function POST() {
       console.error('Configurar webhook falhou (seguindo mesmo assim):', e)
     }
 
-    // /instance/create já costuma devolver o QR direto; se não vier, pede explicitamente.
+    // /instance/create já costuma devolver o QR direto; se não vier, pede explicitamente
+    // (com retry — a instância pode levar um instante pra "aparecer" pro endpoint de connect).
     let data = created
     let base64: string | null = data?.qrcode?.base64 ?? data?.base64 ?? null
 
     if (!base64) {
-      data = await connectInstance()
+      data = await connectWithRetry()
       console.log('Evolution API /instance/connect response:', JSON.stringify(data))
       base64 = data?.base64 ?? data?.qrcode?.base64 ?? null
     }
