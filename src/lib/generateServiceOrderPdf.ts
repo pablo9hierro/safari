@@ -1,5 +1,5 @@
 import jsPDF from 'jspdf'
-import { ServiceOrderChecklistItem, ServiceRequest } from './types'
+import { ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceRequest } from './types'
 import { SITE_URL } from './constants'
 
 type RGB = readonly [number, number, number]
@@ -15,7 +15,54 @@ const BORDER: RGB = [228, 228, 231]
 const WHITE: RGB = [255, 255, 255]
 const GREEN: RGB = [22, 153, 84]
 
-export function generateServiceOrderPdf({
+const ACTION_LABELS: Record<string, string> = {
+  created: 'OS aberta',
+  checklist_update: 'Checklist de avaliação',
+  update: 'Atualização do reparo',
+  completed: 'Reparo concluído',
+  reopened: 'OS reaberta',
+}
+
+const MIME_TO_FORMAT: Record<string, string> = {
+  'image/jpeg': 'JPEG',
+  'image/jpg': 'JPEG',
+  'image/png': 'PNG',
+  'image/webp': 'WEBP',
+}
+
+function isImageUrl(url: string) {
+  return !/\.(mp4|mov|webm|m4v)$/i.test(url)
+}
+
+async function loadImage(url: string): Promise<{ dataUrl: string; width: number; height: number; format: string } | null> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    const format = MIME_TO_FORMAT[blob.type]
+    if (!format) return null
+
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+
+    const dims = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
+      img.onerror = reject
+      img.src = dataUrl
+    })
+
+    return { dataUrl, format, ...dims }
+  } catch {
+    return null
+  }
+}
+
+export async function generateServiceOrderPdf({
   request,
   orderId,
   checklist,
@@ -23,6 +70,7 @@ export function generateServiceOrderPdf({
   warranty,
   finalValue,
   closedAt,
+  updates,
 }: {
   request: ServiceRequest
   orderId: string
@@ -31,7 +79,8 @@ export function generateServiceOrderPdf({
   warranty: string | null
   finalValue: number | null
   closedAt: string
-}): Blob {
+  updates: ServiceOrderUpdate[]
+}): Promise<Blob> {
   const doc = new jsPDF()
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
@@ -47,15 +96,6 @@ export function generateServiceOrderPdf({
   const setDraw = (c: RGB) => doc.setDrawColor(c[0], c[1], c[2])
 
   // ---------- ícones vetoriais (sem emoji) ----------
-  const checkCircle = (cx: number, cy: number, r: number, bg: RGB, fg: RGB) => {
-    setFill(bg)
-    doc.circle(cx, cy, r, 'F')
-    setDraw(fg)
-    doc.setLineWidth(0.6)
-    doc.line(cx - r * 0.45, cy, cx - r * 0.05, cy + r * 0.4)
-    doc.line(cx - r * 0.05, cy + r * 0.4, cx + r * 0.5, cy - r * 0.35)
-  }
-
   const checkSquare = (x: number, top: number, size: number, bg: RGB, fg: RGB) => {
     setFill(bg)
     doc.roundedRect(x, top, size, size, size * 0.25, size * 0.25, 'F')
@@ -69,6 +109,17 @@ export function generateServiceOrderPdf({
     setFill(color)
     doc.roundedRect(x, top, w, h * 0.6, w * 0.18, w * 0.18, 'F')
     doc.triangle(x, top + h * 0.5, x + w, top + h * 0.5, x + w / 2, top + h, 'F')
+  }
+
+  const clockIcon = (x: number, top: number, size: number, color: RGB) => {
+    const cx = x + size / 2
+    const cy = top + size / 2
+    const r = size / 2
+    setDraw(color)
+    doc.setLineWidth(0.45)
+    doc.circle(cx, cy, r, 'S')
+    doc.line(cx, cy, cx, cy - r * 0.55)
+    doc.line(cx, cy, cx + r * 0.4, cy)
   }
 
   // ---------- layout helpers ----------
@@ -289,6 +340,81 @@ export function generateServiceOrderPdf({
     ensureSpace(lines.length * 5.4 + 4)
     doc.text(lines, marginX, y)
     y += lines.length * 5.4 + 6
+  }
+
+  // =====================================================
+  // Acompanhamento e atualizações da OS (formulário 2 + histórico)
+  // =====================================================
+  const timelineEntries = updates
+    .filter((u) => u.action_type !== 'created')
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))
+
+  if (timelineEntries.length > 0) {
+    sectionTitle('Acompanhamento e atualizações da OS')
+
+    const THUMB_MAX = 26
+    const THUMB_GAP = 3
+    const MAX_THUMBS = 4
+
+    for (const entry of timelineEntries) {
+      const label = ACTION_LABELS[entry.action_type] ?? entry.action_type
+      const messageLines = entry.message ? doc.splitTextToSize(entry.message, contentWidth) : []
+
+      ensureSpace(10 + messageLines.length * 4.6)
+
+      clockIcon(marginX, y - 3, 3.6, VR_RED)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8.5)
+      setText(DARK)
+      doc.text(label, marginX + 6, y)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7.8)
+      setText(GRAY)
+      doc.text(new Date(entry.created_at).toLocaleString('pt-BR'), pageWidth - marginX, y, { align: 'right' })
+      y += 5
+
+      if (messageLines.length > 0) {
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(9)
+        setText(DARK)
+        ensureSpace(messageLines.length * 4.6)
+        doc.text(messageLines, marginX + 6, y)
+        y += messageLines.length * 4.6 + 1
+      }
+
+      const imageUrls = (entry.media_urls ?? []).filter(isImageUrl).slice(0, MAX_THUMBS)
+      if (imageUrls.length > 0) {
+        const images = (await Promise.all(imageUrls.map((url) => loadImage(url)))).filter(Boolean) as Array<{
+          dataUrl: string
+          width: number
+          height: number
+          format: string
+        }>
+
+        if (images.length > 0) {
+          ensureSpace(THUMB_MAX + 3)
+          let cursorX = marginX + 6
+          for (const img of images) {
+            const scale = Math.min(THUMB_MAX / img.width, THUMB_MAX / img.height, 1)
+            const w = img.width * scale
+            const h = img.height * scale
+            doc.addImage(img.dataUrl, img.format, cursorX, y, w, h)
+            setDraw(BORDER)
+            doc.setLineWidth(0.25)
+            doc.rect(cursorX, y, w, h, 'S')
+            cursorX += THUMB_MAX + THUMB_GAP
+          }
+          y += THUMB_MAX + 3
+        }
+      }
+
+      setDraw(BORDER)
+      doc.setLineWidth(0.2)
+      doc.line(marginX, y, pageWidth - marginX, y)
+      y += 5
+    }
+
+    y += 2
   }
 
   // =====================================================

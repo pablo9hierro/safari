@@ -180,6 +180,7 @@ export default function ServiceOrderPanel({
   const [generatingPdf, setGeneratingPdf] = useState(false)
   const [pdfError, setPdfError] = useState<string | null>(null)
   const [confirmingReopen, setConfirmingReopen] = useState(false)
+  const [reopenReason, setReopenReason] = useState('')
   const [reopening, setReopening] = useState(false)
 
   const [quoteValues, setQuoteValues] = useState<Record<number, string>>({})
@@ -374,8 +375,8 @@ export default function ServiceOrderPanel({
 
     const revisionIndices = getRevisionIndices()
     for (const idx of revisionIndices) {
-      if (!quoteJustifications[idx]?.trim() || !(quoteFiles[idx]?.length)) {
-        setCompletionError(`Preencha a justificativa e anexe uma mídia para "${checklist[idx].component}" na revisão de orçamento e garantia.`)
+      if (!quoteJustifications[idx]?.trim()) {
+        setCompletionError(`Preencha a justificativa para "${checklist[idx].component}" na revisão de orçamento e garantia.`)
         return
       }
     }
@@ -384,12 +385,14 @@ export default function ServiceOrderPanel({
     const supabase = createClient()
 
     const updatedChecklist = [...checklist]
+    const allUpdatesSoFar = [...updates]
     let newTotal = 0
 
     for (const idx of revisionIndices) {
       const item = checklist[idx]
       const value = quoteValues[idx]?.trim() ? parseFloat(quoteValues[idx]) : (item.value ?? 0)
-      const itemWarranty = quoteWarranties[idx]?.trim() || null
+      const rawWarranty = quoteWarranties[idx]?.trim()
+      const itemWarranty = rawWarranty ? `${rawWarranty} dias` : null
       newTotal += value
       const mediaUrls = await uploadMedia(supabase, order.id, quoteFiles[idx] ?? [], `quote-${idx}`)
       updatedChecklist[idx] = {
@@ -410,7 +413,10 @@ export default function ServiceOrderPanel({
         })
         .select()
         .single()
-      if (logEntry) setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
+      if (logEntry) {
+        setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
+        allUpdatesSoFar.push(logEntry as ServiceOrderUpdate)
+      }
     }
 
     const finalValue = revisionIndices.length > 0 ? newTotal : (quoteValue ?? 0)
@@ -421,7 +427,7 @@ export default function ServiceOrderPanel({
     const closedAt = new Date().toISOString()
     let pdf_url: string | null = null
     try {
-      const pdfBlob = generateServiceOrderPdf({
+      const pdfBlob = await generateServiceOrderPdf({
         request,
         orderId: order.id,
         checklist: updatedChecklist,
@@ -429,6 +435,7 @@ export default function ServiceOrderPanel({
         warranty: warrantySummary,
         finalValue,
         closedAt,
+        updates: allUpdatesSoFar,
       })
       pdf_url = await uploadPdf(supabase, order.id, pdfBlob)
       if (!pdf_url) setPdfError('Não foi possível salvar o PDF no servidor. Tente gerar novamente abaixo.')
@@ -492,7 +499,7 @@ export default function ServiceOrderPanel({
     setPdfError(null)
     try {
       const supabase = createClient()
-      const pdfBlob = generateServiceOrderPdf({
+      const pdfBlob = await generateServiceOrderPdf({
         request,
         orderId: order.id,
         checklist: order.checklist,
@@ -500,6 +507,7 @@ export default function ServiceOrderPanel({
         warranty: order.warranty,
         finalValue: order.final_value,
         closedAt: order.closed_at,
+        updates,
       })
       const pdf_url = await uploadPdf(supabase, order.id, pdfBlob)
       if (pdf_url) {
@@ -522,7 +530,7 @@ export default function ServiceOrderPanel({
 
   // Reabre uma OS já concluída para que o admin possa atualizar checklist, valores e gerar uma nova OS.
   const handleReopen = async () => {
-    if (!order) return
+    if (!order || !reopenReason.trim()) return
     setReopening(true)
     const supabase = createClient()
 
@@ -537,12 +545,13 @@ export default function ServiceOrderPanel({
 
     const { data: logEntry } = await supabase
       .from('service_order_updates')
-      .insert({ service_order_id: order.id, action_type: 'reopened', message: 'Ordem de serviço reaberta para atualização' })
+      .insert({ service_order_id: order.id, action_type: 'reopened', message: `Motivo da reabertura: ${reopenReason.trim()}` })
       .select()
       .single()
     if (logEntry) setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
 
     setConfirmingReopen(false)
+    setReopenReason('')
     setReopening(false)
   }
 
@@ -558,13 +567,15 @@ export default function ServiceOrderPanel({
 
   const checkedItems = checklist.filter((i) => i.checked)
   const checklistSubmitted = updates.some((u) => u.action_type === 'checklist_update')
+  const everCompleted = updates.some((u) => u.action_type === 'completed')
   const showChecklist = status === 'in_progress' && !checklistSubmitted
-  const showTimeline = status === 'in_progress' && checklistSubmitted
+  // Depois que a OS já foi concluída ao menos uma vez, reabrir libera tanto o
+  // acompanhamento (OS 2) quanto a conclusão/garantia (OS 3) juntos, em sequência,
+  // independente do status atual da solicitação (que pode já ter avançado).
+  const showTimeline = checklistSubmitted && !order.closed_at && (status === 'in_progress' || everCompleted)
   const checklistEditable = showChecklist && !readOnly
-  const updatesEditable = showTimeline && !readOnly && !order.closed_at
-  // Cobre tanto a conclusão original (status 'completed') quanto uma OS reaberta depois
-  // que o atendimento já avançou para uma etapa posterior (entrega, finalizado etc.).
-  const showCompletion = !readOnly && !order.closed_at && checklistSubmitted && !showTimeline
+  const updatesEditable = showTimeline && !readOnly
+  const showCompletion = !readOnly && !order.closed_at && checklistSubmitted && (status === 'completed' || everCompleted)
   const showClosedSummary = !!order.closed_at
   const revisionIndices = showCompletion ? getRevisionIndices() : []
 
@@ -772,7 +783,7 @@ export default function ServiceOrderPanel({
             <div className="space-y-3 pb-3 border-b border-gray-200">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Revisão de orçamento e garantia</p>
               <p className="text-xs text-gray-400">
-                Confirme ou reprecifique o valor de cada item identificado na OS 1 e na OS 2, informe a justificativa, anexe mídia e defina a garantia.
+                Confirme ou reprecifique o valor de cada item identificado na OS 1 e na OS 2, informe a justificativa e defina a garantia (o anexo de mídia é opcional).
               </p>
               {revisionIndices.map((idx) => {
                 const item = checklist[idx]
@@ -802,13 +813,19 @@ export default function ServiceOrderPanel({
                       />
                     </div>
                     <div>
-                      <label className="label">Garantia</label>
-                      <input
-                        value={quoteWarranties[idx] ?? (item.warranty ?? '')}
-                        onChange={(e) => setQuoteWarranties((prev) => ({ ...prev, [idx]: e.target.value }))}
-                        placeholder="Ex: 90 dias"
-                        className="input-field"
-                      />
+                      <label className="label">Garantia (dias)</label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={quoteWarranties[idx] ?? (item.warranty ? item.warranty.replace(/\D/g, '') : '')}
+                          onChange={(e) => setQuoteWarranties((prev) => ({ ...prev, [idx]: e.target.value }))}
+                          placeholder="Ex: 90"
+                          className="input-field pr-12"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-medium">dias</span>
+                      </div>
                     </div>
                     {(quoteFiles[idx]?.length ?? 0) > 0 && (
                       <div className="flex flex-wrap gap-2">
@@ -902,13 +919,23 @@ export default function ServiceOrderPanel({
                 <div className="bg-white border border-amber-200 rounded-xl p-3 space-y-2">
                   <p className="text-xs text-amber-700 flex items-start gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                    Reabrir a OS libera o formulário de conclusão para edição. O PDF atual continuará acessível até que um novo seja gerado.
+                    Reabrir a OS libera o acompanhamento (OS 2) e a conclusão/garantia para edição. O PDF atual continuará acessível até que um novo seja gerado.
                   </p>
+                  <div>
+                    <label className="label">Motivo da reabertura *</label>
+                    <textarea
+                      value={reopenReason}
+                      onChange={(e) => setReopenReason(e.target.value)}
+                      placeholder="Descreva por que esta OS está sendo reaberta..."
+                      rows={2}
+                      className="input-field text-sm resize-none"
+                    />
+                  </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={handleReopen}
-                      disabled={reopening}
+                      disabled={reopening || !reopenReason.trim()}
                       className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold bg-amber-500 text-white rounded-lg px-3 py-2 hover:bg-amber-600 transition-colors disabled:opacity-50"
                     >
                       {reopening ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
@@ -916,7 +943,7 @@ export default function ServiceOrderPanel({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setConfirmingReopen(false)}
+                      onClick={() => { setConfirmingReopen(false); setReopenReason('') }}
                       disabled={reopening}
                       className="text-xs font-semibold text-gray-500 hover:text-gray-700 px-3 py-2"
                     >

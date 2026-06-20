@@ -2,13 +2,8 @@
 
 import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { StockItem, StockMovement, StockMovementType, StockUnit } from '@/lib/types'
-import { Boxes, ArrowDownCircle, ArrowUpCircle, Loader2, Search, X } from 'lucide-react'
-
-function toDatetimeLocalValue(date: Date) {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
+import { StockItem, StockMovement, StockUnit } from '@/lib/types'
+import { Boxes, ArrowDownCircle, ArrowUpCircle, Loader2, Search, X, Pencil, Trash2 } from 'lucide-react'
 
 export default function EstoqueClient({
   initialItems,
@@ -20,100 +15,176 @@ export default function EstoqueClient({
   const [items, setItems] = useState<StockItem[]>(initialItems)
   const [movements, setMovements] = useState<StockMovement[]>(initialMovements)
 
-  const [name, setName] = useState('')
-  const [selectedItem, setSelectedItem] = useState<StockItem | null>(null)
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const [type, setType] = useState<StockMovementType>('entrada')
-  const [quantity, setQuantity] = useState('')
-  const [unit, setUnit] = useState<StockUnit>('unidade')
-  const [movedAt, setMovedAt] = useState(() => toDatetimeLocalValue(new Date()))
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Cadastro de item novo — só nome + quantidade (+ unidade). Sem busca, sem timestamp manual.
+  const [newName, setNewName] = useState('')
+  const [newQuantity, setNewQuantity] = useState('')
+  const [newUnit, setNewUnit] = useState<StockUnit>('unidade')
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
-  const suggestions = useMemo(() => {
-    const q = name.trim().toLowerCase()
-    if (!q || selectedItem?.name.toLowerCase() === q) return []
-    return items.filter((i) => i.name.toLowerCase().includes(q)).slice(0, 6)
-  }, [name, items, selectedItem])
+  // Busca sobre os itens já cadastrados
+  const [searchQuery, setSearchQuery] = useState('')
 
-  const handleNameChange = (value: string) => {
-    setName(value)
-    setShowSuggestions(true)
-    if (selectedItem && value !== selectedItem.name) setSelectedItem(null)
-  }
+  // Popup de ações do item selecionado
+  const [actionsItem, setActionsItem] = useState<StockItem | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
-  const handlePickSuggestion = (item: StockItem) => {
-    setSelectedItem(item)
-    setName(item.name)
-    setUnit(item.unit)
-    setShowSuggestions(false)
-  }
+  // Popup de edição
+  const [editItem, setEditItem] = useState<StockItem | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editQuantity, setEditQuantity] = useState('')
+  const [editUnit, setEditUnit] = useState<StockUnit>('unidade')
+  const [editError, setEditError] = useState<string | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
 
-  const resetForm = () => {
-    setName('')
-    setSelectedItem(null)
-    setQuantity('')
-    setUnit('unidade')
-    setType('entrada')
-    setMovedAt(toDatetimeLocalValue(new Date()))
-  }
+  // Popup de registrar saída
+  const [exitItem, setExitItem] = useState<StockItem | null>(null)
+  const [exitQuantity, setExitQuantity] = useState('')
+  const [exitError, setExitError] = useState<string | null>(null)
+  const [savingExit, setSavingExit] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return items
+    return items.filter((i) => i.name.toLowerCase().includes(q))
+  }, [items, searchQuery])
+
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError(null)
+    setCreateError(null)
 
-    const trimmedName = name.trim()
-    const qty = parseFloat(quantity)
-    if (!trimmedName) { setError('Informe o nome do item.'); return }
-    if (!quantity || isNaN(qty) || qty <= 0) { setError('Informe uma quantidade válida.'); return }
-    if (!movedAt) { setError('Informe a data/hora da movimentação.'); return }
+    const trimmedName = newName.trim()
+    const qty = parseFloat(newQuantity)
+    if (!trimmedName) { setCreateError('Informe o nome do item.'); return }
+    if (!newQuantity || isNaN(qty) || qty < 0) { setCreateError('Informe uma quantidade válida.'); return }
 
-    setSaving(true)
+    setCreating(true)
     const supabase = createClient()
-
-    let item = selectedItem
-    if (!item) {
-      const { data: created, error: createErr } = await supabase
-        .from('stock_items')
-        .insert({ name: trimmedName, unit, quantity: 0 })
-        .select()
-        .single()
-      if (createErr || !created) {
-        setError(
-          createErr?.code === '23505'
-            ? 'Já existe um item com este nome — selecione-o na lista de sugestões.'
-            : 'Não foi possível cadastrar o item.'
-        )
-        setSaving(false)
-        return
-      }
-      item = created as StockItem
-      setItems((prev) => [...prev, item as StockItem].sort((a, b) => a.name.localeCompare(b.name)))
-    }
-
-    const movedAtIso = new Date(movedAt).toISOString()
-    const { data: movement, error: moveErr } = await supabase
-      .from('stock_movements')
-      .insert({ item_id: item.id, type, quantity: qty, unit: item.unit, moved_at: movedAtIso })
+    const { data: created, error } = await supabase
+      .from('stock_items')
+      .insert({ name: trimmedName, quantity: qty, unit: newUnit })
       .select()
       .single()
 
-    if (moveErr || !movement) {
-      setError('Não foi possível registrar a movimentação.')
-      setSaving(false)
+    if (error || !created) {
+      setCreateError(error?.code === '23505' ? 'Já existe um item com este nome.' : 'Não foi possível cadastrar o item.')
+      setCreating(false)
       return
     }
 
-    const delta = type === 'entrada' ? qty : -qty
-    const closedItem = item
-    setItems((prev) => prev.map((i) => (i.id === closedItem.id ? { ...i, quantity: Number(i.quantity) + delta } : i)))
+    setItems((prev) => [...prev, created as StockItem].sort((a, b) => a.name.localeCompare(b.name)))
+    setNewName('')
+    setNewQuantity('')
+    setNewUnit('unidade')
+    setCreating(false)
+  }
+
+  const openActions = (item: StockItem) => {
+    setActionsItem(item)
+    setConfirmingDelete(false)
+  }
+
+  const closeActions = () => {
+    setActionsItem(null)
+    setConfirmingDelete(false)
+  }
+
+  const openEdit = (item: StockItem) => {
+    setEditItem(item)
+    setEditName(item.name)
+    setEditQuantity(String(Number(item.quantity)))
+    setEditUnit(item.unit)
+    setEditError(null)
+  }
+
+  const closeEdit = () => setEditItem(null)
+
+  const handleSaveEdit = async () => {
+    if (!editItem) return
+    setEditError(null)
+
+    const trimmedName = editName.trim()
+    const qty = parseFloat(editQuantity)
+    if (!trimmedName) { setEditError('Informe o nome do item.'); return }
+    if (!editQuantity || isNaN(qty) || qty < 0) { setEditError('Informe uma quantidade válida.'); return }
+
+    setSavingEdit(true)
+    const supabase = createClient()
+    const { data: updated, error } = await supabase
+      .from('stock_items')
+      .update({ name: trimmedName, quantity: qty, unit: editUnit, updated_at: new Date().toISOString() })
+      .eq('id', editItem.id)
+      .select()
+      .single()
+
+    if (error || !updated) {
+      setEditError(error?.code === '23505' ? 'Já existe outro item com este nome.' : 'Não foi possível salvar as alterações.')
+      setSavingEdit(false)
+      return
+    }
+
+    setItems((prev) => prev.map((i) => (i.id === editItem.id ? (updated as StockItem) : i)).sort((a, b) => a.name.localeCompare(b.name)))
+    setSavingEdit(false)
+    setEditItem(null)
+  }
+
+  const openExit = (item: StockItem) => {
+    setExitItem(item)
+    setExitQuantity('')
+    setExitError(null)
+  }
+
+  const closeExit = () => setExitItem(null)
+
+  const handleRegisterExit = async () => {
+    if (!exitItem) return
+    setExitError(null)
+
+    const qty = parseFloat(exitQuantity)
+    if (!exitQuantity || isNaN(qty) || qty <= 0) { setExitError('Informe uma quantidade válida.'); return }
+    if (qty > Number(exitItem.quantity)) { setExitError('Quantidade maior que o estoque disponível.'); return }
+
+    setSavingExit(true)
+    const supabase = createClient()
+    const { data: movement, error } = await supabase
+      .from('stock_movements')
+      .insert({ item_id: exitItem.id, type: 'saida', quantity: qty, unit: exitItem.unit })
+      .select()
+      .single()
+
+    if (error || !movement) {
+      setExitError('Não foi possível registrar a saída.')
+      setSavingExit(false)
+      return
+    }
+
+    const itemId = exitItem.id
+    setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, quantity: Number(i.quantity) - qty } : i)))
     setMovements((prev) => [
-      { ...(movement as StockMovement), stock_items: { name: closedItem.name, unit: closedItem.unit } },
+      { ...(movement as StockMovement), stock_items: { name: exitItem.name, unit: exitItem.unit } },
       ...prev,
     ])
+    setSavingExit(false)
+    setExitItem(null)
+  }
 
-    resetForm()
-    setSaving(false)
+  const handleDelete = async () => {
+    if (!actionsItem) return
+    setDeleting(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('stock_items').delete().eq('id', actionsItem.id)
+
+    if (error) {
+      setDeleting(false)
+      return
+    }
+
+    const itemId = actionsItem.id
+    setItems((prev) => prev.filter((i) => i.id !== itemId))
+    setMovements((prev) => prev.filter((m) => m.item_id !== itemId))
+    setDeleting(false)
+    closeActions()
   }
 
   return (
@@ -123,60 +194,27 @@ export default function EstoqueClient({
         Controle de estoque
       </h1>
 
-      <form onSubmit={handleSubmit} className="bg-vr-graphite rounded-2xl border border-white/5 p-4 space-y-3">
-        <div className="relative">
+      {/* Cadastrar item */}
+      <form onSubmit={handleCreate} className="bg-vr-graphite rounded-2xl border border-white/5 p-4 space-y-3">
+        <p className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Cadastrar item</p>
+        <div>
           <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Nome do item *</label>
-          <div className="relative mt-1">
-            <Search className="w-4 h-4 text-vr-silver/40 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              value={name}
-              onChange={(e) => handleNameChange(e.target.value)}
-              onFocus={() => setShowSuggestions(true)}
-              onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-              placeholder="Buscar ou cadastrar item..."
-              className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
-            />
-          </div>
-          {showSuggestions && suggestions.length > 0 && (
-            <ul className="absolute z-10 mt-1 w-full bg-vr-graphite-light border border-white/10 rounded-xl overflow-hidden shadow-lg">
-              {suggestions.map((s) => (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handlePickSuggestion(s)}
-                    className="w-full text-left px-3 py-2 text-sm text-white hover:bg-vr-red/20 flex items-center justify-between gap-2"
-                  >
-                    <span className="truncate">{s.name}</span>
-                    <span className="text-xs text-vr-silver/50 flex-shrink-0">{Number(s.quantity)} {s.unit}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {selectedItem && (
-            <p className="text-xs text-vr-silver/50 mt-1.5 flex items-center gap-1.5">
-              Atualizando item existente — estoque atual: {Number(selectedItem.quantity)} {selectedItem.unit}
-              <button
-                type="button"
-                onClick={() => { setSelectedItem(null); setName('') }}
-                className="text-vr-red hover:text-vr-red-light"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </p>
-          )}
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Ex: Tela iPhone 12"
+            className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
+          />
         </div>
-
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Quantidade *</label>
             <input
               type="number"
               step="0.01"
-              min="0.01"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
+              min="0"
+              value={newQuantity}
+              onChange={(e) => setNewQuantity(e.target.value)}
               placeholder="0"
               className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
             />
@@ -184,10 +222,9 @@ export default function EstoqueClient({
           <div>
             <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Unidade *</label>
             <select
-              value={selectedItem ? selectedItem.unit : unit}
-              onChange={(e) => setUnit(e.target.value as StockUnit)}
-              disabled={!!selectedItem}
-              className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red disabled:opacity-60"
+              value={newUnit}
+              onChange={(e) => setNewUnit(e.target.value as StockUnit)}
+              className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red"
             >
               <option value="unidade">Unidade</option>
               <option value="caixa">Caixa</option>
@@ -195,60 +232,54 @@ export default function EstoqueClient({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Movimentação *</label>
-            <div className="flex gap-2 mt-1">
-              <button
-                type="button"
-                onClick={() => setType('entrada')}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-colors
-                  ${type === 'entrada' ? 'bg-green-600 text-white' : 'bg-vr-black border border-white/10 text-vr-silver/60'}`}
-              >
-                <ArrowDownCircle className="w-4 h-4" />
-                Entrada
-              </button>
-              <button
-                type="button"
-                onClick={() => setType('saida')}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-colors
-                  ${type === 'saida' ? 'bg-vr-red text-white' : 'bg-vr-black border border-white/10 text-vr-silver/60'}`}
-              >
-                <ArrowUpCircle className="w-4 h-4" />
-                Saída
-              </button>
-            </div>
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Data/hora *</label>
-            <input
-              type="datetime-local"
-              value={movedAt}
-              onChange={(e) => setMovedAt(e.target.value)}
-              className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red"
-            />
-          </div>
-        </div>
+        {createError && <p className="text-xs text-red-400">{createError}</p>}
 
-        {error && <p className="text-xs text-red-400">{error}</p>}
-
-        <button type="submit" disabled={saving} className="btn-primary w-full flex items-center justify-center gap-2">
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Boxes className="w-4 h-4" />}
-          Registrar movimentação
+        <button type="submit" disabled={creating} className="btn-primary w-full flex items-center justify-center gap-2">
+          {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Boxes className="w-4 h-4" />}
+          Cadastrar item
         </button>
       </form>
 
+      {/* Busca + lista de itens */}
       <div className="space-y-2">
         <h2 className="text-xs font-bold text-vr-silver/50 uppercase tracking-wider">Itens em estoque ({items.length})</h2>
-        {items.length === 0 ? (
-          <p className="text-sm text-vr-silver/40">Nenhum item cadastrado ainda.</p>
+        <div className="relative">
+          <Search className="w-4 h-4 text-vr-silver/40 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Buscar item cadastrado..."
+            className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
+          />
+        </div>
+
+        {filteredItems.length === 0 ? (
+          <p className="text-sm text-vr-silver/40">
+            {items.length === 0 ? 'Nenhum item cadastrado ainda.' : 'Nenhum item encontrado para essa busca.'}
+          </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {items.map((item) => (
-              <div key={item.id} className="bg-vr-graphite rounded-xl border border-white/5 px-4 py-3 flex items-center justify-between gap-2">
+            {filteredItems.map((item) => (
+              <div
+                key={item.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => openActions(item)}
+                onKeyDown={(e) => { if (e.key === 'Enter') openActions(item) }}
+                className="bg-vr-graphite rounded-xl border border-white/5 px-4 py-3 flex items-center justify-between gap-2 cursor-pointer hover:border-vr-red/30 transition-colors"
+              >
                 <span className="text-sm text-white truncate">{item.name}</span>
-                <span className={`text-sm font-bold flex-shrink-0 ${Number(item.quantity) <= 0 ? 'text-red-400' : 'text-vr-silver'}`}>
-                  {Number(item.quantity)} {item.unit}
+                <span className="flex items-center gap-2 flex-shrink-0">
+                  <span className={`text-sm font-bold ${Number(item.quantity) <= 0 ? 'text-red-400' : 'text-vr-silver'}`}>
+                    {Number(item.quantity)} {item.unit}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); openEdit(item) }}
+                    className="text-vr-silver/40 hover:text-vr-red transition-colors p-1"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
                 </span>
               </div>
             ))}
@@ -256,6 +287,7 @@ export default function EstoqueClient({
         )}
       </div>
 
+      {/* Últimas movimentações */}
       <div className="space-y-2">
         <h2 className="text-xs font-bold text-vr-silver/50 uppercase tracking-wider">Últimas movimentações</h2>
         {movements.length === 0 ? (
@@ -285,6 +317,187 @@ export default function EstoqueClient({
           </ul>
         )}
       </div>
+
+      {/* Popup: ações do item */}
+      {actionsItem && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={closeActions}
+        >
+          <div
+            className="bg-vr-graphite w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl border border-white/10 p-5 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-white truncate">{actionsItem.name}</h3>
+                <p className="text-xs text-vr-silver/50">Estoque atual: {Number(actionsItem.quantity)} {actionsItem.unit}</p>
+              </div>
+              <button onClick={closeActions} className="text-vr-silver/50 hover:text-white flex-shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {confirmingDelete ? (
+              <div className="bg-vr-black border border-red-500/30 rounded-xl p-3 space-y-2">
+                <p className="text-xs text-red-400">Tem certeza que deseja excluir este item? Essa ação não pode ser desfeita.</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg px-3 py-2 disabled:opacity-50"
+                  >
+                    {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                    Confirmar exclusão
+                  </button>
+                  <button
+                    onClick={() => setConfirmingDelete(false)}
+                    disabled={deleting}
+                    className="text-xs font-semibold text-vr-silver/60 hover:text-white px-3 py-2"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <button
+                  onClick={() => { openExit(actionsItem); closeActions() }}
+                  className="w-full flex items-center gap-2.5 text-sm font-semibold text-white bg-vr-black border border-white/10 rounded-xl px-4 py-3 hover:border-vr-red/40 transition-colors"
+                >
+                  <ArrowUpCircle className="w-4 h-4 text-vr-red" />
+                  Registrar saída
+                </button>
+                <button
+                  onClick={() => { openEdit(actionsItem); closeActions() }}
+                  className="w-full flex items-center gap-2.5 text-sm font-semibold text-white bg-vr-black border border-white/10 rounded-xl px-4 py-3 hover:border-vr-red/40 transition-colors"
+                >
+                  <Pencil className="w-4 h-4 text-vr-red" />
+                  Editar item
+                </button>
+                <button
+                  onClick={() => setConfirmingDelete(true)}
+                  className="w-full flex items-center gap-2.5 text-sm font-semibold text-red-400 bg-vr-black border border-white/10 rounded-xl px-4 py-3 hover:border-red-500/40 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Deletar item
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Popup: editar item */}
+      {editItem && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={closeEdit}
+        >
+          <div
+            className="bg-vr-graphite w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl border border-white/10 p-5 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white">Editar item</h3>
+              <button onClick={closeEdit} className="text-vr-silver/50 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Nome do item *</label>
+              <input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Quantidade *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editQuantity}
+                  onChange={(e) => setEditQuantity(e.target.value)}
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Unidade *</label>
+                <select
+                  value={editUnit}
+                  onChange={(e) => setEditUnit(e.target.value as StockUnit)}
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red"
+                >
+                  <option value="unidade">Unidade</option>
+                  <option value="caixa">Caixa</option>
+                </select>
+              </div>
+            </div>
+
+            {editError && <p className="text-xs text-red-400">{editError}</p>}
+
+            <button
+              onClick={handleSaveEdit}
+              disabled={savingEdit}
+              className="btn-primary w-full flex items-center justify-center gap-2"
+            >
+              {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />}
+              Salvar alterações
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Popup: registrar saída */}
+      {exitItem && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={closeExit}
+        >
+          <div
+            className="bg-vr-graphite w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl border border-white/10 p-5 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-white">Registrar saída</h3>
+                <p className="text-xs text-vr-silver/50 truncate">{exitItem.name} — estoque atual: {Number(exitItem.quantity)} {exitItem.unit}</p>
+              </div>
+              <button onClick={closeExit} className="text-vr-silver/50 hover:text-white flex-shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Quantidade de saída *</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={exitQuantity}
+                onChange={(e) => setExitQuantity(e.target.value)}
+                placeholder="0"
+                className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
+              />
+            </div>
+
+            {exitError && <p className="text-xs text-red-400">{exitError}</p>}
+
+            <button
+              onClick={handleRegisterExit}
+              disabled={savingExit}
+              className="btn-primary w-full flex items-center justify-center gap-2"
+            >
+              {savingExit ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUpCircle className="w-4 h-4" />}
+              Confirmar saída
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
