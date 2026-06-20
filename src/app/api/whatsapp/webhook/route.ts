@@ -8,12 +8,13 @@ function makeClient() {
   )
 }
 
-async function setState(status: 'connected' | 'connecting' | 'disconnected', qrCode: string | null = null) {
+// qrCode === undefined -> preserva o QR já salvo (não sobrescreve).
+// qrCode === null ou string -> atualiza explicitamente (limpa ou define um novo QR).
+async function setState(status: 'connected' | 'connecting' | 'disconnected', qrCode?: string | null) {
   const supabase = makeClient()
-  await supabase.from('whatsapp_state').upsert(
-    { id: 1, status, qr_code: qrCode, updated_at: new Date().toISOString() },
-    { onConflict: 'id' }
-  )
+  const row: Record<string, unknown> = { id: 1, status, updated_at: new Date().toISOString() }
+  if (qrCode !== undefined) row.qr_code = qrCode
+  await supabase.from('whatsapp_state').upsert(row, { onConflict: 'id' })
 }
 
 // Recebe os eventos de webhook configurados na instância da Evolution API
@@ -37,9 +38,11 @@ export async function POST(req: NextRequest) {
 
   if (event === 'connection.update' || event === 'connection_update') {
     const state = body?.data?.state ?? body?.data?.connection
-    if (state === 'open') await setState('connected')
+    // 'open' e 'close' limpam o QR explicitamente (não é mais relevante).
+    // 'connecting' NÃO passa qrCode — preserva o QR que o QRCODE_UPDATED já salvou.
+    if (state === 'open') await setState('connected', null)
     else if (state === 'connecting') await setState('connecting')
-    else if (state === 'close' || state === 'closed') await setState('disconnected')
+    else if (state === 'close' || state === 'closed') await setState('disconnected', null)
     return NextResponse.json({ ok: true })
   }
 
