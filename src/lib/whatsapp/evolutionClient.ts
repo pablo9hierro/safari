@@ -64,3 +64,71 @@ export async function logoutInstance() {
 
   return res.status
 }
+
+// Apaga a instância inteira (credenciais Baileys salvas no Postgres incluídas).
+// Usado quando logout não é suficiente — sessão corrompida que fica em loop
+// tentando reconectar com credenciais inválidas (statusReason 401) sem nunca
+// cair no fluxo de gerar QR novo.
+export async function deleteInstance() {
+  const { baseUrl, apiKey, instance } = getConfig()
+
+  const res = await fetch(`${baseUrl}/instance/delete/${instance}`, {
+    method: 'DELETE',
+    headers: { apikey: apiKey },
+  })
+
+  if (!res.ok && res.status !== 404) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Evolution API: falha ao apagar instância (${res.status}) ${body}`)
+  }
+
+  return res.status
+}
+
+// Recria a instância do zero (sem credenciais antigas) com a integração Baileys.
+export async function createInstance() {
+  const { baseUrl, apiKey, instance } = getConfig()
+
+  const res = await fetch(`${baseUrl}/instance/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: apiKey },
+    body: JSON.stringify({
+      instanceName: instance,
+      integration: 'WHATSAPP-BAILEYS',
+      qrcode: true,
+    }),
+  })
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Evolution API: falha ao criar instância (${res.status}) ${body}`)
+  }
+
+  return res.json()
+}
+
+// Reaplica a config de webhook na instância (recriar a instância apaga o webhook anterior).
+export async function setInstanceWebhook(url: string, events: string[]) {
+  const { baseUrl, apiKey, instance } = getConfig()
+
+  const secret = process.env.EVOLUTION_WEBHOOK_SECRET
+  const res = await fetch(`${baseUrl}/webhook/set/${instance}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: apiKey },
+    body: JSON.stringify({
+      webhook: {
+        enabled: true,
+        url,
+        events,
+        ...(secret ? { headers: { 'x-webhook-secret': secret } } : {}),
+      },
+    }),
+  })
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Evolution API: falha ao configurar webhook (${res.status}) ${body}`)
+  }
+
+  return res.json()
+}
