@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { ServiceOrder, ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceRequest, ServiceStatus } from '@/lib/types'
-import { SERVICE_ORDER_COMPONENTS, SITE_URL } from '@/lib/constants'
+import { SERVICE_ORDER_COMPONENTS } from '@/lib/constants'
 import { generateServiceOrderPdf } from '@/lib/generateServiceOrderPdf'
 import {
   ClipboardList,
@@ -158,7 +158,6 @@ export default function ServiceOrderPanel({
   const requestId = request.id
   const quoteValue = request.quote_value
   const customerPhone = request.customer_phone
-  const phoneModel = request.phone_model
   const [order, setOrder] = useState<ServiceOrder | null>(null)
   const [updates, setUpdates] = useState<ServiceOrderUpdate[]>([])
   const [loading, setLoading] = useState(true)
@@ -471,21 +470,11 @@ export default function ServiceOrderPanel({
     if (logEntry) setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
 
     if (customerPhone) {
-      const phoneDigits = customerPhone.replace(/\D/g, '')
-      const services = completedServices
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((s) => `*${s}*`)
-        .join(', ')
-      const waMsg = [
-        `Seu aparelho${phoneModel ? ` *${phoneModel}*` : ''} foi reparado com sucesso! 🎉`,
-        services ? `Serviços realizados: ${services}` : null,
-        `Orçamento no valor de: R$ ${Number(finalValue || 0).toFixed(2)}`,
-        `Garantia do serviço: ${warrantySummary || 'não informada'}`,
-        `Ordem de serviço: ${pdf_url || `${SITE_URL}/consultar?phone=${phoneDigits}`}`,
-      ].filter(Boolean).join('\n')
-      window.open(`https://wa.me/55${phoneDigits}?text=${encodeURIComponent(waMsg)}`, '_blank')
+      fetch('/api/whatsapp/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId, event: 'completed' }),
+      }).catch((e) => console.error('Erro ao notificar WhatsApp:', e))
     }
 
     setSavingCompletion(false)

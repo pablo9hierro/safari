@@ -99,8 +99,8 @@ export default function WhatsAppPanel() {
       {status === 'disconnected' && !state?.qr_code && (
         <p className="text-xs text-vr-silver/40 mt-1">
           {state
-            ? 'Serviço desconectado. Reinicie o whatsapp-service no Railway.'
-            : 'Aguardando o whatsapp-service iniciar no Railway...'}
+            ? 'Instância desconectada na Evolution API. Reconecte e escaneie o QR.'
+            : 'Aguardando conexão com a Evolution API...'}
         </p>
       )}
 

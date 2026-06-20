@@ -92,7 +92,7 @@ export default function ServiceRequestForm() {
         image_url = publicUrl.publicUrl
       }
 
-      const { error: insertError } = await supabase.from('service_requests').insert([{
+      const { data: inserted, error: insertError } = await supabase.from('service_requests').insert([{
         customer_name: data.customer_name,
         customer_phone: data.customer_phone,
         customer_email: data.customer_email,
@@ -108,11 +108,20 @@ export default function ServiceRequestForm() {
         status: 'pending',
         quote_value: null,
         owner_notes: null,
-      }])
+      }]).select().single()
 
       if (insertError) throw insertError
       setSubmittedPhone(data.customer_phone)
       setSubmitted(true)
+
+      // Envia WhatsApp automaticamente via backend (Evolution API) — sem redirecionamento manual
+      if (inserted) {
+        fetch('/api/whatsapp/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requestId: inserted.id, event: 'created' }),
+        }).catch((e) => console.error('Erro ao notificar WhatsApp:', e))
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao enviar solicitação. Tente novamente.'
       setError(msg)

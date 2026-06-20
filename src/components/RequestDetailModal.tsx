@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { ServiceRequest, ServiceStatus } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
-import { STORE_ADDRESS, SITE_URL } from '@/lib/constants'
 import ServiceOrderPanel, { isServiceOrderStatus } from '@/components/ServiceOrderPanel'
 import {
   X,
@@ -17,6 +16,7 @@ import {
   AlertCircle,
   ExternalLink,
   ArrowRight,
+  Send,
 } from 'lucide-react'
 
 const STATUS_LABELS: Record<ServiceStatus, string> = {
@@ -32,6 +32,12 @@ const STATUS_LABELS: Record<ServiceStatus, string> = {
   finished:       '✅ Atendimento concluído',
   cancelled:      '✅ Atendimento concluído — Cancelado pelo cliente',
 }
+
+// Statuses com template de mensagem automática (espelha STATUS_MESSAGES em src/lib/whatsapp/messages.ts)
+const STATUS_MESSAGES_AVAILABLE: ServiceStatus[] = [
+  'accepted', 'rejected', 'retirada_local', 'em_busca', 'in_progress',
+  'em_entrega', 'cancelled', 'delivered', 'finished',
+]
 
 type AdvanceConfig =
   | { type: 'terminal' }
@@ -110,22 +116,31 @@ export default function RequestDetailModal({
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [osState, setOsState] = useState({ closed: false, hasUpdate: false })
+  const [waError, setWaError] = useState<string | null>(null)
+  const [resendingWa, setResendingWa] = useState(false)
 
   const phoneDigits = request.customer_phone.replace(/\D/g, '')
 
-  const buildWaMessage = (s: ServiceStatus, qv: string): string | undefined => {
-    const qFormatted = `R$ ${Number(qv || 0).toFixed(2)}`
-    const messages: Partial<Record<ServiceStatus, string>> = {
-      accepted:       `Olá *${request.customer_name}*! Seu orçamento para o *${request.phone_model}* ficou em ${qFormatted}. Agradecemos pela preferência em nosso serviço! Por favor, compartilhe a sua localização fixa através do WhatsApp. Em breve recolheremos o aparelho celular para dar continuidade ao serviço. 📍`,
-      rejected:       `Entendemos, *${request.customer_name}*. Se mudar de ideia, pode nos chamar aqui!`,
-      retirada_local: `Deseja trazer ou retirar o aparelho em nosso endereço?\n📍 ${STORE_ADDRESS.street}, ${STORE_ADDRESS.neighborhood}, ${STORE_ADDRESS.city}\n${STORE_ADDRESS.mapsUrl}`,
-      em_busca:       `🛵 Recebemos sua localização e estamos iniciando a busca do seu aparelho celular.`,
-      in_progress:    `🔧 Seu aparelho celular está sendo reparado neste momento. Acompanhe qualquer atualização do serviço em tempo real através do link:\n${SITE_URL}/consultar?phone=${phoneDigits}`,
-      em_entrega:     `📦 Em rota de entrega para devolução do aparelho.`,
-      delivered:      `📬 Aparelho entregue! Agradecemos a confiança, *${request.customer_name}*. Caso precise de algo, estamos à disposição!`,
-      finished:       `✅ Atendimento concluído. Agradecemos a confiança, *${request.customer_name}*! Caso precise de algo, estamos à disposição.`,
+  // Dispara o envio via Evolution API no backend, sem qualquer redirecionamento manual.
+  const notifyWhatsApp = async (event: ServiceStatus) => {
+    setWaError(null)
+    try {
+      const res = await fetch('/api/whatsapp/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId: request.id, event }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Erro ao enviar WhatsApp')
+    } catch (err: unknown) {
+      setWaError(err instanceof Error ? err.message : 'Erro ao enviar WhatsApp')
     }
-    return messages[s]
+  }
+
+  const handleResendWa = async () => {
+    setResendingWa(true)
+    await notifyWhatsApp(status)
+    setResendingWa(false)
   }
 
   const handleAdvance = async (next: ServiceStatus) => {
@@ -149,12 +164,9 @@ export default function RequestDetailModal({
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
 
-      // Auto-open WhatsApp if there's a message template for the new status
-      const waMsg = buildWaMessage(next, quoteValue)
-      if (waMsg) {
-        const link = `https://wa.me/55${phoneDigits}?text=${encodeURIComponent(waMsg)}`
-        window.open(link, '_blank')
-      }
+      // A mensagem de "completed" tem dados da OS (serviços/valor/garantia) e só é
+      // enviada quando a OS é de fato fechada — ver ServiceOrderPanel.handleSaveCompletion.
+      if (next !== 'completed') await notifyWhatsApp(next)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao salvar'
       setError(msg)
@@ -163,10 +175,6 @@ export default function RequestDetailModal({
     }
   }
 
-  const waMsg = buildWaMessage(status, quoteValue)
-  const waLinkWithMsg = waMsg
-    ? `https://wa.me/55${phoneDigits}?text=${encodeURIComponent(waMsg)}`
-    : `https://wa.me/55${phoneDigits}`
   const advance = getAdvanceConfig(status, osState, quoteValue)
   const fullAddress = [
     request.address_street,
@@ -196,7 +204,7 @@ export default function RequestDetailModal({
                 <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
                 <span className="font-semibold text-gray-900">{request.customer_name}</span>
               </div>
-              <a href={waLinkWithMsg} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-green-600 hover:text-green-700">
+              <a href={`https://wa.me/55${phoneDigits}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-green-600 hover:text-green-700">
                 <Phone className="w-4 h-4 flex-shrink-0" />
                 <span className="text-sm">{request.customer_phone}</span>
                 <ExternalLink className="w-3 h-3" />
@@ -362,15 +370,23 @@ export default function RequestDetailModal({
               </div>
             )}
 
-            {waMsg && (
-              <a
-                href={waLinkWithMsg}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-center text-green-600 hover:text-green-700 transition-colors block"
+            {waError && (
+              <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl p-3 text-red-700 text-xs">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                Falha ao enviar WhatsApp automático: {waError}
+              </div>
+            )}
+
+            {STATUS_MESSAGES_AVAILABLE.includes(status) && (
+              <button
+                type="button"
+                onClick={handleResendWa}
+                disabled={resendingWa}
+                className="flex items-center justify-center gap-1.5 text-xs text-center text-green-600 hover:text-green-700 transition-colors w-full disabled:opacity-50"
               >
-                Reenviar mensagem manualmente
-              </a>
+                {resendingWa ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                Reenviar mensagem do status atual
+              </button>
             )}
           </section>
 
