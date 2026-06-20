@@ -35,7 +35,7 @@ const BRANDS_BY_DEVICE: Record<DeviceKey, { key: string; label: string; os: 'ios
 
 const MODELS: Record<string, { group: string; items: string[] }[]> = {
   'celular-apple': [
-    { group: 'iPhone 16', items: ['iPhone 16', 'iPhone 16 Plus', 'iPhone 16 Pro', 'iPhone 16 Pro Max'] },
+    { group: 'iPhone 16', items: ['iPhone 16', 'iPhone 16 Plus', 'iPhone 16 Pro', 'iPhone 16 Pro Max', 'iPhone 16e'] },
     { group: 'iPhone 15', items: ['iPhone 15', 'iPhone 15 Plus', 'iPhone 15 Pro', 'iPhone 15 Pro Max'] },
     { group: 'iPhone 14', items: ['iPhone 14', 'iPhone 14 Plus', 'iPhone 14 Pro', 'iPhone 14 Pro Max'] },
     { group: 'iPhone 13', items: ['iPhone 13', 'iPhone 13 mini', 'iPhone 13 Pro', 'iPhone 13 Pro Max'] },
@@ -49,8 +49,10 @@ const MODELS: Record<string, { group: string; items: string[] }[]> = {
     { group: 'iPhone 6',  items: ['iPhone 6', 'iPhone 6 Plus', 'iPhone 6s', 'iPhone 6s Plus'] },
   ],
   'celular-samsung': [
+    { group: 'Linha Galaxy A (2025)', items: ['Galaxy A16', 'Galaxy A16 5G', 'Galaxy A26 5G', 'Galaxy A36 5G', 'Galaxy A56 5G'] },
     { group: 'Linha Galaxy A (novos)', items: ['Galaxy A05', 'Galaxy A05s', 'Galaxy A15', 'Galaxy A15 5G', 'Galaxy A25 5G', 'Galaxy A35 5G', 'Galaxy A55 5G'] },
     { group: 'Linha Galaxy A', items: ['Galaxy A04', 'Galaxy A04s', 'Galaxy A13', 'Galaxy A13 5G', 'Galaxy A14', 'Galaxy A14 5G', 'Galaxy A23', 'Galaxy A24', 'Galaxy A34 5G', 'Galaxy A53 5G', 'Galaxy A54 5G'] },
+    { group: 'Linha Galaxy S25', items: ['Galaxy S25', 'Galaxy S25+', 'Galaxy S25 Ultra', 'Galaxy S25 Edge'] },
     { group: 'Linha Galaxy S24', items: ['Galaxy S24', 'Galaxy S24 5G', 'Galaxy S24+', 'Galaxy S24 Ultra 5G'] },
     { group: 'Linha Galaxy S23', items: ['Galaxy S23', 'Galaxy S23 5G', 'Galaxy S23+', 'Galaxy S23 Ultra 5G'] },
     { group: 'Linha Galaxy S22', items: ['Galaxy S22', 'Galaxy S22 5G', 'Galaxy S22+', 'Galaxy S22 Ultra 5G'] },
@@ -60,9 +62,11 @@ const MODELS: Record<string, { group: string; items: string[] }[]> = {
     { group: 'Linha Galaxy Z (dobráveis)', items: ['Galaxy Z Fold 5 5G', 'Galaxy Z Flip 5 5G', 'Galaxy Z Fold 4 5G', 'Galaxy Z Flip 4 5G', 'Galaxy Z Fold 3 5G', 'Galaxy Z Flip 3 5G'] },
   ],
   'celular-motorola': [
+    { group: 'Moto Edge (2025)', items: ['Moto Edge 60 Pro 5G', 'Moto Edge 60 Fusion 5G'] },
     { group: 'Moto Edge (recentes)', items: ['Moto Edge 50 Pro 5G', 'Moto Edge 50 Ultra 5G', 'Moto Edge 40', 'Moto Edge 40 Pro 5G', 'Moto Edge 40 Neo 5G'] },
     { group: 'Moto Edge', items: ['Moto Edge 30', 'Moto Edge 30 Pro 5G', 'Moto Edge 30 Fusion 5G', 'Moto Edge 30 Ultra 5G', 'Moto Edge 20', 'Moto Edge 20 Pro 5G', 'Moto Edge 20 Fusion 5G'] },
-    { group: 'Moto Razr', items: ['Moto Razr 40 5G', 'Moto Razr 40 Ultra 5G'] },
+    { group: 'Moto Razr', items: ['Moto Razr 50 5G', 'Moto Razr 50 Ultra 5G', 'Moto Razr 40 5G', 'Moto Razr 40 Ultra 5G'] },
+    { group: 'Moto G (2025)', items: ['Moto G55 5G', 'Moto G85 5G'] },
     { group: 'Moto G (recentes)', items: ['Moto G04', 'Moto G04s', 'Moto G14', 'Moto G24', 'Moto G24 Power', 'Moto G34 5G', 'Moto G54 5G', 'Moto G62 5G', 'Moto G73 5G', 'Moto G84 5G'] },
     { group: 'Moto G200 / G100', items: ['Moto G100', 'Moto G200 5G'] },
     { group: 'Moto G9 / G8 / G7', items: ['Moto G9', 'Moto G9 Play', 'Moto G9 Plus', 'Moto G9 Power', 'Moto G8', 'Moto G8 Play', 'Moto G8 Power', 'Moto G7', 'Moto G7 Play', 'Moto G7 Plus', 'Moto G7 Power'] },
@@ -70,11 +74,14 @@ const MODELS: Record<string, { group: string; items: string[] }[]> = {
     { group: 'Moto E', items: ['Moto E13', 'Moto E22', 'Moto E32', 'Moto E40', 'Moto E7 Play', 'Moto E6 Play'] },
   ],
   'celular-xiaomi': [
+    { group: 'Xiaomi 15', items: ['Xiaomi 15', 'Xiaomi 15 Pro 5G', 'Xiaomi 15 Ultra 5G'] },
     { group: 'Xiaomi 14', items: ['Xiaomi 14', 'Xiaomi 14 Pro 5G'] },
     { group: 'Xiaomi 13', items: ['Xiaomi 13', 'Xiaomi 13 Pro 5G', 'Xiaomi 13 Lite 5G', 'Xiaomi 13T Pro 5G'] },
     { group: 'Xiaomi 12', items: ['Xiaomi 12', 'Xiaomi 12 Pro 5G', 'Xiaomi 12 Lite 5G', 'Xiaomi 11T Pro 5G'] },
+    { group: 'Poco X7 (2025)', items: ['Poco X7 5G', 'Poco X7 Pro 5G'] },
     { group: 'Poco F / X (recentes)', items: ['Poco F6 Pro 5G', 'Poco F5 Pro 5G', 'Poco F4 5G', 'Poco F3 5G', 'Poco X6 Pro 5G', 'Poco X5 Pro 5G', 'Poco X5', 'Poco X4 Pro 5G', 'Poco X4 GT 5G'] },
     { group: 'Poco X3 / M', items: ['Poco X3 Pro', 'Poco X3 NFC', 'Poco X3', 'Poco M6 Pro 5G', 'Poco M5', 'Poco M5s', 'Poco M4 Pro', 'Poco M4 Pro 5G', 'Poco M3', 'Poco M3 Pro 5G'] },
+    { group: 'Redmi Note 14', items: ['Redmi Note 14', 'Redmi Note 14 Pro 5G', 'Redmi Note 14 Pro+ 5G'] },
     { group: 'Redmi Note 13', items: ['Redmi Note 13', 'Redmi Note 13 Pro 5G', 'Redmi Note 13 Pro+ 5G'] },
     { group: 'Redmi Note 12', items: ['Redmi Note 12', 'Redmi Note 12S', 'Redmi Note 12 Pro 5G', 'Redmi Note 12 Pro+ 5G'] },
     { group: 'Redmi Note 11 / 10 / 9', items: ['Redmi Note 11', 'Redmi Note 11S', 'Redmi Note 11 Pro 5G', 'Redmi Note 10', 'Redmi Note 10S', 'Redmi Note 10 Pro', 'Redmi Note 9', 'Redmi Note 9S', 'Redmi Note 9 Pro'] },
