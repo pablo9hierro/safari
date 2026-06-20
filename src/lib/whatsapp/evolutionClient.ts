@@ -32,7 +32,6 @@ export async function sendWhatsAppText(phone: string, text: string) {
 }
 
 // Pede pra Evolution API (re)iniciar a conexão da instância e gerar um QR code.
-// Chamado automaticamente pelo painel quando detecta status "disconnected" — sem ação manual no Manager.
 export async function connectInstance() {
   const { baseUrl, apiKey, instance } = getConfig()
 
@@ -46,4 +45,22 @@ export async function connectInstance() {
   }
 
   return res.json()
+}
+
+// Limpa a sessão Baileys da instância (equivalente ao botão "Logout" do Manager).
+// Falha silenciosamente se a instância já estiver deslogada/sem sessão — isso é esperado.
+export async function logoutInstance() {
+  const { baseUrl, apiKey, instance } = getConfig()
+
+  const res = await fetch(`${baseUrl}/instance/logout/${instance}`, {
+    method: 'DELETE',
+    headers: { apikey: apiKey },
+  })
+
+  if (!res.ok && res.status !== 404 && res.status !== 400) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Evolution API: falha ao deslogar instância (${res.status}) ${body}`)
+  }
+
+  return res.status
 }

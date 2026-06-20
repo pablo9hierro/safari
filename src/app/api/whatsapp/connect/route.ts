@@ -1,12 +1,20 @@
 import { NextResponse } from 'next/server'
-import { connectInstance } from '@/lib/whatsapp/evolutionClient'
+import { connectInstance, logoutInstance } from '@/lib/whatsapp/evolutionClient'
 import { setWhatsAppState } from '@/lib/whatsapp/state'
 
 // Aciona a Evolution API para (re)iniciar a conexão e gerar um QR code novo.
-// Chamado automaticamente pelo WhatsAppPanel quando o status é "disconnected" —
+// Chamado automaticamente pelo WhatsAppPanel quando o status não é "connected" —
 // não exige nenhuma ação manual no Evolution Manager.
 export async function POST() {
   try {
+    // Limpa qualquer sessão travada/corrompida antes de tentar de novo — isso é
+    // o que resolve o loop de reconexão sem precisar deslogar manualmente no Manager.
+    try {
+      await logoutInstance()
+    } catch (e) {
+      console.error('Logout antes de reconectar falhou (seguindo mesmo assim):', e)
+    }
+
     const data = await connectInstance()
     console.log('Evolution API /instance/connect response:', JSON.stringify(data))
 
