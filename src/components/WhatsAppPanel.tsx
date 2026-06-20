@@ -10,7 +10,7 @@ type WState = {
   updated_at: string
 }
 
-const AUTO_CONNECT_COOLDOWN_MS = 25000
+const AUTO_CONNECT_COOLDOWN_MS = 60000
 
 export default function WhatsAppPanel() {
   const [state, setState] = useState<WState | null>(null)
