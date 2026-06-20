@@ -15,6 +15,7 @@ const AUTO_CONNECT_COOLDOWN_MS = 25000
 export default function WhatsAppPanel() {
   const [state, setState] = useState<WState | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [connectError, setConnectError] = useState<string | null>(null)
   const lastConnectAttempt = useRef(0)
 
   // Pede pra Evolution API gerar/renovar o QR sozinha — sem precisar abrir o Manager.
@@ -23,9 +24,15 @@ export default function WhatsAppPanel() {
     if (!force && now - lastConnectAttempt.current < AUTO_CONNECT_COOLDOWN_MS) return
     lastConnectAttempt.current = now
     try {
-      await fetch('/api/whatsapp/connect', { method: 'POST' })
+      const res = await fetch('/api/whatsapp/connect', { method: 'POST' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setConnectError(data?.error || `Erro ${res.status} ao conectar`)
+      } else {
+        setConnectError(null)
+      }
     } catch (e) {
-      console.error('Erro ao conectar WhatsApp automaticamente:', e)
+      setConnectError(e instanceof Error ? e.message : 'Erro ao conectar WhatsApp')
     }
   }, [])
 
@@ -38,13 +45,16 @@ export default function WhatsAppPanel() {
       .single()
     if (data) setState(data as WState)
 
-    const currentStatus = (data as WState | null)?.status ?? 'disconnected'
-    if (currentStatus === 'disconnected') autoConnect()
+    const current = data as WState | null
+    const hasUsableQr = !!current?.qr_code
+    // Tenta conectar sempre que não estiver conectado e não houver QR pra mostrar
+    // (cobre tanto "disconnected" quanto "connecting" travado sem QR).
+    if (current?.status !== 'connected' && !hasUsableQr) autoConnect()
   }, [autoConnect])
 
   const manualRefresh = async () => {
     setRefreshing(true)
-    if ((state?.status ?? 'disconnected') === 'disconnected') await autoConnect(true)
+    if ((state?.status ?? 'disconnected') !== 'connected') await autoConnect(true)
     await load()
     setRefreshing(false)
   }
@@ -115,9 +125,15 @@ export default function WhatsAppPanel() {
         </div>
       )}
 
-      {status === 'disconnected' && !state?.qr_code && (
+      {status !== 'connected' && !state?.qr_code && !connectError && (
         <p className="text-xs text-vr-silver/40 mt-1">
           Conectando à Evolution API automaticamente... o QR aparece aqui em poucos segundos.
+        </p>
+      )}
+
+      {connectError && (
+        <p className="text-xs text-vr-red-light mt-1 break-all">
+          Erro ao conectar: {connectError}
         </p>
       )}
 

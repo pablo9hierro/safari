@@ -8,6 +8,7 @@ import { setWhatsAppState } from '@/lib/whatsapp/state'
 export async function POST() {
   try {
     const data = await connectInstance()
+    console.log('Evolution API /instance/connect response:', JSON.stringify(data))
 
     // A resposta do /instance/connect costuma trazer o QR direto — grava já,
     // sem depender só do webhook (mais rápido pro painel mostrar o QR).
