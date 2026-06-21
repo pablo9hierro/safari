@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { NeighborhoodShippingRate, Product } from '@/lib/types'
+import Link from 'next/link'
 import { Autocomplete, Logo } from '@/components/ui'
 import {
   ShoppingCart,
@@ -14,6 +15,7 @@ import {
   Loader2,
   CheckCircle2,
   Home,
+  ArrowLeft,
 } from 'lucide-react'
 
 const CART_STORAGE_KEY = 'vrtech_loja_cart'
@@ -81,6 +83,24 @@ export default function LojaClient({
     return map
   }, [shippingRates])
 
+  // Busca o valor do frete direto no banco ao selecionar o bairro, evitando
+  // exibir um preço desatualizado caso o admin tenha alterado a tarifa
+  // depois que esta página foi carregada.
+  const [liveShippingPrice, setLiveShippingPrice] = useState<number | null>(null)
+  useEffect(() => {
+    if (pickupAtStore || !neighborhood) {
+      setLiveShippingPrice(null)
+      return
+    }
+    const supabase = createClient()
+    supabase
+      .from('neighborhood_shipping_rates')
+      .select('price')
+      .eq('neighborhood', neighborhood)
+      .maybeSingle()
+      .then(({ data }) => setLiveShippingPrice(data ? Number(data.price) : 0))
+  }, [neighborhood, pickupAtStore])
+
   const categories = useMemo(() => {
     const set = new Set<string>()
     for (const p of products) if (p.product_categories?.name) set.add(p.product_categories.name)
@@ -100,7 +120,7 @@ export default function LojaClient({
 
   const cartCount = cartLines.reduce((sum, l) => sum + l.item.quantity, 0)
   const subtotal = cartLines.reduce((sum, l) => sum + l.product.price * l.item.quantity, 0)
-  const shippingPrice = pickupAtStore ? 0 : (rateByNeighborhood.get(neighborhood) ?? 0)
+  const shippingPrice = pickupAtStore ? 0 : (liveShippingPrice ?? rateByNeighborhood.get(neighborhood) ?? 0)
   const total = subtotal + shippingPrice
 
   const quantityInCart = (productId: string) => cartItems.find((i) => i.productId === productId)?.quantity ?? 0
@@ -203,7 +223,16 @@ export default function LojaClient({
   return (
     <main className="min-h-screen bg-vr-black text-white">
       <header className="px-5 sm:px-10 py-5 flex items-center justify-between max-w-6xl mx-auto">
-        <Logo size="md" />
+        <div className="flex items-center gap-4">
+          <Link
+            href="/"
+            className="flex items-center gap-1.5 text-sm font-medium text-vr-silver hover:text-white transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span className="hidden sm:inline">Início</span>
+          </Link>
+          <Logo size="md" />
+        </div>
         <button
           onClick={() => setCartOpen(true)}
           className="relative flex items-center gap-2 bg-vr-graphite border border-white/10 rounded-xl px-4 py-2.5 hover:border-vr-red/40 transition-colors"

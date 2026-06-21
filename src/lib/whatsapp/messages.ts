@@ -139,3 +139,13 @@ export function ownerNewStoreOrderMessage(order: StoreOrder) {
     '👉 Acesse o dashboard de pedidos para continuar a negociação.',
   ].join('\n')
 }
+
+// Enviada automaticamente ao cliente assim que ele finaliza o pedido na loja
+export function pendingStoreOrderCustomerMessage(order: StoreOrder) {
+  return [
+    `Olá, *${order.customer_name}*! 👋`,
+    '',
+    'Recebemos seu pedido na loja da VR Tech!',
+    'Em breve nossa equipe continua por aqui mesmo no WhatsApp para fechar os detalhes da compra. 🙏',
+  ].join('\n')
+}

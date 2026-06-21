@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { StoreOrder, StoreOrderStatus } from '@/lib/types'
-import { ShoppingBag, Phone, MapPin, Home, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { ShoppingBag, MapPin, Home, CheckCircle2, XCircle, Loader2, MessageCircle } from 'lucide-react'
 
 const STATUS_CONFIG: Record<StoreOrderStatus, { label: string; color: string; bg: string }> = {
   pendente: { label: 'Pendente', color: 'text-yellow-700', bg: 'bg-yellow-100' },
@@ -18,19 +18,25 @@ const FILTERS: { key: StoreOrderStatus | 'all'; label: string }[] = [
   { key: 'recusado', label: 'Recusados' },
 ]
 
+function whatsappLink(phone: string) {
+  const digits = phone.replace(/\D/g, '')
+  const withCountry = digits.startsWith('55') ? digits : `55${digits}`
+  return `https://wa.me/${withCountry}`
+}
+
 export default function PedidosClient({ initialOrders }: { initialOrders: StoreOrder[] }) {
   const [orders, setOrders] = useState<StoreOrder[]>(initialOrders)
   const [filter, setFilter] = useState<StoreOrderStatus | 'all'>('all')
   const [processing, setProcessing] = useState<Record<string, boolean>>({})
 
-  const filtered = filter === 'all' ? orders : orders.filter((o) => o.status === filter)
+  const filtered = filter === 'all' ? orders : orders.filter((o) => (o.store_order_items ?? []).some((i) => i.status === filter))
 
-  const handleMarkSold = async (order: StoreOrder) => {
-    setProcessing((prev) => ({ ...prev, [order.id]: true }))
+  const handleItemDecision = async (order: StoreOrder, itemId: string, status: 'vendido' | 'recusado') => {
+    setProcessing((prev) => ({ ...prev, [itemId]: true }))
     const supabase = createClient()
+    const item = (order.store_order_items ?? []).find((i) => i.id === itemId)
 
-    for (const item of order.store_order_items ?? []) {
-      if (!item.product_id) continue
+    if (status === 'vendido' && item?.product_id) {
       const { data: product } = await supabase.from('products').select('quantity').eq('id', item.product_id).single()
       if (product) {
         const newQty = Math.max(0, Number(product.quantity) - item.quantity)
@@ -38,36 +44,33 @@ export default function PedidosClient({ initialOrders }: { initialOrders: StoreO
       }
     }
 
-    const { data: updated } = await supabase
-      .from('store_orders')
-      .update({ status: 'vendido', updated_at: new Date().toISOString() })
-      .eq('id', order.id)
-      .select('*, store_order_items(*)')
+    const { data: updatedItem } = await supabase
+      .from('store_order_items')
+      .update({ status })
+      .eq('id', itemId)
+      .select()
       .single()
 
-    if (updated) setOrders((prev) => prev.map((o) => (o.id === order.id ? (updated as StoreOrder) : o)))
-    setProcessing((prev) => ({ ...prev, [order.id]: false }))
+    if (updatedItem) {
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id
+            ? { ...o, store_order_items: (o.store_order_items ?? []).map((i) => (i.id === itemId ? updatedItem : i)) }
+            : o
+        )
+      )
+    }
+    setProcessing((prev) => ({ ...prev, [itemId]: false }))
   }
 
-  const handleReject = async (order: StoreOrder) => {
-    setProcessing((prev) => ({ ...prev, [order.id]: true }))
-    const supabase = createClient()
-    const { data: updated } = await supabase
-      .from('store_orders')
-      .update({ status: 'recusado', updated_at: new Date().toISOString() })
-      .eq('id', order.id)
-      .select('*, store_order_items(*)')
-      .single()
-
-    if (updated) setOrders((prev) => prev.map((o) => (o.id === order.id ? (updated as StoreOrder) : o)))
-    setProcessing((prev) => ({ ...prev, [order.id]: false }))
-  }
-
-  const counts = useMemo(() => ({
-    pendente: orders.filter((o) => o.status === 'pendente').length,
-    vendido: orders.filter((o) => o.status === 'vendido').length,
-    recusado: orders.filter((o) => o.status === 'recusado').length,
-  }), [orders])
+  const counts = useMemo(() => {
+    const allItems = orders.flatMap((o) => o.store_order_items ?? [])
+    return {
+      pendente: allItems.filter((i) => i.status === 'pendente').length,
+      vendido: allItems.filter((i) => i.status === 'vendido').length,
+      recusado: allItems.filter((i) => i.status === 'recusado').length,
+    }
+  }, [orders])
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -75,6 +78,9 @@ export default function PedidosClient({ initialOrders }: { initialOrders: StoreO
         <ShoppingBag className="w-5 h-5 text-vr-red" />
         Pedidos da loja
       </h1>
+      <p className="text-sm text-vr-silver/50">
+        Clique no pedido para abrir a conversa de WhatsApp com o cliente. Decida vender ou recusar cada item individualmente.
+      </p>
 
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
         {FILTERS.map((f) => (
@@ -101,73 +107,82 @@ export default function PedidosClient({ initialOrders }: { initialOrders: StoreO
             <p>Nenhum pedido encontrado</p>
           </div>
         ) : (
-          filtered.map((order) => {
-            const sc = STATUS_CONFIG[order.status]
-            return (
-              <div key={order.id} className="bg-vr-graphite rounded-2xl border border-white/5 p-4 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${sc.bg} ${sc.color}`}>{sc.label}</span>
-                    <h3 className="font-semibold text-white mt-1">{order.customer_name}</h3>
-                    <div className="flex items-center gap-1 text-vr-silver/70 text-sm">
-                      <Phone className="w-3.5 h-3.5 flex-shrink-0" />
-                      {order.customer_whatsapp}
-                    </div>
-                  </div>
-                  <span className="text-xs text-vr-silver/40">
-                    {new Date(order.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                  </span>
+          filtered.map((order) => (
+            <div key={order.id} className="bg-vr-graphite rounded-2xl border border-white/5 overflow-hidden">
+              <a
+                href={whatsappLink(order.customer_whatsapp)}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-start justify-between gap-3 p-4 hover:bg-vr-graphite-light transition-colors"
+              >
+                <div>
+                  <h3 className="font-semibold text-white flex items-center gap-1.5">
+                    {order.customer_name}
+                    <MessageCircle className="w-3.5 h-3.5 text-green-500" />
+                  </h3>
+                  <p className="text-sm text-vr-silver/70">{order.customer_whatsapp}</p>
                 </div>
+                <span className="text-xs text-vr-silver/40">
+                  {new Date(order.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </a>
 
-                <ul className="space-y-1">
-                  {(order.store_order_items ?? []).map((item) => (
-                    <li key={item.id} className="flex items-center justify-between text-sm">
-                      <span className="text-vr-silver">{item.quantity}x {item.product_name}</span>
-                      <span className="text-vr-silver/70">R$ {(item.unit_price * item.quantity).toFixed(2)}</span>
-                    </li>
-                  ))}
+              <div className="px-4 pb-4 space-y-3">
+                <ul className="space-y-2">
+                  {(order.store_order_items ?? []).map((item) => {
+                    const sc = STATUS_CONFIG[item.status]
+                    return (
+                      <li key={item.id} className="flex items-center justify-between gap-3 bg-vr-black rounded-xl px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="text-sm text-white truncate">{item.quantity}x {item.product_name}</p>
+                          <p className="text-xs text-vr-silver/50">R$ {(item.unit_price * item.quantity).toFixed(2)}</p>
+                        </div>
+                        {item.status === 'pendente' ? (
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <button
+                              onClick={() => handleItemDecision(order, item.id, 'recusado')}
+                              disabled={processing[item.id]}
+                              className="flex items-center gap-1 text-xs font-semibold text-red-400 hover:text-red-300 px-2 py-1.5 disabled:opacity-50"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              Recusar
+                            </button>
+                            <button
+                              onClick={() => handleItemDecision(order, item.id, 'vendido')}
+                              disabled={processing[item.id]}
+                              className="flex items-center gap-1 text-xs font-semibold bg-green-600 hover:bg-green-700 text-white rounded-lg px-2 py-1.5 disabled:opacity-50"
+                            >
+                              {processing[item.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                              Vender
+                            </button>
+                          </div>
+                        ) : (
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${sc.bg} ${sc.color}`}>{sc.label}</span>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
 
-                <div className="flex items-center gap-1.5 text-sm text-vr-silver/70">
-                  {order.pickup_at_store ? (
-                    <>
-                      <Home className="w-3.5 h-3.5 flex-shrink-0" />
-                      Cliente vai buscar no local
-                    </>
-                  ) : (
-                    <>
-                      <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
-                      {order.neighborhood || 'Bairro não informado'} — frete R$ {Number(order.shipping_price).toFixed(2)}
-                    </>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                <div className="flex items-center justify-between pt-1">
+                  <div className="flex items-center gap-1.5 text-sm text-vr-silver/70">
+                    {order.pickup_at_store ? (
+                      <>
+                        <Home className="w-3.5 h-3.5 flex-shrink-0" />
+                        Cliente vai buscar no local
+                      </>
+                    ) : (
+                      <>
+                        <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+                        {order.neighborhood || 'Bairro não informado'} — frete R$ {Number(order.shipping_price).toFixed(2)}
+                      </>
+                    )}
+                  </div>
                   <span className="text-sm font-bold text-white">Total: R$ {Number(order.total_value).toFixed(2)}</span>
-                  {order.status === 'pendente' && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleReject(order)}
-                        disabled={processing[order.id]}
-                        className="flex items-center gap-1.5 text-xs font-semibold text-red-400 hover:text-red-300 px-3 py-2 disabled:opacity-50"
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                        Recusar
-                      </button>
-                      <button
-                        onClick={() => handleMarkSold(order)}
-                        disabled={processing[order.id]}
-                        className="flex items-center gap-1.5 text-xs font-semibold bg-green-600 hover:bg-green-700 text-white rounded-lg px-3 py-2 disabled:opacity-50"
-                      >
-                        {processing[order.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                        Marcar como vendido
-                      </button>
-                    </div>
-                  )}
                 </div>
               </div>
-            )
-          })
+            </div>
+          ))
         )}
       </div>
     </div>

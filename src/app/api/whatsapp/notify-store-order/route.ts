@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { sendWhatsAppText } from '@/lib/whatsapp/evolutionClient'
-import { ownerNewStoreOrderMessage } from '@/lib/whatsapp/messages'
+import { ownerNewStoreOrderMessage, pendingStoreOrderCustomerMessage } from '@/lib/whatsapp/messages'
 import { StoreOrder } from '@/lib/types'
 
 const OWNER_PHONE = process.env.OWNER_PHONE || '5583987516699'
@@ -32,7 +32,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await sendWhatsAppText(OWNER_PHONE, ownerNewStoreOrderMessage(order as StoreOrder))
+    const typedOrder = order as StoreOrder
+    await sendWhatsAppText(OWNER_PHONE, ownerNewStoreOrderMessage(typedOrder))
+    await sendWhatsAppText(typedOrder.customer_whatsapp, pendingStoreOrderCustomerMessage(typedOrder))
     return NextResponse.json({ ok: true })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Erro ao enviar WhatsApp'
