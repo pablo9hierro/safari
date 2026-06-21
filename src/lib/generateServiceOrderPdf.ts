@@ -295,17 +295,17 @@ export async function generateServiceOrderPdf({
   field('Site', SITE_URL)
   endContainer()
 
-  // =====================================================
-  // Container: Ordem de Serviço
-  // Ordem interna: Checklist inicial > Atualizações no reparo >
-  // Reabertura de OS (se houver) > Reparo concluído (sempre por último)
-  // =====================================================
-  beginContainer('Ordem de serviço')
-
-  // ---------- Checklist inicial ----------
-  const items = checklist.filter((i) => i.checked)
-  if (items.length > 0) {
-    bigHeading('Checklist inicial')
+  // ---------- tabela do checklist (OS 1) ----------
+  const checklistTable = (checkedItems: ServiceOrderChecklistItem[]) => {
+    if (checkedItems.length === 0) {
+      doc.setFont('helvetica', 'italic')
+      doc.setFontSize(9)
+      setText(GRAY)
+      ensureSpace(6)
+      doc.text('Nenhum item registrado.', marginX + 3, y)
+      y += 6
+      return
+    }
 
     const iconW = 9
     const compW = 38
@@ -332,7 +332,7 @@ export async function generateServiceOrderPdf({
 
     drawTableHeader()
 
-    items.forEach((item, idx) => {
+    checkedItems.forEach((item, idx) => {
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(8.2)
       const descLines = doc.splitTextToSize(item.description || '—', descW - 3)
@@ -381,12 +381,96 @@ export async function generateServiceOrderPdf({
     y += 4
   }
 
-  // ---------- Helper de timeline (atualizações / reabertura) ----------
+  // ---------- tabela de garantia (componente / garantia / valor) ----------
+  const garantiaTable = (checkedItems: ServiceOrderChecklistItem[]) => {
+    if (checkedItems.length === 0) return
+
+    const iconW = 9
+    const compW = 70
+    const valorW = 30
+    const garantiaW = contentWidth - 6 - iconW - compW - valorW
+    const tableHeaderHeight = 8
+    const lineH = 4.1
+    const tx = marginX + 3
+    const tw = contentWidth - 6
+
+    const drawHeader = () => {
+      setFill(DARK)
+      doc.rect(tx, y, tw, tableHeaderHeight, 'F')
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(7.6)
+      setText(WHITE)
+      doc.text('COMPONENTE', tx + iconW + 2, y + tableHeaderHeight / 2 + 1.1)
+      doc.text('GARANTIA', tx + iconW + compW + 2, y + tableHeaderHeight / 2 + 1.1)
+      doc.text('VALOR', tx + tw - 2, y + tableHeaderHeight / 2 + 1.1, { align: 'right' })
+      y += tableHeaderHeight
+    }
+
+    drawHeader()
+
+    checkedItems.forEach((item, idx) => {
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8.2)
+      const warrantyLines = doc.splitTextToSize(item.warranty || '—', garantiaW - 3)
+      const rowHeight = Math.max(warrantyLines.length, 1) * lineH + 5
+
+      if (y + rowHeight > pageHeight - marginBottom) {
+        startNewPage()
+        drawHeader()
+      }
+
+      if (idx % 2 === 1) {
+        setFill(LIGHT_BG)
+        doc.rect(tx, y, tw, rowHeight, 'F')
+      }
+
+      checkSquare(tx + 1.8, y + rowHeight / 2 - 2.5, 5, VR_RED, WHITE)
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      setText(DARK)
+      doc.text(item.component, tx + iconW + 2, y + 5)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8.2)
+      setText(GRAY)
+      doc.text(warrantyLines, tx + iconW + compW + 2, y + 5)
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      setText(VR_RED)
+      doc.text(
+        item.value != null ? `R$ ${Number(item.value).toFixed(2)}` : '—',
+        tx + tw - 2,
+        y + 5,
+        { align: 'right' }
+      )
+
+      y += rowHeight
+      setDraw(BORDER)
+      doc.setLineWidth(0.25)
+      doc.line(tx, y, tx + tw, y)
+    })
+
+    y += 4
+  }
+
+  // ---------- timeline (atualizações / reabertura) ----------
   const THUMB_MAX = 26
   const THUMB_GAP = 3
   const MAX_THUMBS = 4
 
   const renderTimelineEntries = async (entries: ServiceOrderUpdate[]) => {
+    if (entries.length === 0) {
+      doc.setFont('helvetica', 'italic')
+      doc.setFontSize(9)
+      setText(GRAY)
+      ensureSpace(6)
+      doc.text('Nenhuma atualização registrada.', marginX + 3, y)
+      y += 6
+      return
+    }
+
     for (const entry of entries) {
       const label = ACTION_LABELS[entry.action_type] ?? entry.action_type
       const messageLines = entry.message ? doc.splitTextToSize(entry.message, contentWidth - 10) : []
@@ -446,39 +530,90 @@ export async function generateServiceOrderPdf({
     }
   }
 
-  // ---------- Atualizações no reparo (formulário OS 2) ----------
-  const reparoUpdates = updates
-    .filter((u) => u.action_type === 'update')
-    .sort((a, b) => a.created_at.localeCompare(b.created_at))
-
-  if (reparoUpdates.length > 0) {
-    bigHeading('Atualizações no reparo')
-    await renderTimelineEntries(reparoUpdates)
+  // ---------- conclusão (estruturada com os dados atuais, ou em texto puro
+  // para ciclos antigos já superados por uma reabertura posterior) ----------
+  const renderConclusionStructured = () => {
+    if (completedServices) field('Serviços realizados', completedServices)
+    garantiaTable(checklist.filter((i) => i.checked))
+    field('Valor total do serviço', `R$ ${Number(finalValue ?? 0).toFixed(2)}`)
+    if (warranty) field('Garantia geral', warranty)
+    field('Concluído em', new Date(closedAt).toLocaleString('pt-BR'))
   }
 
-  // ---------- Reabertura de OS (somente se existir) ----------
-  const reopenedEntries = updates
-    .filter((u) => u.action_type === 'reopened')
-    .sort((a, b) => a.created_at.localeCompare(b.created_at))
-
-  if (reopenedEntries.length > 0) {
-    bigHeading('Reabertura de OS')
-    await renderTimelineEntries(reopenedEntries)
+  const renderConclusionFromLog = (entry: ServiceOrderUpdate) => {
+    const lines = doc.splitTextToSize(entry.message || '-', contentWidth - 6)
+    ensureSpace(lines.length * 5.2 + 6)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9.5)
+    setText(DARK)
+    doc.text(lines, marginX + 3, y)
+    y += lines.length * 5.2 + 4
+    field('Concluído em', new Date(entry.created_at).toLocaleString('pt-BR'))
   }
 
-  // ---------- Reparo concluído (sempre por último, fecha a caixa da OS) ----------
+  // ---------- separa a timeline em ciclos: cada reabertura inicia um novo ciclo ----------
+  type Cycle = { reparoUpdates: ServiceOrderUpdate[]; completed: ServiceOrderUpdate | null; reopenedBy: ServiceOrderUpdate | null }
+  const sortedUpdates = [...updates].sort((a, b) => a.created_at.localeCompare(b.created_at))
+  const cycles: Cycle[] = [{ reparoUpdates: [], completed: null, reopenedBy: null }]
+  for (const entry of sortedUpdates) {
+    if (entry.action_type === 'reopened') {
+      cycles.push({ reparoUpdates: [], completed: null, reopenedBy: entry })
+      continue
+    }
+    const current = cycles[cycles.length - 1]
+    if (entry.action_type === 'update') current.reparoUpdates.push(entry)
+    else if (entry.action_type === 'completed') current.completed = entry
+  }
+  const totalReopenings = cycles.length - 1
+
+  // =====================================================
+  // Container: Ordem de Serviço
+  // Ordem interna fixa: Checklist inicial > Atualizações no reparo > Reparo concluído
+  // (a conclusão só vem depois das atualizações — nunca antes)
+  // =====================================================
+  beginContainer('Ordem de serviço')
+
+  bigHeading('Checklist inicial')
+  checklistTable(checklist.filter((i) => i.checked))
+
+  bigHeading('Atualizações no reparo')
+  await renderTimelineEntries(cycles[0].reparoUpdates)
+
   bigHeading('Reparo concluído')
-
-  if (completedServices) {
-    field('Serviços realizados', completedServices)
+  if (totalReopenings === 0) {
+    renderConclusionStructured()
+  } else if (cycles[0].completed) {
+    renderConclusionFromLog(cycles[0].completed)
   }
-  field('Valor total do serviço', `R$ ${Number(finalValue ?? 0).toFixed(2)}`)
-  if (warranty) {
-    field('Garantia', warranty)
-  }
-  field('Concluído em', new Date(closedAt).toLocaleString('pt-BR'))
 
   endContainer()
+
+  // =====================================================
+  // Containers: Reabertura de OS — um por reabertura, sempre depois da
+  // conclusão anterior. Cada um termina com sua própria conclusão/garantia.
+  // =====================================================
+  for (let i = 1; i < cycles.length; i++) {
+    const cycle = cycles[i]
+    const isLastCycle = i === cycles.length - 1
+    const title = totalReopenings > 1 ? `Reabertura de OS (${i} de ${totalReopenings})` : 'Reabertura de OS'
+
+    beginContainer(title)
+
+    if (cycle.reopenedBy?.message) {
+      field('Justificativa da reabertura', cycle.reopenedBy.message)
+    }
+
+    await renderTimelineEntries(cycle.reparoUpdates)
+
+    bigHeading('Reparo concluído')
+    if (isLastCycle) {
+      renderConclusionStructured()
+    } else if (cycle.completed) {
+      renderConclusionFromLog(cycle.completed)
+    }
+
+    endContainer()
+  }
 
   // =====================================================
   // Rodapé (todas as páginas)
