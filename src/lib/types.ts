@@ -106,3 +106,56 @@ export interface StockMovement {
   created_at: string
   stock_items?: { name: string; unit: StockUnit } | null
 }
+
+export interface NeighborhoodShippingRate {
+  id: string
+  neighborhood: string
+  price: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ProductCategory {
+  id: string
+  name: string
+  created_at: string
+}
+
+export interface Product {
+  id: string
+  name: string
+  description: string | null
+  price: number
+  quantity: number
+  category_id: string | null
+  image_url: string | null
+  active: boolean
+  created_at: string
+  updated_at: string
+  product_categories?: { name: string } | null
+}
+
+export type StoreOrderStatus = 'pendente' | 'vendido' | 'recusado'
+
+export interface StoreOrderItem {
+  id: string
+  store_order_id: string
+  product_id: string | null
+  product_name: string
+  unit_price: number
+  quantity: number
+}
+
+export interface StoreOrder {
+  id: string
+  customer_name: string
+  customer_whatsapp: string
+  neighborhood: string | null
+  shipping_price: number
+  pickup_at_store: boolean
+  total_value: number
+  status: StoreOrderStatus
+  created_at: string
+  updated_at: string
+  store_order_items?: StoreOrderItem[]
+}

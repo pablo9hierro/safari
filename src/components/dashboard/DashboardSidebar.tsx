@@ -4,11 +4,14 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Logo from '@/components/ui/Logo'
-import { ClipboardList, Boxes, LogOut } from 'lucide-react'
+import { ClipboardList, Boxes, Truck, Package, ShoppingBag, LogOut } from 'lucide-react'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Solicitações', icon: ClipboardList },
   { href: '/dashboard/estoque', label: 'Estoque', icon: Boxes },
+  { href: '/dashboard/produtos', label: 'Produtos', icon: Package },
+  { href: '/dashboard/pedidos', label: 'Pedidos', icon: ShoppingBag },
+  { href: '/dashboard/frete', label: 'Frete', icon: Truck },
 ]
 
 export default function DashboardSidebar() {

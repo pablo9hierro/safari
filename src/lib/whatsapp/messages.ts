@@ -1,4 +1,4 @@
-import { ServiceRequest, ServiceStatus } from '@/lib/types'
+import { ServiceRequest, ServiceStatus, StoreOrder } from '@/lib/types'
 import { STORE_ADDRESS, SITE_URL } from '@/lib/constants'
 
 export type OrderSummary = {
@@ -114,4 +114,28 @@ export const STATUS_MESSAGES: Partial<Record<ServiceStatus, StatusMessageFn>> = 
     '',
     `Agradecemos a confiança, *${req.customer_name}*! Caso precise de algo, estamos à disposição.`,
   ].join('\n'),
+}
+
+// Enviada ao dono quando um cliente finaliza um pedido na loja (carrinho do catálogo)
+export function ownerNewStoreOrderMessage(order: StoreOrder) {
+  const items = (order.store_order_items ?? []).map(
+    (i) => `• ${i.quantity}x ${i.product_name} — ${currency(i.unit_price * i.quantity)}`
+  )
+
+  return [
+    '🛒 *Novo pedido da loja!*',
+    '',
+    `👤 *Cliente:* ${order.customer_name}`,
+    `📞 *WhatsApp:* ${order.customer_whatsapp}`,
+    '',
+    '*Itens:*',
+    ...items,
+    '',
+    order.pickup_at_store
+      ? '🏠 *Entrega:* cliente vai buscar no local'
+      : `📍 *Bairro:* ${order.neighborhood || 'não informado'} — frete: ${currency(order.shipping_price)}`,
+    `💰 *Total:* ${currency(order.total_value)}`,
+    '',
+    '👉 Acesse o dashboard de pedidos para continuar a negociação.',
+  ].join('\n')
 }
