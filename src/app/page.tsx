@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   Search,
   ArrowRight,
+  ShoppingBag,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -34,13 +35,22 @@ export default function Home() {
       {/* Header */}
       <header className="px-5 sm:px-10 py-5 flex items-center justify-between max-w-6xl mx-auto">
         <Logo size="md" />
-        <Link
-          href="/consultar"
-          className="flex items-center gap-1.5 text-sm font-medium text-vr-silver hover:text-white transition-colors"
-        >
-          <Search className="w-4 h-4" />
-          <span className="hidden sm:inline">Acompanhar pedido</span>
-        </Link>
+        <div className="flex items-center gap-4 sm:gap-6">
+          <Link
+            href="/loja"
+            className="flex items-center gap-1.5 text-sm font-medium text-vr-silver hover:text-white transition-colors"
+          >
+            <ShoppingBag className="w-4 h-4" />
+            <span className="hidden sm:inline">Catálogo</span>
+          </Link>
+          <Link
+            href="/consultar"
+            className="flex items-center gap-1.5 text-sm font-medium text-vr-silver hover:text-white transition-colors"
+          >
+            <Search className="w-4 h-4" />
+            <span className="hidden sm:inline">Acompanhar pedido</span>
+          </Link>
+        </div>
       </header>
 
       {/* Hero */}
@@ -61,6 +71,10 @@ export default function Home() {
           <a href="#orcamento" className="btn-primary w-full sm:w-auto flex items-center justify-center gap-2">
             Solicitar orçamento <ArrowRight className="w-4 h-4" />
           </a>
+          <Link href="/loja" className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2">
+            <ShoppingBag className="w-4 h-4" />
+            Ver catálogo
+          </Link>
           <Link href="/consultar" className="btn-secondary w-full sm:w-auto text-center">
             Acompanhar solicitação
           </Link>
