@@ -408,7 +408,7 @@ export default function ServiceOrderPanel({
         .insert({
           service_order_id: order.id,
           action_type: 'update',
-          message: `Revisão de orçamento — ${item.component}: R$ ${value.toFixed(2)} — ${quoteJustifications[idx].trim()} — Garantia: ${itemWarranty || 'não informada'}`,
+          message: `Revisão de orçamento — ${item.component}: R$ ${value.toFixed(2)} — ${quoteJustifications[idx].trim()}`,
           media_urls: mediaUrls,
         })
         .select()
