@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf'
 import { ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceRequest } from './types'
-import { SITE_URL } from './constants'
+import { SITE_URL, STORE_ADDRESS } from './constants'
 
 type RGB = readonly [number, number, number]
 
@@ -16,10 +16,7 @@ const WHITE: RGB = [255, 255, 255]
 const GREEN: RGB = [22, 153, 84]
 
 const ACTION_LABELS: Record<string, string> = {
-  created: 'OS aberta',
-  checklist_update: 'Checklist de avaliação',
   update: 'Atualização do reparo',
-  completed: 'Reparo concluído',
   reopened: 'OS reaberta',
 }
 
@@ -90,6 +87,8 @@ export async function generateServiceOrderPdf({
   const osNumber = orderId.slice(0, 8).toUpperCase()
   const HEADER_HEIGHT = 36
   let y = 0
+  let currentPage = 1
+  let containerBounds: { page: number; top: number; bottom: number }[] | null = null
 
   const setFill = (c: RGB) => doc.setFillColor(c[0], c[1], c[2])
   const setText = (c: RGB) => doc.setTextColor(c[0], c[1], c[2])
@@ -124,7 +123,11 @@ export async function generateServiceOrderPdf({
 
   // ---------- layout helpers ----------
   const startNewPage = () => {
+    if (containerBounds) {
+      containerBounds[containerBounds.length - 1].bottom = pageHeight - marginBottom + 3
+    }
     doc.addPage()
+    currentPage += 1
     setFill(VR_RED)
     doc.rect(0, 0, pageWidth, 1.6, 'F')
     doc.setFont('helvetica', 'bold')
@@ -139,39 +142,72 @@ export async function generateServiceOrderPdf({
     doc.setLineWidth(0.3)
     doc.line(marginX, 14.5, pageWidth - marginX, 14.5)
     y = 22
+    if (containerBounds) {
+      containerBounds.push({ page: currentPage, top: y - 4, bottom: y - 4 })
+    }
   }
 
   const ensureSpace = (needed: number) => {
     if (y + needed > pageHeight - marginBottom) startNewPage()
   }
 
-  const sectionTitle = (title: string) => {
-    ensureSpace(11)
-    setFill(VR_RED)
-    doc.roundedRect(marginX, y - 3, 3, 3, 0.7, 0.7, 'F')
+  // Caixa visual que agrupa um bloco de conteúdo (cliente, aparelho, loja, OS...).
+  // O contorno é desenhado no final, em todas as páginas que o bloco ocupou.
+  const beginContainer = (title: string) => {
+    ensureSpace(18)
+    containerBounds = [{ page: currentPage, top: y - 6, bottom: y - 6 }]
+    setFill(VR_BLACK)
+    doc.rect(marginX, y - 6, contentWidth, 9, 'F')
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(10.5)
+    setText(WHITE)
+    doc.text(title.toUpperCase(), marginX + 4, y)
+    y += 10
+  }
+
+  const endContainer = () => {
+    if (!containerBounds) return
+    containerBounds[containerBounds.length - 1].bottom = y + 3
+    const bounds = containerBounds
+    for (const b of bounds) {
+      doc.setPage(b.page)
+      setDraw(VR_RED)
+      doc.setLineWidth(0.6)
+      doc.roundedRect(marginX - 2, b.top, contentWidth + 4, b.bottom - b.top, 2, 2, 'S')
+    }
+    doc.setPage(currentPage)
+    containerBounds = null
+    y += 7
+  }
+
+  // Título grande e destacado para as subseções dentro da caixa da OS
+  const bigHeading = (title: string) => {
+    ensureSpace(13)
+    setFill(VR_RED)
+    doc.roundedRect(marginX + 2, y - 4, 4, 4, 1, 1, 'F')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12.5)
     setText(DARK)
-    doc.text(title.toUpperCase(), marginX + 5.5, y)
-    y += 2
-    setDraw(BORDER)
-    doc.setLineWidth(0.3)
-    doc.line(marginX, y, pageWidth - marginX, y)
-    y += 6
+    doc.text(title.toUpperCase(), marginX + 9, y)
+    y += 3
+    setDraw(VR_RED)
+    doc.setLineWidth(0.4)
+    doc.line(marginX + 2, y, pageWidth - marginX - 2, y)
+    y += 6.5
   }
 
   const field = (label: string, value: string) => {
-    const lines = doc.splitTextToSize(value || '-', contentWidth)
+    const lines = doc.splitTextToSize(value || '-', contentWidth - 6)
     ensureSpace(lines.length * 5.2 + 8)
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(7.5)
     setText(GRAY)
-    doc.text(label.toUpperCase(), marginX, y)
+    doc.text(label.toUpperCase(), marginX + 3, y)
     y += 4.8
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(10)
     setText(DARK)
-    doc.text(lines, marginX, y)
+    doc.text(lines, marginX + 3, y)
     y += lines.length * 5.2 + 3.5
   }
 
@@ -227,9 +263,9 @@ export async function generateServiceOrderPdf({
   y = HEADER_HEIGHT + 12
 
   // =====================================================
-  // Cliente / Aparelho
+  // Container: dados do cliente
   // =====================================================
-  sectionTitle('Cliente')
+  beginContainer('Dados do cliente')
   field('Nome', request.customer_name)
   field('Telefone', request.customer_phone)
   field('E-mail', request.customer_email)
@@ -241,39 +277,56 @@ export async function generateServiceOrderPdf({
     request.address_state,
   ].filter(Boolean).join(', ') || (request.address_cep ? `CEP ${request.address_cep}` : '-')
   field('Endereço', address)
+  endContainer()
 
-  y += 2
-  sectionTitle('Aparelho')
-  field('Modelo', request.phone_model)
+  // =====================================================
+  // Container: dados da solicitação e do aparelho
+  // =====================================================
+  beginContainer('Dados da solicitação e do aparelho')
+  field('Data da solicitação', new Date(request.created_at).toLocaleString('pt-BR'))
+  field('Modelo do aparelho', request.phone_model)
   field('Problema relatado', request.problem_description)
-
-  y += 2
+  endContainer()
 
   // =====================================================
-  // Itens avaliados / reparados (tabela)
+  // Container: dados da loja
   // =====================================================
+  beginContainer('Dados da loja')
+  field('Loja', 'VR Tech — Assistência Técnica Especializada')
+  field('Endereço', `${STORE_ADDRESS.street}, ${STORE_ADDRESS.neighborhood} — ${STORE_ADDRESS.city}`)
+  field('Site', SITE_URL)
+  endContainer()
+
+  // =====================================================
+  // Container: Ordem de Serviço (checklist + atualizações + conclusão + reabertura)
+  // =====================================================
+  beginContainer('Ordem de serviço')
+
+  // ---------- Checklist inicial ----------
   const items = checklist.filter((i) => i.checked)
   if (items.length > 0) {
-    sectionTitle('Itens avaliados / reparados')
+    bigHeading('Checklist inicial')
 
     const iconW = 9
-    const compW = 40
+    const compW = 38
     const valorW = 26
-    const garantiaW = 28
-    const descW = contentWidth - iconW - compW - valorW - garantiaW
+    const garantiaW = 26
+    const descW = contentWidth - 6 - iconW - compW - valorW - garantiaW
     const tableHeaderHeight = 8
     const lineH = 4.1
+    const tx = marginX + 3
+    const tw = contentWidth - 6
 
     const drawTableHeader = () => {
       setFill(DARK)
-      doc.rect(marginX, y, contentWidth, tableHeaderHeight, 'F')
+      doc.rect(tx, y, tw, tableHeaderHeight, 'F')
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(7.6)
       setText(WHITE)
-      doc.text('COMPONENTE', marginX + iconW + 2, y + tableHeaderHeight / 2 + 1.1)
-      doc.text('DESCRIÇÃO', marginX + iconW + compW + 2, y + tableHeaderHeight / 2 + 1.1)
-      doc.text('GARANTIA', marginX + iconW + compW + descW + 2, y + tableHeaderHeight / 2 + 1.1)
-      doc.text('VALOR', marginX + contentWidth - 2, y + tableHeaderHeight / 2 + 1.1, { align: 'right' })
+      doc.text('COMPONENTE', tx + iconW + 2, y + tableHeaderHeight / 2 + 1.1)
+      doc.text('DESCRIÇÃO', tx + iconW + compW + 2, y + tableHeaderHeight / 2 + 1.1)
+      doc.text('GARANTIA', tx + iconW + compW + descW + 2, y + tableHeaderHeight / 2 + 1.1)
+      doc.text('VALOR', tx + tw - 2, y + tableHeaderHeight / 2 + 1.1, { align: 'right' })
       y += tableHeaderHeight
     }
 
@@ -293,28 +346,28 @@ export async function generateServiceOrderPdf({
 
       if (idx % 2 === 1) {
         setFill(LIGHT_BG)
-        doc.rect(marginX, y, contentWidth, rowHeight, 'F')
+        doc.rect(tx, y, tw, rowHeight, 'F')
       }
 
-      checkSquare(marginX + 1.8, y + rowHeight / 2 - 2.5, 5, VR_RED, WHITE)
+      checkSquare(tx + 1.8, y + rowHeight / 2 - 2.5, 5, VR_RED, WHITE)
 
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(9)
       setText(DARK)
-      doc.text(item.component, marginX + iconW + 2, y + 5)
+      doc.text(item.component, tx + iconW + 2, y + 5)
 
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(8.2)
       setText(GRAY)
-      doc.text(descLines, marginX + iconW + compW + 2, y + 5)
-      doc.text(warrantyLines, marginX + iconW + compW + descW + 2, y + 5)
+      doc.text(descLines, tx + iconW + compW + 2, y + 5)
+      doc.text(warrantyLines, tx + iconW + compW + descW + 2, y + 5)
 
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(9)
       setText(VR_RED)
       doc.text(
         item.value != null ? `R$ ${Number(item.value).toFixed(2)}` : '—',
-        marginX + contentWidth - 2,
+        tx + tw - 2,
         y + 5,
         { align: 'right' }
       )
@@ -322,55 +375,37 @@ export async function generateServiceOrderPdf({
       y += rowHeight
       setDraw(BORDER)
       doc.setLineWidth(0.25)
-      doc.line(marginX, y, marginX + contentWidth, y)
+      doc.line(tx, y, tx + tw, y)
     })
 
-    y += 6
+    y += 8
   }
 
-  // =====================================================
-  // Serviços realizados
-  // =====================================================
-  if (completedServices) {
-    sectionTitle('Serviços realizados')
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(10)
-    setText(DARK)
-    const lines = doc.splitTextToSize(completedServices, contentWidth)
-    ensureSpace(lines.length * 5.4 + 4)
-    doc.text(lines, marginX, y)
-    y += lines.length * 5.4 + 6
-  }
-
-  // =====================================================
-  // Acompanhamento e atualizações da OS (formulário 2 + histórico)
-  // =====================================================
-  const timelineEntries = updates
-    .filter((u) => u.action_type !== 'created')
+  // ---------- Atualizações no reparo (formulário OS 2) ----------
+  const reparoUpdates = updates
+    .filter((u) => u.action_type === 'update')
     .sort((a, b) => a.created_at.localeCompare(b.created_at))
 
-  if (timelineEntries.length > 0) {
-    sectionTitle('Acompanhamento e atualizações da OS')
+  const THUMB_MAX = 26
+  const THUMB_GAP = 3
+  const MAX_THUMBS = 4
 
-    const THUMB_MAX = 26
-    const THUMB_GAP = 3
-    const MAX_THUMBS = 4
-
-    for (const entry of timelineEntries) {
+  const renderTimelineEntries = async (entries: ServiceOrderUpdate[]) => {
+    for (const entry of entries) {
       const label = ACTION_LABELS[entry.action_type] ?? entry.action_type
-      const messageLines = entry.message ? doc.splitTextToSize(entry.message, contentWidth) : []
+      const messageLines = entry.message ? doc.splitTextToSize(entry.message, contentWidth - 10) : []
 
       ensureSpace(10 + messageLines.length * 4.6)
 
-      clockIcon(marginX, y - 3, 3.6, VR_RED)
+      clockIcon(marginX + 3, y - 3, 3.6, VR_RED)
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(8.5)
       setText(DARK)
-      doc.text(label, marginX + 6, y)
+      doc.text(label, marginX + 9, y)
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(7.8)
       setText(GRAY)
-      doc.text(new Date(entry.created_at).toLocaleString('pt-BR'), pageWidth - marginX, y, { align: 'right' })
+      doc.text(new Date(entry.created_at).toLocaleString('pt-BR'), pageWidth - marginX - 3, y, { align: 'right' })
       y += 5
 
       if (messageLines.length > 0) {
@@ -378,7 +413,7 @@ export async function generateServiceOrderPdf({
         doc.setFontSize(9)
         setText(DARK)
         ensureSpace(messageLines.length * 4.6)
-        doc.text(messageLines, marginX + 6, y)
+        doc.text(messageLines, marginX + 9, y)
         y += messageLines.length * 4.6 + 1
       }
 
@@ -393,7 +428,7 @@ export async function generateServiceOrderPdf({
 
         if (images.length > 0) {
           ensureSpace(THUMB_MAX + 3)
-          let cursorX = marginX + 6
+          let cursorX = marginX + 9
           for (const img of images) {
             const scale = Math.min(THUMB_MAX / img.width, THUMB_MAX / img.height, 1)
             const w = img.width * scale
@@ -410,48 +445,83 @@ export async function generateServiceOrderPdf({
 
       setDraw(BORDER)
       doc.setLineWidth(0.2)
-      doc.line(marginX, y, pageWidth - marginX, y)
+      doc.line(marginX + 3, y, pageWidth - marginX - 3, y)
       y += 5
     }
+  }
 
+  if (reparoUpdates.length > 0) {
+    bigHeading('Atualizações no reparo')
+    await renderTimelineEntries(reparoUpdates)
     y += 2
   }
 
-  // =====================================================
-  // Total + garantia geral
-  // =====================================================
+  // ---------- Reparo concluído — garantia ----------
+  bigHeading('Reparo concluído — Garantia')
+
+  if (completedServices) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8.5)
+    setText(GRAY)
+    ensureSpace(6)
+    doc.text('SERVIÇOS REALIZADOS', marginX + 3, y)
+    y += 5
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    setText(DARK)
+    const lines = doc.splitTextToSize(completedServices, contentWidth - 6)
+    ensureSpace(lines.length * 5.4 + 4)
+    doc.text(lines, marginX + 3, y)
+    y += lines.length * 5.4 + 6
+  }
+
   const hasWarranty = !!warranty
+  const boxWidth = contentWidth - 6
   const boxHeight = hasWarranty ? 28 : 20
   ensureSpace(boxHeight + 4)
 
   setFill(VR_BLACK)
-  doc.roundedRect(marginX, y, contentWidth, boxHeight, 3, 3, 'F')
+  doc.roundedRect(marginX + 3, y, boxWidth, boxHeight, 3, 3, 'F')
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8.5)
   setText(GRAY_LIGHT)
-  doc.text('VALOR TOTAL DO SERVIÇO', marginX + 8, y + 9)
+  doc.text('VALOR TOTAL DO SERVIÇO', marginX + 11, y + 9)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(17)
   setText(VR_RED_LIGHT)
-  doc.text(`R$ ${Number(finalValue ?? 0).toFixed(2)}`, marginX + contentWidth - 8, y + 12, { align: 'right' })
+  doc.text(`R$ ${Number(finalValue ?? 0).toFixed(2)}`, marginX + 3 + boxWidth - 8, y + 12, { align: 'right' })
 
   if (hasWarranty) {
-    shieldIcon(marginX + 8, y + 15.5, 5, 5.5, WHITE)
+    shieldIcon(marginX + 11, y + 15.5, 5, 5.5, WHITE)
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8.3)
     setText(GRAY_LIGHT)
-    const lines = doc.splitTextToSize(`Garantia: ${warranty}`, contentWidth - 22)
-    doc.text(lines, marginX + 16, y + 20)
+    const lines = doc.splitTextToSize(`Garantia: ${warranty}`, boxWidth - 22)
+    doc.text(lines, marginX + 19, y + 20)
   }
 
-  y += boxHeight + 10
+  y += boxHeight + 8
 
   doc.setFont('helvetica', 'italic')
   doc.setFontSize(7.8)
   setText(GRAY)
-  doc.text(`Concluído em ${new Date(closedAt).toLocaleString('pt-BR')}`, marginX, y)
+  doc.text(`Concluído em ${new Date(closedAt).toLocaleString('pt-BR')}`, marginX + 3, y)
+  y += 5
+
+  // ---------- Reabertura de OS (somente se existir) ----------
+  const reopenedEntries = updates
+    .filter((u) => u.action_type === 'reopened')
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))
+
+  if (reopenedEntries.length > 0) {
+    y += 3
+    bigHeading('Reabertura de OS')
+    await renderTimelineEntries(reopenedEntries)
+  }
+
+  endContainer()
 
   // =====================================================
   // Rodapé (todas as páginas)
