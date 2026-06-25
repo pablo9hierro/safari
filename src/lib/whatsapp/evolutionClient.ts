@@ -25,6 +25,9 @@ export async function sendWhatsAppText(phone: string, text: string) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
+    if (body.includes('"exists":false')) {
+      throw new Error(`O número ${phone} não está registrado no WhatsApp.`)
+    }
     throw new Error(`Evolution API: falha ao enviar mensagem (${res.status}) ${body}`)
   }
 
