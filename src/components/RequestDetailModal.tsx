@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { ServiceRequest, ServiceStatus } from '@/lib/types'
+import { useMemo, useState } from 'react'
+import { PaymentMethodEntry, ServiceRequest, ServiceStatus } from '@/lib/types'
+import { PAYMENT_METHODS } from '@/lib/constants'
 import { createClient } from '@/lib/supabase/client'
 import ServiceOrderPanel, { isServiceOrderStatus } from '@/components/ServiceOrderPanel'
 import {
@@ -27,6 +28,7 @@ const STATUS_LABELS: Record<ServiceStatus, string> = {
   em_busca:       '🛵 Em rota de recolhimento',
   in_progress:    '🔧 Em reparo',
   completed:      '✅ Reparo concluído',
+  em_pagamento:   '💳 Em pagamento',
   em_entrega:     '📦 Em rota de entrega',
   delivered:      '📬 Aparelho entregue',
   finished:       '✅ Atendimento concluído',
@@ -46,7 +48,12 @@ type AdvanceConfig =
 
 // O status só avança um passo por vez, nunca retrocede e nunca pula etapas.
 // Algumas transições exigem que a OS correspondente já tenha sido preenchida.
-function getAdvanceConfig(current: ServiceStatus, osState: { closed: boolean; hasUpdate: boolean }, quoteValue: string): AdvanceConfig {
+function getAdvanceConfig(
+  current: ServiceStatus,
+  osState: { closed: boolean; hasUpdate: boolean },
+  quoteValue: string,
+  paymentReady: boolean
+): AdvanceConfig {
   switch (current) {
     case 'pending':
       return {
@@ -78,6 +85,14 @@ function getAdvanceConfig(current: ServiceStatus, osState: { closed: boolean; ha
         blockedMessage: 'Preencha o checklist de avaliação (formulário 1) e registre ao menos uma atualização no acompanhamento (formulário 2) antes de avançar.',
       }
     case 'completed':
+      return {
+        type: 'single',
+        next: 'em_pagamento',
+        label: '💳 Avançar para forma de pagamento',
+        ready: osState.closed,
+        blockedMessage: 'Conclua a ordem de serviço (formulário de conclusão) antes de avançar.',
+      }
+    case 'em_pagamento':
       // O adm escolhe manualmente o caminho de entrega: retirada pelo cliente ou rota de entrega
       return {
         type: 'choice',
@@ -85,8 +100,8 @@ function getAdvanceConfig(current: ServiceStatus, osState: { closed: boolean; ha
           { next: 'delivered', label: '📬 Aparelho entregue (retirada pelo cliente)' },
           { next: 'em_entrega', label: '📦 Em rota de entrega (motoboy)' },
         ],
-        ready: osState.closed,
-        blockedMessage: 'Conclua a ordem de serviço (formulário de conclusão) antes de avançar.',
+        ready: paymentReady,
+        blockedMessage: 'Registre a forma de pagamento antes de avançar.',
       }
     case 'em_entrega':
     case 'delivered':
@@ -119,7 +134,69 @@ export default function RequestDetailModal({
   const [waError, setWaError] = useState<string | null>(null)
   const [resendingWa, setResendingWa] = useState(false)
 
+  const [selectedMethods, setSelectedMethods] = useState<string[]>((request.payment_methods ?? []).map((p) => p.method))
+  const [methodValues, setMethodValues] = useState<Record<string, string>>(
+    Object.fromEntries((request.payment_methods ?? []).map((p) => [p.method, String(p.value)]))
+  )
+  const [discountPercent, setDiscountPercent] = useState(request.discount_percent != null ? String(request.discount_percent) : '')
+  const [paymentSaved, setPaymentSaved] = useState((request.payment_methods ?? []).length > 0)
+  const [savingPayment, setSavingPayment] = useState(false)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
+
   const phoneDigits = request.customer_phone.replace(/\D/g, '')
+
+  const baseValue = Number(quoteValue || 0)
+  const discountNum = parseInt(discountPercent || '0', 10) || 0
+  const discountedValue = baseValue * (1 - discountNum / 100)
+  const sumEntered = useMemo(
+    () => selectedMethods.reduce((s, m) => s + (parseFloat(methodValues[m] || '0') || 0), 0),
+    [selectedMethods, methodValues]
+  )
+  const methodsValid = selectedMethods.length === 1 || Math.abs(sumEntered - discountedValue) < 0.01
+
+  const toggleMethod = (method: string) => {
+    setPaymentSaved(false)
+    setSelectedMethods((prev) => (prev.includes(method) ? prev.filter((m) => m !== method) : [...prev, method]))
+  }
+
+  const handleSavePayment = async () => {
+    setPaymentError(null)
+    if (selectedMethods.length === 0) {
+      setPaymentError('Selecione ao menos uma forma de pagamento.')
+      return
+    }
+    if (!methodsValid) {
+      setPaymentError('A soma dos valores por forma de pagamento deve ser igual ao valor com desconto.')
+      return
+    }
+
+    const finalMethods: PaymentMethodEntry[] = selectedMethods.length === 1
+      ? [{ method: selectedMethods[0], value: discountedValue }]
+      : selectedMethods.map((m) => ({ method: m, value: parseFloat(methodValues[m] || '0') || 0 }))
+
+    setSavingPayment(true)
+    const supabase = createClient()
+    const { data, error: err } = await supabase
+      .from('service_requests')
+      .update({ discount_percent: discountNum || null, payment_methods: finalMethods, quote_value: discountedValue })
+      .eq('id', request.id)
+      .select()
+      .single()
+
+    if (err || !data) {
+      setPaymentError('Não foi possível salvar a forma de pagamento.')
+      setSavingPayment(false)
+      return
+    }
+
+    // Mantém o valor final da OS em sincronia com o valor efetivamente cobrado (após desconto).
+    await supabase.from('service_orders').update({ final_value: discountedValue }).eq('request_id', request.id)
+
+    setQuoteValue(String(discountedValue))
+    onUpdate(data as ServiceRequest)
+    setPaymentSaved(true)
+    setSavingPayment(false)
+  }
 
   // Dispara o envio via Evolution API no backend, sem qualquer redirecionamento manual.
   const notifyWhatsApp = async (event: ServiceStatus) => {
@@ -175,7 +252,7 @@ export default function RequestDetailModal({
     }
   }
 
-  const advance = getAdvanceConfig(status, osState, quoteValue)
+  const advance = getAdvanceConfig(status, osState, quoteValue, paymentSaved)
   const fullAddress = [
     request.address_street,
     request.address_number,
@@ -281,6 +358,107 @@ export default function RequestDetailModal({
               </div>
             )}
           </section>
+
+          {/* Pagamento — formulário só durante o status "em pagamento" */}
+          {status === 'em_pagamento' && (
+            <section className="space-y-2">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Pagamento</h3>
+              <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
+                <div>
+                  <label className="label">Desconto (%)</label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    step="1"
+                    min="0"
+                    max="100"
+                    value={discountPercent}
+                    onChange={(e) => { setDiscountPercent(e.target.value.replace(/[^0-9]/g, '')); setPaymentSaved(false) }}
+                    placeholder="0"
+                    className="input-field"
+                  />
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500">Valor original</span>
+                  <span className="font-semibold text-gray-700">R$ {baseValue.toFixed(2)}</span>
+                </div>
+                {discountNum > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">Valor com desconto</span>
+                    <span className="font-bold text-vr-red">R$ {discountedValue.toFixed(2)}</span>
+                  </div>
+                )}
+                <div>
+                  <label className="label">Forma de pagamento</label>
+                  <div className="flex flex-wrap gap-2">
+                    {PAYMENT_METHODS.map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => toggleMethod(m)}
+                        className={`px-3 py-2 rounded-xl text-sm font-medium border transition-colors
+                          ${selectedMethods.includes(m) ? 'bg-vr-red text-white border-vr-red' : 'bg-white text-gray-600 border-gray-200 hover:border-vr-red/40'}`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {selectedMethods.length > 1 && (
+                  <div className="space-y-2">
+                    <p className="text-xs text-gray-400">
+                      Informe o valor pago em cada forma selecionada (soma deve ser R$ {discountedValue.toFixed(2)}):
+                    </p>
+                    {selectedMethods.map((m) => (
+                      <div key={m} className="flex items-center gap-2">
+                        <span className="text-sm text-gray-600 flex-1">{m}</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.01"
+                          min="0"
+                          value={methodValues[m] ?? ''}
+                          onChange={(e) => { setMethodValues((prev) => ({ ...prev, [m]: e.target.value })); setPaymentSaved(false) }}
+                          placeholder="0,00"
+                          className="input-field w-28 text-sm"
+                        />
+                      </div>
+                    ))}
+                    <p className={`text-xs ${methodsValid ? 'text-green-600' : 'text-amber-600'}`}>
+                      Soma informada: R$ {sumEntered.toFixed(2)}
+                    </p>
+                  </div>
+                )}
+                {paymentError && <p className="text-xs text-red-500">{paymentError}</p>}
+                <button
+                  type="button"
+                  onClick={handleSavePayment}
+                  disabled={savingPayment || paymentSaved}
+                  className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {savingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : paymentSaved ? '✓ Pagamento registrado' : 'Salvar forma de pagamento'}
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Pagamento — resumo somente leitura nas etapas seguintes */}
+          {status !== 'em_pagamento' && !!request.payment_methods?.length && (
+            <section className="space-y-2">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Pagamento</h3>
+              <div className="bg-slate-50 rounded-2xl p-4 space-y-1">
+                {!!request.discount_percent && (
+                  <p className="text-sm text-gray-600">Desconto aplicado: {request.discount_percent}%</p>
+                )}
+                {request.payment_methods.map((p) => (
+                  <p key={p.method} className="text-sm text-gray-700 flex justify-between">
+                    <span>{p.method}</span>
+                    <span className="font-semibold">R$ {Number(p.value).toFixed(2)}</span>
+                  </p>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Ordem de serviço */}
           {isServiceOrderStatus(status) && (

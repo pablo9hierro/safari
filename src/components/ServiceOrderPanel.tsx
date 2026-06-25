@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 
 const ACTIVE_STATUSES: ServiceStatus[] = [
-  'in_progress', 'em_entrega', 'completed', 'delivered', 'finished',
+  'in_progress', 'em_entrega', 'completed', 'em_pagamento', 'delivered', 'finished',
 ]
 
 export function isServiceOrderStatus(status: ServiceStatus) {
@@ -199,6 +199,7 @@ export default function ServiceOrderPanel({
   const [pendingNewPart, setPendingNewPart] = useState<{ name: string } | null>(null)
   const [newPartStock, setNewPartStock] = useState('')
   const [newPartPrice, setNewPartPrice] = useState('')
+  const [newPartWarranty, setNewPartWarranty] = useState('')
   const [creatingPart, setCreatingPart] = useState(false)
 
   const load = useCallback(async () => {
@@ -445,6 +446,7 @@ export default function ServiceOrderPanel({
     setPendingNewPart({ name: trimmedName })
     setNewPartStock('')
     setNewPartPrice('')
+    setNewPartWarranty('')
   }
 
   // Cadastra a peça nova em estoque (nome = texto digitado + modelo do aparelho da OS) e já a adiciona à lista.
@@ -456,6 +458,10 @@ export default function ServiceOrderPanel({
       setPartError('Informe uma quantidade de estoque válida.')
       return
     }
+    if (!newPartWarranty.trim()) {
+      setPartError('Informe a garantia da peça.')
+      return
+    }
     const priceNum = newPartPrice.trim() ? parseFloat(newPartPrice) : null
 
     setCreatingPart(true)
@@ -464,7 +470,7 @@ export default function ServiceOrderPanel({
 
     const { data: created, error } = await supabase
       .from('stock_items')
-      .insert({ name: fullName, quantity: stockQty, unit: 'unidade', price: priceNum })
+      .insert({ name: fullName, quantity: stockQty, unit: 'unidade', price: priceNum, warranty: newPartWarranty.trim() })
       .select()
       .single()
 
@@ -1099,6 +1105,15 @@ export default function ServiceOrderPanel({
                 value={newPartPrice}
                 onChange={(e) => setNewPartPrice(e.target.value)}
                 placeholder="0,00"
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="label">Garantia *</label>
+              <input
+                value={newPartWarranty}
+                onChange={(e) => setNewPartWarranty(e.target.value)}
+                placeholder="Ex: 90 dias"
                 className="input-field"
               />
             </div>

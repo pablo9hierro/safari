@@ -7,9 +7,15 @@ export type ServiceStatus =
   | 'in_progress'
   | 'em_entrega'
   | 'completed'
+  | 'em_pagamento'
   | 'delivered'
   | 'finished'
   | 'cancelled'
+
+export interface PaymentMethodEntry {
+  method: string
+  value: number
+}
 
 export interface ServiceRequest {
   id: string
@@ -30,6 +36,8 @@ export interface ServiceRequest {
   status: ServiceStatus
   quote_value: number | null
   owner_notes: string | null
+  discount_percent?: number | null
+  payment_methods?: PaymentMethodEntry[]
 }
 
 export interface ServiceRequestFormData {
@@ -94,6 +102,7 @@ export interface StockItem {
   unit: StockUnit
   quantity: number
   price?: number | null
+  warranty?: string | null
   created_at: string
   updated_at: string
 }

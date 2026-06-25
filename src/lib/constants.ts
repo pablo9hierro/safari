@@ -8,6 +8,14 @@ export const STORE_ADDRESS = {
 
 export const SITE_URL = 'https://safari-nine-silk.vercel.app'
 
+export const PAYMENT_METHODS = [
+  'Pix',
+  'Dinheiro',
+  'Cartão de débito',
+  'Cartão de crédito',
+  'Transferência',
+] as const
+
 export const SERVICE_ORDER_COMPONENTS = [
   'Touch',
   'Display/Tela',

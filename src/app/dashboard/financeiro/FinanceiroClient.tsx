@@ -8,7 +8,7 @@ export type ServiceOrderRow = {
   closed_at: string | null
   final_value: number | null
   request_id: string
-  service_requests: { customer_name: string; phone_model: string } | null
+  service_requests: { customer_name: string; phone_model: string; payment_methods: { method: string; value: number }[] | null } | null
 }
 
 type StoreOrderItemRow = {
@@ -33,6 +33,7 @@ type Transaction = {
   title: string
   subtitle: string
   value: number
+  paymentMethods: string[]
 }
 
 const TYPE_FILTERS = [
@@ -89,6 +90,7 @@ export default function FinanceiroClient({
   const [datePreset, setDatePreset] = useState<DatePreset>('30d')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+  const [paymentFilter, setPaymentFilter] = useState<string>('all')
 
   const transactions = useMemo<Transaction[]>(() => {
     const manutencao: Transaction[] = serviceOrders
@@ -100,6 +102,7 @@ export default function FinanceiroClient({
         title: o.service_requests?.customer_name ?? 'Cliente',
         subtitle: o.service_requests?.phone_model ?? '',
         value: Number(o.final_value),
+        paymentMethods: (o.service_requests?.payment_methods ?? []).map((p) => p.method),
       }))
 
     const venda: Transaction[] = storeOrders
@@ -114,6 +117,7 @@ export default function FinanceiroClient({
           title: order.customer_name,
           subtitle: soldItems.map((i) => `${i.quantity}x ${i.product_name}`).join(', '),
           value,
+          paymentMethods: [],
         }
       })
       .filter((t): t is Transaction => t !== null)
@@ -123,9 +127,15 @@ export default function FinanceiroClient({
 
   const rangeStart = useMemo(() => (datePreset !== 'all' ? startOfPreset(datePreset) : null), [datePreset])
 
+  const availablePaymentMethods = useMemo(
+    () => Array.from(new Set(transactions.flatMap((t) => t.paymentMethods))).sort(),
+    [transactions]
+  )
+
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
       if (typeFilter !== 'all' && t.type !== typeFilter) return false
+      if (paymentFilter !== 'all' && !t.paymentMethods.includes(paymentFilter)) return false
       const d = new Date(t.date)
       if (customFrom || customTo) {
         if (customFrom && d < new Date(customFrom)) return false
@@ -139,7 +149,7 @@ export default function FinanceiroClient({
       if (rangeStart && d < rangeStart) return false
       return true
     })
-  }, [transactions, typeFilter, rangeStart, customFrom, customTo])
+  }, [transactions, typeFilter, paymentFilter, rangeStart, customFrom, customTo])
 
   const totals = useMemo(() => {
     const manutencao = filtered.filter((t) => t.type === 'manutencao').reduce((s, t) => s + t.value, 0)
@@ -211,6 +221,29 @@ export default function FinanceiroClient({
           />
         </div>
       </div>
+
+      {/* Filtro por forma de pagamento */}
+      {availablePaymentMethods.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          <button
+            onClick={() => setPaymentFilter('all')}
+            className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-all
+              ${paymentFilter === 'all' ? 'bg-vr-red text-white' : 'bg-vr-graphite border border-white/5 text-vr-silver hover:bg-vr-graphite-light'}`}
+          >
+            Todas as formas
+          </button>
+          {availablePaymentMethods.map((m) => (
+            <button
+              key={m}
+              onClick={() => setPaymentFilter(m)}
+              className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-all
+                ${paymentFilter === m ? 'bg-vr-red text-white' : 'bg-vr-graphite border border-white/5 text-vr-silver hover:bg-vr-graphite-light'}`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Totais */}
       <div className="grid grid-cols-3 gap-2">
@@ -285,6 +318,9 @@ export default function FinanceiroClient({
                 <div className="min-w-0">
                   <p className="text-sm text-white truncate">{t.title}</p>
                   {t.subtitle && <p className="text-xs text-vr-silver/50 truncate">{t.subtitle}</p>}
+                  {t.paymentMethods.length > 0 && (
+                    <p className="text-xs text-vr-silver/40 truncate">{t.paymentMethods.join(' + ')}</p>
+                  )}
                 </div>
               </div>
               <div className="text-right flex-shrink-0">
