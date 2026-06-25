@@ -285,22 +285,29 @@ export default function LojaClient({
               const outOfStock = Number(product.quantity) <= 0
               return (
                 <div key={product.id} className="bg-white rounded-2xl overflow-hidden shadow-xl flex flex-col">
-                  <div className="aspect-square bg-gray-100 flex items-center justify-center overflow-hidden">
-                    {product.image_url ? (
-                      <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <Package className="w-10 h-10 text-gray-300" />
-                    )}
-                  </div>
-                  <div className="p-3 flex flex-col gap-2 flex-1">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900 leading-snug">{product.name}</p>
-                      {product.product_categories?.name && (
-                        <p className="text-xs text-gray-400">{product.product_categories.name}</p>
+                  <Link href={`/loja/${product.id}`} className="flex flex-col flex-1">
+                    <div className="aspect-square bg-gray-100 flex items-center justify-center overflow-hidden">
+                      {product.image_url ? (
+                        <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <Package className="w-10 h-10 text-gray-300" />
                       )}
                     </div>
-                    <p className="text-vr-red font-bold mt-auto">{currency(Number(product.price))}</p>
+                    <div className="p-3 flex flex-col gap-2 flex-1">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900 leading-snug">{product.name}</p>
+                        {product.product_categories?.name && (
+                          <p className="text-xs text-gray-400">{product.product_categories.name}</p>
+                        )}
+                        {product.description && (
+                          <p className="text-xs text-gray-500 line-clamp-2 mt-1">{product.description}</p>
+                        )}
+                      </div>
+                      <p className="text-vr-red font-bold mt-auto">{currency(Number(product.price))}</p>
+                    </div>
+                  </Link>
 
+                  <div className="px-3 pb-3">
                     {outOfStock ? (
                       <span className="text-xs font-semibold text-gray-400 text-center py-2">Esgotado</span>
                     ) : inCart > 0 ? (

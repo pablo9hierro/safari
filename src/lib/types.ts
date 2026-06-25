@@ -81,6 +81,7 @@ export interface ServiceOrder {
   final_value: number | null
   pdf_url: string | null
   closed_at: string | null
+  used_parts?: UsedPart[]
   service_order_updates?: ServiceOrderUpdate[]
 }
 
@@ -92,8 +93,17 @@ export interface StockItem {
   name: string
   unit: StockUnit
   quantity: number
+  price?: number | null
   created_at: string
   updated_at: string
+}
+
+export interface UsedPart {
+  stock_item_id: string | null
+  name: string
+  quantity: number
+  unit: StockUnit
+  price: number | null
 }
 
 export interface StockMovement {
@@ -129,6 +139,7 @@ export interface Product {
   quantity: number
   category_id: string | null
   image_url: string | null
+  image_urls?: string[]
   active: boolean
   created_at: string
   updated_at: string

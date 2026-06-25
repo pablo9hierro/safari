@@ -5,6 +5,14 @@ import { createClient } from '@/lib/supabase/client'
 import { Product, ProductCategory } from '@/lib/types'
 import { Package, Search, X, Pencil, Trash2, Loader2, ImagePlus } from 'lucide-react'
 
+const MAX_PRODUCT_IMAGES = 3
+
+type ImageSlot = { url: string | null; file: File | null }
+
+function emptySlots(urls: string[] = []): ImageSlot[] {
+  return Array.from({ length: MAX_PRODUCT_IMAGES }, (_, i) => ({ url: urls[i] ?? null, file: null }))
+}
+
 async function uploadProductImage(supabase: ReturnType<typeof createClient>, file: File): Promise<string | null> {
   const ext = file.name.split('.').pop()
   const fileName = `products/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
@@ -12,6 +20,72 @@ async function uploadProductImage(supabase: ReturnType<typeof createClient>, fil
   if (error) return null
   const { data: pub } = supabase.storage.from('service-order-media').getPublicUrl(fileName)
   return pub.publicUrl
+}
+
+// Resolve cada slot pra uma URL final, subindo os arquivos novos e mantendo as URLs já existentes.
+async function uploadSlots(supabase: ReturnType<typeof createClient>, slots: ImageSlot[]): Promise<string[]> {
+  const urls: string[] = []
+  for (const slot of slots) {
+    if (slot.file) {
+      const uploaded = await uploadProductImage(supabase, slot.file)
+      if (uploaded) urls.push(uploaded)
+    } else if (slot.url) {
+      urls.push(slot.url)
+    }
+  }
+  return urls
+}
+
+function ImageSlotsPicker({ slots, onChange }: { slots: ImageSlot[]; onChange: (next: ImageSlot[]) => void }) {
+  const refs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)]
+
+  const pick = (idx: number, file: File | null) => {
+    const next = [...slots]
+    next[idx] = { url: file ? URL.createObjectURL(file) : next[idx].url, file }
+    onChange(next)
+  }
+
+  const remove = (idx: number) => {
+    const next = [...slots]
+    next[idx] = { url: null, file: null }
+    onChange(next)
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      {slots.map((slot, idx) => (
+        <div key={idx} className="relative">
+          <button
+            type="button"
+            onClick={() => refs[idx].current?.click()}
+            className="w-16 h-16 rounded-xl bg-vr-black border border-white/10 border-dashed flex items-center justify-center overflow-hidden"
+          >
+            {slot.url ? (
+              <img src={slot.url} alt="Pré-visualização" className="w-full h-full object-cover" />
+            ) : (
+              <ImagePlus className="w-5 h-5 text-vr-silver/40" />
+            )}
+          </button>
+          {slot.url && (
+            <button
+              type="button"
+              onClick={() => remove(idx)}
+              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-vr-red text-white flex items-center justify-center"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+          <input
+            ref={refs[idx]}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => pick(idx, e.target.files?.[0] ?? null)}
+          />
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function CategoryPicker({
@@ -90,11 +164,9 @@ export default function ProdutosClient({
   const [quantity, setQuantity] = useState('')
   const [description, setDescription] = useState('')
   const [categoryName, setCategoryName] = useState('')
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imageSlots, setImageSlots] = useState<ImageSlot[]>(emptySlots())
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -108,8 +180,7 @@ export default function ProdutosClient({
   const [editQuantity, setEditQuantity] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [editCategoryName, setEditCategoryName] = useState('')
-  const [editImageFile, setEditImageFile] = useState<File | null>(null)
-  const [editImagePreview, setEditImagePreview] = useState<string | null>(null)
+  const [editImageSlots, setEditImageSlots] = useState<ImageSlot[]>(emptySlots())
   const [editError, setEditError] = useState<string | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
 
@@ -136,19 +207,13 @@ export default function ProdutosClient({
     return null
   }
 
-  const handlePickImage = (file: File | null) => {
-    setImageFile(file)
-    setImagePreview(file ? URL.createObjectURL(file) : null)
-  }
-
   const resetCreateForm = () => {
     setName('')
     setPrice('')
     setQuantity('')
     setDescription('')
     setCategoryName('')
-    setImageFile(null)
-    setImagePreview(null)
+    setImageSlots(emptySlots())
   }
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -166,8 +231,7 @@ export default function ProdutosClient({
     const supabase = createClient()
 
     const categoryId = await resolveCategoryId(supabase, categoryName)
-    let imageUrl: string | null = null
-    if (imageFile) imageUrl = await uploadProductImage(supabase, imageFile)
+    const imageUrls = await uploadSlots(supabase, imageSlots)
 
     const { data: created, error } = await supabase
       .from('products')
@@ -177,7 +241,8 @@ export default function ProdutosClient({
         quantity: qtyNum,
         description: description.trim() || null,
         category_id: categoryId,
-        image_url: imageUrl,
+        image_url: imageUrls[0] ?? null,
+        image_urls: imageUrls,
       })
       .select('*, product_categories(name)')
       .single()
@@ -209,8 +274,7 @@ export default function ProdutosClient({
     setEditQuantity(String(Number(product.quantity)))
     setEditDescription(product.description ?? '')
     setEditCategoryName(product.product_categories?.name ?? '')
-    setEditImageFile(null)
-    setEditImagePreview(product.image_url)
+    setEditImageSlots(emptySlots(product.image_urls?.length ? product.image_urls : (product.image_url ? [product.image_url] : [])))
     setEditError(null)
   }
   const closeEdit = () => setEditProduct(null)
@@ -230,11 +294,7 @@ export default function ProdutosClient({
     const supabase = createClient()
 
     const categoryId = await resolveCategoryId(supabase, editCategoryName)
-    let imageUrl = editProduct.image_url
-    if (editImageFile) {
-      const uploaded = await uploadProductImage(supabase, editImageFile)
-      if (uploaded) imageUrl = uploaded
-    }
+    const imageUrls = await uploadSlots(supabase, editImageSlots)
 
     const { data: updated, error } = await supabase
       .from('products')
@@ -244,7 +304,8 @@ export default function ProdutosClient({
         quantity: qtyNum,
         description: editDescription.trim() || null,
         category_id: categoryId,
-        image_url: imageUrl,
+        image_url: imageUrls[0] ?? null,
+        image_urls: imageUrls,
         updated_at: new Date().toISOString(),
       })
       .eq('id', editProduct.id)
@@ -284,34 +345,21 @@ export default function ProdutosClient({
       <form onSubmit={handleCreate} className="bg-vr-graphite rounded-2xl border border-white/5 p-4 space-y-3">
         <p className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Cadastrar produto</p>
 
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="w-16 h-16 flex-shrink-0 rounded-xl bg-vr-black border border-white/10 border-dashed flex items-center justify-center overflow-hidden"
-          >
-            {imagePreview ? (
-              <img src={imagePreview} alt="Pré-visualização" className="w-full h-full object-cover" />
-            ) : (
-              <ImagePlus className="w-5 h-5 text-vr-silver/40" />
-            )}
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => handlePickImage(e.target.files?.[0] ?? null)}
-          />
-          <div className="flex-1">
-            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Nome do produto *</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ex: Capinha iPhone 13"
-              className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
-            />
+        <div>
+          <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Fotos (até {MAX_PRODUCT_IMAGES})</label>
+          <div className="mt-1">
+            <ImageSlotsPicker slots={imageSlots} onChange={setImageSlots} />
           </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Nome do produto *</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ex: Capinha iPhone 13"
+            className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -504,32 +552,20 @@ export default function ProdutosClient({
               </button>
             </div>
 
-            <div className="flex items-center gap-3">
-              <label className="w-16 h-16 flex-shrink-0 rounded-xl bg-vr-black border border-white/10 border-dashed flex items-center justify-center overflow-hidden cursor-pointer">
-                {editImagePreview ? (
-                  <img src={editImagePreview} alt="Pré-visualização" className="w-full h-full object-cover" />
-                ) : (
-                  <ImagePlus className="w-5 h-5 text-vr-silver/40" />
-                )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] ?? null
-                    setEditImageFile(file)
-                    setEditImagePreview(file ? URL.createObjectURL(file) : editProduct.image_url)
-                  }}
-                />
-              </label>
-              <div className="flex-1">
-                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Nome do produto *</label>
-                <input
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red"
-                />
+            <div>
+              <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Fotos (até {MAX_PRODUCT_IMAGES})</label>
+              <div className="mt-1">
+                <ImageSlotsPicker slots={editImageSlots} onChange={setEditImageSlots} />
               </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Nome do produto *</label>
+              <input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red"
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-3">

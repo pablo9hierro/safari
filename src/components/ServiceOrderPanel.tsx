@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
-import { ServiceOrder, ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceRequest, ServiceStatus } from '@/lib/types'
+import { ServiceOrder, ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceRequest, ServiceStatus, StockItem, UsedPart } from '@/lib/types'
 import { SERVICE_ORDER_COMPONENTS } from '@/lib/constants'
 import { generateServiceOrderPdf } from '@/lib/generateServiceOrderPdf'
 import {
@@ -23,6 +23,7 @@ import {
   Download,
   RotateCcw,
   AlertTriangle,
+  Boxes,
 } from 'lucide-react'
 
 const ACTIVE_STATUSES: ServiceStatus[] = [
@@ -188,6 +189,19 @@ export default function ServiceOrderPanel({
   const [quoteFiles, setQuoteFiles] = useState<Record<number, File[]>>({})
   const [quoteWarranties, setQuoteWarranties] = useState<Record<number, string>>({})
 
+  const [stockItems, setStockItems] = useState<StockItem[]>([])
+  const [usedParts, setUsedParts] = useState<UsedPart[]>([])
+  const [committedPartIds, setCommittedPartIds] = useState<Set<string>>(new Set())
+  const [partSearch, setPartSearch] = useState('')
+  const [partSelectedId, setPartSelectedId] = useState<string | null>(null)
+  const [partQuantity, setPartQuantity] = useState('1')
+  const [partSearchOpen, setPartSearchOpen] = useState(false)
+  const [partError, setPartError] = useState<string | null>(null)
+  const [pendingNewPart, setPendingNewPart] = useState<{ name: string; quantity: number } | null>(null)
+  const [newPartStock, setNewPartStock] = useState('')
+  const [newPartPrice, setNewPartPrice] = useState('')
+  const [creatingPart, setCreatingPart] = useState(false)
+
   const load = useCallback(async () => {
     const supabase = createClient()
     const { data: existing } = await supabase
@@ -202,6 +216,9 @@ export default function ServiceOrderPanel({
       setChecklist((rest.checklist as ServiceOrderChecklistItem[])?.length ? rest.checklist : buildInitialChecklist())
       setUpdates([...(service_order_updates ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at)))
       setCompletedServices(rest.completed_services ?? '')
+      const existingParts = rest.used_parts ?? []
+      setUsedParts(existingParts)
+      setCommittedPartIds(new Set(existingParts.map((p) => p.stock_item_id).filter((id): id is string => !!id)))
     } else if (!readOnly) {
       const initialChecklist = buildInitialChecklist()
       const { data: created } = await supabase
@@ -227,6 +244,19 @@ export default function ServiceOrderPanel({
   useEffect(() => {
     load()
   }, [load])
+
+  // Estoque só é relevante no fluxo do admin (a página pública /consultar usa readOnly).
+  useEffect(() => {
+    if (readOnly) return
+    const supabase = createClient()
+    supabase
+      .from('stock_items')
+      .select('*')
+      .order('name')
+      .then(({ data }) => {
+        if (data) setStockItems(data as StockItem[])
+      })
+  }, [readOnly])
 
   useEffect(() => {
     if (!order) return
@@ -368,6 +398,81 @@ export default function ServiceOrderPanel({
       .filter((idx) => checklist[idx].checked || form2Components.has(checklist[idx].component))
   }
 
+  const partSuggestions = partSearch.trim()
+    ? stockItems.filter((i) => i.name.toLowerCase().includes(partSearch.trim().toLowerCase())).slice(0, 6)
+    : []
+
+  const selectPartSuggestion = (item: StockItem) => {
+    setPartSearch(item.name)
+    setPartSelectedId(item.id)
+    setPartSearchOpen(false)
+  }
+
+  const removeUsedPart = (idx: number) => {
+    setUsedParts((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  // "+ item": usa a peça já cadastrada (selecionada na busca ou nome digitado igual a uma existente)
+  // ou abre o popup de cadastro dinâmico quando nenhuma peça em estoque corresponde ao texto digitado.
+  const handleAddPartClick = () => {
+    setPartError(null)
+    const trimmedName = partSearch.trim()
+    if (!trimmedName) return
+    const qty = parseFloat(partQuantity) || 1
+
+    const matched = stockItems.find((i) => i.id === partSelectedId)
+      ?? stockItems.find((i) => i.name.toLowerCase() === trimmedName.toLowerCase())
+
+    if (matched) {
+      setUsedParts((prev) => [...prev, { stock_item_id: matched.id, name: matched.name, quantity: qty, unit: matched.unit, price: matched.price ?? null }])
+      setPartSearch('')
+      setPartSelectedId(null)
+      setPartQuantity('1')
+      return
+    }
+
+    setPendingNewPart({ name: trimmedName, quantity: qty })
+    setNewPartStock('')
+    setNewPartPrice('')
+  }
+
+  // Cadastra a peça nova em estoque (nome = texto digitado + modelo do aparelho da OS) e já a adiciona à lista.
+  const handleConfirmNewPart = async () => {
+    if (!pendingNewPart) return
+    setPartError(null)
+    const stockQty = parseFloat(newPartStock)
+    if (!newPartStock || isNaN(stockQty) || stockQty < 0) {
+      setPartError('Informe uma quantidade de estoque válida.')
+      return
+    }
+    const priceNum = newPartPrice.trim() ? parseFloat(newPartPrice) : null
+
+    setCreatingPart(true)
+    const supabase = createClient()
+    const fullName = `${pendingNewPart.name} ${request.phone_model}`.trim()
+
+    const { data: created, error } = await supabase
+      .from('stock_items')
+      .insert({ name: fullName, quantity: stockQty, unit: 'unidade', price: priceNum })
+      .select()
+      .single()
+
+    if (error || !created) {
+      setPartError(error?.code === '23505' ? 'Já existe um item de estoque com este nome.' : 'Não foi possível cadastrar o item.')
+      setCreatingPart(false)
+      return
+    }
+
+    const item = created as StockItem
+    setStockItems((prev) => [...prev, item].sort((a, b) => a.name.localeCompare(b.name)))
+    setUsedParts((prev) => [...prev, { stock_item_id: item.id, name: item.name, quantity: pendingNewPart.quantity, unit: item.unit, price: item.price ?? null }])
+    setPartSearch('')
+    setPartSelectedId(null)
+    setPartQuantity('1')
+    setPendingNewPart(null)
+    setCreatingPart(false)
+  }
+
   // Conclusão = revisão de orçamento e garantia (todos os itens da OS1+OS2) + dados finais da OS.
   const handleSaveCompletion = async () => {
     if (!order) return
@@ -424,6 +529,14 @@ export default function ServiceOrderPanel({
       ? revisionIndices.map((idx) => `${updatedChecklist[idx].component}: ${updatedChecklist[idx].warranty || 'não informada'}`).join('; ')
       : null
 
+    // Só registra saída de estoque para peças realmente novas desde o último save
+    // (evita decrementar de novo as mesmas peças se a OS for reaberta e salva outra vez).
+    for (const part of usedParts) {
+      if (!part.stock_item_id || committedPartIds.has(part.stock_item_id)) continue
+      await supabase.from('stock_movements').insert({ item_id: part.stock_item_id, type: 'saida', quantity: part.quantity, unit: part.unit })
+    }
+    setCommittedPartIds(new Set(usedParts.map((p) => p.stock_item_id).filter((id): id is string => !!id)))
+
     const closedAt = new Date().toISOString()
     let pdf_url: string | null = null
     try {
@@ -451,6 +564,7 @@ export default function ServiceOrderPanel({
         completed_services: completedServices || null,
         warranty: warrantySummary,
         final_value: finalValue,
+        used_parts: usedParts,
         pdf_url,
         closed_at: closedAt,
         updated_at: closedAt,
@@ -852,6 +966,75 @@ export default function ServiceOrderPanel({
             </div>
           )}
 
+          <div className="space-y-2 pb-3 border-b border-gray-200">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Itens utilizados no reparo</p>
+            <p className="text-xs text-gray-400">
+              Busque uma peça do estoque ou digite o nome de uma peça nova para cadastrá-la na hora.
+            </p>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  value={partSearch}
+                  onChange={(e) => { setPartSearch(e.target.value); setPartSelectedId(null); setPartSearchOpen(true) }}
+                  onFocus={() => setPartSearchOpen(true)}
+                  onBlur={() => setTimeout(() => setPartSearchOpen(false), 150)}
+                  placeholder="Buscar peça em estoque..."
+                  className="input-field text-sm"
+                />
+                {partSearchOpen && partSuggestions.length > 0 && (
+                  <ul className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg py-1">
+                    {partSuggestions.map((item) => (
+                      <li key={item.id}>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => selectPartSuggestion(item)}
+                          className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-red-50 hover:text-vr-red transition-colors"
+                        >
+                          {item.name} <span className="text-xs text-gray-400">({Number(item.quantity)} {item.unit} em estoque)</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={partQuantity}
+                onChange={(e) => setPartQuantity(e.target.value)}
+                placeholder="Qtd"
+                className="input-field text-sm w-20"
+              />
+              <button
+                type="button"
+                onClick={handleAddPartClick}
+                className="flex items-center gap-1 text-xs font-semibold bg-vr-red text-white rounded-lg px-3 hover:bg-vr-red-dark transition-colors flex-shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" /> item
+              </button>
+            </div>
+            {partError && !pendingNewPart && <p className="text-xs text-red-500">{partError}</p>}
+            {usedParts.length > 0 && (
+              <ul className="space-y-1.5">
+                {usedParts.map((part, idx) => (
+                  <li key={idx} className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                    <span className="text-gray-700">
+                      {part.name} <span className="text-gray-400">× {part.quantity} {part.unit}</span>
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {part.price != null && <span className="text-gray-500 text-xs">R$ {Number(part.price).toFixed(2)}</span>}
+                      <button type="button" onClick={() => removeUsedPart(idx)}>
+                        <X className="w-3.5 h-3.5 text-gray-400" />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           <div>
             <label className="label">Serviços realizados</label>
             <textarea
@@ -874,6 +1057,67 @@ export default function ServiceOrderPanel({
         </div>
       )}
 
+      {/* Popup: cadastro dinâmico de peça nova em estoque */}
+      {pendingNewPart && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => !creatingPart && setPendingNewPart(null)}
+        >
+          <div
+            className="bg-white w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl p-5 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm font-semibold text-gray-800">Este item ainda não está cadastrado, deseja cadastrar agora?</p>
+            <p className="text-xs text-gray-400">
+              Será salvo em estoque como &quot;{pendingNewPart.name} {request.phone_model}&quot;.
+            </p>
+            <div>
+              <label className="label">Quantidade em estoque *</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={newPartStock}
+                onChange={(e) => setNewPartStock(e.target.value)}
+                placeholder="0"
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="label">Valor (R$)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={newPartPrice}
+                onChange={(e) => setNewPartPrice(e.target.value)}
+                placeholder="0,00"
+                className="input-field"
+              />
+            </div>
+            {partError && <p className="text-xs text-red-500">{partError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={handleConfirmNewPart}
+                disabled={creatingPart}
+                className="flex-1 btn-primary flex items-center justify-center gap-2"
+              >
+                {creatingPart ? <Loader2 className="w-4 h-4 animate-spin" /> : <Boxes className="w-4 h-4" />}
+                Cadastrar e adicionar
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingNewPart(null)}
+                disabled={creatingPart}
+                className="text-sm font-semibold text-gray-500 px-3"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {order.closed_at && (
         <div className="bg-green-50 border border-green-100 rounded-2xl p-4 space-y-1.5">
           <p className="text-xs font-bold text-green-700 uppercase tracking-wide flex items-center gap-1.5">
@@ -882,6 +1126,11 @@ export default function ServiceOrderPanel({
           </p>
           {order.completed_services && <p className="text-sm text-gray-700"><strong>Serviços:</strong> {order.completed_services}</p>}
           {order.final_value != null && <p className="text-sm text-gray-700"><strong>Valor:</strong> R$ {Number(order.final_value).toFixed(2)}</p>}
+          {order.used_parts && order.used_parts.length > 0 && (
+            <p className="text-sm text-gray-700">
+              <strong>Peças utilizadas:</strong> {order.used_parts.map((p) => `${p.name} (${p.quantity} ${p.unit})`).join(', ')}
+            </p>
+          )}
           {order.warranty && <p className="text-sm text-gray-700"><strong>Garantia:</strong> {order.warranty}</p>}
           {order.pdf_url ? (
             <div className="flex items-center gap-3 mt-1">
