@@ -194,10 +194,9 @@ export default function ServiceOrderPanel({
   const [committedPartIds, setCommittedPartIds] = useState<Set<string>>(new Set())
   const [partSearch, setPartSearch] = useState('')
   const [partSelectedId, setPartSelectedId] = useState<string | null>(null)
-  const [partQuantity, setPartQuantity] = useState('1')
   const [partSearchOpen, setPartSearchOpen] = useState(false)
   const [partError, setPartError] = useState<string | null>(null)
-  const [pendingNewPart, setPendingNewPart] = useState<{ name: string; quantity: number } | null>(null)
+  const [pendingNewPart, setPendingNewPart] = useState<{ name: string } | null>(null)
   const [newPartStock, setNewPartStock] = useState('')
   const [newPartPrice, setNewPartPrice] = useState('')
   const [creatingPart, setCreatingPart] = useState(false)
@@ -412,26 +411,38 @@ export default function ServiceOrderPanel({
     setUsedParts((prev) => prev.filter((_, i) => i !== idx))
   }
 
+  // Cada clique em "+ item" soma 1 unidade. Se a peça já estiver na lista, só incrementa a
+  // quantidade dela em vez de duplicar a linha — pedir a mesma peça de novo é só clicar de novo.
+  const addOrIncrementUsedPart = (stockItemId: string, name: string, unit: StockItem['unit'], price: number | null) => {
+    setUsedParts((prev) => {
+      const idx = prev.findIndex((p) => p.stock_item_id === stockItemId)
+      if (idx >= 0) {
+        const next = [...prev]
+        next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 }
+        return next
+      }
+      return [...prev, { stock_item_id: stockItemId, name, quantity: 1, unit, price }]
+    })
+  }
+
   // "+ item": usa a peça já cadastrada (selecionada na busca ou nome digitado igual a uma existente)
   // ou abre o popup de cadastro dinâmico quando nenhuma peça em estoque corresponde ao texto digitado.
   const handleAddPartClick = () => {
     setPartError(null)
     const trimmedName = partSearch.trim()
     if (!trimmedName) return
-    const qty = parseFloat(partQuantity) || 1
 
     const matched = stockItems.find((i) => i.id === partSelectedId)
       ?? stockItems.find((i) => i.name.toLowerCase() === trimmedName.toLowerCase())
 
     if (matched) {
-      setUsedParts((prev) => [...prev, { stock_item_id: matched.id, name: matched.name, quantity: qty, unit: matched.unit, price: matched.price ?? null }])
+      addOrIncrementUsedPart(matched.id, matched.name, matched.unit, matched.price ?? null)
       setPartSearch('')
       setPartSelectedId(null)
-      setPartQuantity('1')
       return
     }
 
-    setPendingNewPart({ name: trimmedName, quantity: qty })
+    setPendingNewPart({ name: trimmedName })
     setNewPartStock('')
     setNewPartPrice('')
   }
@@ -465,10 +476,9 @@ export default function ServiceOrderPanel({
 
     const item = created as StockItem
     setStockItems((prev) => [...prev, item].sort((a, b) => a.name.localeCompare(b.name)))
-    setUsedParts((prev) => [...prev, { stock_item_id: item.id, name: item.name, quantity: pendingNewPart.quantity, unit: item.unit, price: item.price ?? null }])
+    addOrIncrementUsedPart(item.id, item.name, item.unit, item.price ?? null)
     setPartSearch('')
     setPartSelectedId(null)
-    setPartQuantity('1')
     setPendingNewPart(null)
     setCreatingPart(false)
   }
@@ -972,7 +982,7 @@ export default function ServiceOrderPanel({
               Busque uma peça do estoque ou digite o nome de uma peça nova para cadastrá-la na hora.
             </p>
             <div className="flex gap-2">
-              <div className="relative flex-1">
+              <div className="relative flex-1 min-w-0">
                 <input
                   value={partSearch}
                   onChange={(e) => { setPartSearch(e.target.value); setPartSelectedId(null); setPartSearchOpen(true) }}
@@ -980,6 +990,12 @@ export default function ServiceOrderPanel({
                   onBlur={() => setTimeout(() => setPartSearchOpen(false), 150)}
                   placeholder="Buscar peça em estoque..."
                   className="input-field text-sm"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  name="part-search"
+                  data-1p-ignore
                 />
                 {partSearchOpen && partSuggestions.length > 0 && (
                   <ul className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg py-1">
@@ -998,15 +1014,6 @@ export default function ServiceOrderPanel({
                   </ul>
                 )}
               </div>
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={partQuantity}
-                onChange={(e) => setPartQuantity(e.target.value)}
-                placeholder="Qtd"
-                className="input-field text-sm w-20"
-              />
               <button
                 type="button"
                 onClick={handleAddPartClick}
