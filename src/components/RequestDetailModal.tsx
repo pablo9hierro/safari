@@ -148,11 +148,16 @@ export default function RequestDetailModal({
   const baseValue = Number(quoteValue || 0)
   const discountNum = parseInt(discountPercent || '0', 10) || 0
   const discountedValue = baseValue * (1 - discountNum / 100)
-  const sumEntered = useMemo(
-    () => selectedMethods.reduce((s, m) => s + (parseFloat(methodValues[m] || '0') || 0), 0),
-    [selectedMethods, methodValues]
+  // A última forma selecionada tem o valor calculado automaticamente (resto do total com
+  // desconto) — assim o lojista nunca precisa fazer essa conta de cabeça.
+  const lastMethod = selectedMethods[selectedMethods.length - 1]
+  const otherMethods = selectedMethods.slice(0, -1)
+  const otherSum = useMemo(
+    () => otherMethods.reduce((s, m) => s + (parseFloat(methodValues[m] || '0') || 0), 0),
+    [otherMethods, methodValues]
   )
-  const methodsValid = selectedMethods.length === 1 || Math.abs(sumEntered - discountedValue) < 0.01
+  const remainder = Math.max(0, discountedValue - otherSum)
+  const methodsValid = selectedMethods.length <= 1 || otherSum <= discountedValue + 0.01
 
   const toggleMethod = (method: string) => {
     setPaymentSaved(false)
@@ -166,13 +171,16 @@ export default function RequestDetailModal({
       return
     }
     if (!methodsValid) {
-      setPaymentError('A soma dos valores por forma de pagamento deve ser igual ao valor com desconto.')
+      setPaymentError('Os valores informados já passam do total com desconto.')
       return
     }
 
     const finalMethods: PaymentMethodEntry[] = selectedMethods.length === 1
       ? [{ method: selectedMethods[0], value: discountedValue }]
-      : selectedMethods.map((m) => ({ method: m, value: parseFloat(methodValues[m] || '0') || 0 }))
+      : [
+          ...otherMethods.map((m) => ({ method: m, value: parseFloat(methodValues[m] || '0') || 0 })),
+          { method: lastMethod, value: remainder },
+        ]
 
     setSavingPayment(true)
     const supabase = createClient()
@@ -407,9 +415,9 @@ export default function RequestDetailModal({
                 {selectedMethods.length > 1 && (
                   <div className="space-y-2">
                     <p className="text-xs text-gray-400">
-                      Informe o valor pago em cada forma selecionada (soma deve ser R$ {discountedValue.toFixed(2)}):
+                      Informe o valor pago em cada forma — a última é calculada automaticamente com o restante.
                     </p>
-                    {selectedMethods.map((m) => (
+                    {otherMethods.map((m) => (
                       <div key={m} className="flex items-center gap-2">
                         <span className="text-sm text-gray-600 flex-1">{m}</span>
                         <input
@@ -424,9 +432,17 @@ export default function RequestDetailModal({
                         />
                       </div>
                     ))}
-                    <p className={`text-xs ${methodsValid ? 'text-green-600' : 'text-amber-600'}`}>
-                      Soma informada: R$ {sumEntered.toFixed(2)}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600 flex-1">{lastMethod} <span className="text-gray-400">(restante)</span></span>
+                      <input
+                        disabled
+                        value={remainder.toFixed(2)}
+                        className="input-field w-28 text-sm opacity-60"
+                      />
+                    </div>
+                    {!methodsValid && (
+                      <p className="text-xs text-amber-600">Os valores informados já passam do total com desconto.</p>
+                    )}
                   </div>
                 )}
                 {paymentError && <p className="text-xs text-red-500">{paymentError}</p>}
@@ -512,13 +528,13 @@ export default function RequestDetailModal({
               </button>
             )}
 
-            {advance.type === 'choice' && advance.ready && (
+            {advance.type === 'choice' && (
               <div className="space-y-2">
                 {advance.options.map((opt) => (
                   <button
                     key={opt.next}
                     onClick={() => handleAdvance(opt.next)}
-                    disabled={loading}
+                    disabled={loading || !advance.ready}
                     className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : opt.label}

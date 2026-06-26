@@ -84,17 +84,24 @@ export default function PedidosClient({ initialOrders }: { initialOrders: StoreO
     const total = item.unit_price * item.quantity
     const discountNum = parseInt(payDiscount || '0', 10) || 0
     const discountedTotal = total * (1 - discountNum / 100)
-    const sumEntered = paySelectedMethods.reduce((s, m) => s + (parseFloat(payMethodValues[m] || '0') || 0), 0)
-    const methodsValid = paySelectedMethods.length === 1 || Math.abs(sumEntered - discountedTotal) < 0.01
+    // A última forma selecionada recebe o restante calculado automaticamente.
+    const lastMethod = paySelectedMethods[paySelectedMethods.length - 1]
+    const otherMethods = paySelectedMethods.slice(0, -1)
+    const otherSum = otherMethods.reduce((s, m) => s + (parseFloat(payMethodValues[m] || '0') || 0), 0)
+    const remainder = Math.max(0, discountedTotal - otherSum)
+    const methodsValid = paySelectedMethods.length <= 1 || otherSum <= discountedTotal + 0.01
 
     if (!methodsValid) {
-      setPayError('A soma dos valores por forma de pagamento deve ser igual ao valor com desconto.')
+      setPayError('Os valores informados já passam do total com desconto.')
       return
     }
 
     const finalMethods: PaymentMethodEntry[] = paySelectedMethods.length === 1
       ? [{ method: paySelectedMethods[0], value: discountedTotal }]
-      : paySelectedMethods.map((m) => ({ method: m, value: parseFloat(payMethodValues[m] || '0') || 0 }))
+      : [
+          ...otherMethods.map((m) => ({ method: m, value: parseFloat(payMethodValues[m] || '0') || 0 })),
+          { method: lastMethod, value: remainder },
+        ]
 
     setProcessing((prev) => ({ ...prev, [item.id]: true }))
     const supabase = createClient()
@@ -199,7 +206,10 @@ export default function PedidosClient({ initialOrders }: { initialOrders: StoreO
                     const total = item.unit_price * item.quantity
                     const discountNum = parseInt(payDiscount || '0', 10) || 0
                     const discountedTotal = total * (1 - discountNum / 100)
-                    const sumEntered = paySelectedMethods.reduce((s, m) => s + (parseFloat(payMethodValues[m] || '0') || 0), 0)
+                    const payLastMethod = paySelectedMethods[paySelectedMethods.length - 1]
+                    const payOtherMethods = paySelectedMethods.slice(0, -1)
+                    const payOtherSum = payOtherMethods.reduce((s, m) => s + (parseFloat(payMethodValues[m] || '0') || 0), 0)
+                    const payRemainder = Math.max(0, discountedTotal - payOtherSum)
                     return (
                       <li key={item.id} className="bg-vr-black rounded-xl px-3 py-2 space-y-2">
                         <div className="flex items-center justify-between gap-3">
@@ -276,8 +286,8 @@ export default function PedidosClient({ initialOrders }: { initialOrders: StoreO
                             </div>
                             {paySelectedMethods.length > 1 && (
                               <div className="space-y-1.5">
-                                <p className="text-xs text-vr-silver/50">Valor pago em cada forma (soma deve ser R$ {discountedTotal.toFixed(2)}):</p>
-                                {paySelectedMethods.map((m) => (
+                                <p className="text-xs text-vr-silver/50">Valor pago em cada forma — a última é calculada automaticamente:</p>
+                                {payOtherMethods.map((m) => (
                                   <div key={m} className="flex items-center gap-2">
                                     <span className="text-xs text-vr-silver/70 flex-1">{m}</span>
                                     <input
@@ -292,7 +302,14 @@ export default function PedidosClient({ initialOrders }: { initialOrders: StoreO
                                     />
                                   </div>
                                 ))}
-                                <p className="text-xs text-vr-silver/50">Soma informada: R$ {sumEntered.toFixed(2)}</p>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-vr-silver/70 flex-1">{payLastMethod} <span className="text-vr-silver/40">(restante)</span></span>
+                                  <input
+                                    disabled
+                                    value={payRemainder.toFixed(2)}
+                                    className="w-24 px-2 py-1.5 rounded-lg bg-vr-black border border-white/10 text-white text-xs opacity-60"
+                                  />
+                                </div>
                               </div>
                             )}
                             {payError && <p className="text-xs text-red-400">{payError}</p>}
