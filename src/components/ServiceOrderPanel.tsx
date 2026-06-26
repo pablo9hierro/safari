@@ -198,6 +198,9 @@ export default function ServiceOrderPanel({
   const [newPartWarranty, setNewPartWarranty] = useState('')
   const [creatingPart, setCreatingPart] = useState(false)
   const [partError, setPartError] = useState<string | null>(null)
+  const [similarSearch, setSimilarSearch] = useState('')
+  const [similarSearchOpen, setSimilarSearchOpen] = useState(false)
+  const [checklistError, setChecklistError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const supabase = createClient()
@@ -302,6 +305,7 @@ export default function ServiceOrderPanel({
     setNewPartPrice('')
     setNewPartWarranty('')
     setPartError(null)
+    setSimilarSearch('')
   }
 
   const toggleChecklistItem = (idx: number, checked: boolean) => {
@@ -363,6 +367,25 @@ export default function ServiceOrderPanel({
     setCreatingPart(false)
   }
 
+  // Usa uma peça já cadastrada em outro modelo/aparelho pra este reparo (sem criar item novo) —
+  // pro caso de não ter a peça exata mas existir uma similar que encaixa pra fazer o reparo.
+  const selectSimilarComponent = (stockItem: StockItem) => {
+    if (!pendingStockItem) return
+    setChecklist((prev) => prev.map((it, i) => (i === pendingStockItem.idx ? {
+      ...it,
+      stock_item_id: stockItem.id,
+      value: it.value ?? stockItem.price ?? null,
+      warranty_days: stockItem.warranty_days ?? null,
+    } : it)))
+    setPendingStockItem(null)
+    setSimilarSearch('')
+    setSimilarSearchOpen(false)
+  }
+
+  const similarSuggestions = similarSearch.trim()
+    ? stockItems.filter((i) => i.name.toLowerCase().includes(similarSearch.trim().toLowerCase())).slice(0, 6)
+    : []
+
   const updateChecklistDescription = (idx: number, description: string) => {
     setChecklist((prev) => prev.map((item, i) => (i === idx ? { ...item, description } : item)))
   }
@@ -377,8 +400,16 @@ export default function ServiceOrderPanel({
   }
 
   // Checklist (OS1) fica editável durante todo o "em reparo" — pode ser salva quantas vezes for preciso.
+  // Nunca pode ser salva com um componente marcado sem peça de estoque vinculada.
   const handleSaveChecklist = async () => {
     if (!order) return
+    setChecklistError(null)
+    const unresolved = checklist.filter((i) => i.checked && !i.stock_item_id)
+    if (unresolved.length > 0) {
+      setChecklistError(`Vincule uma peça de estoque para: ${unresolved.map((i) => i.component).join(', ')}.`)
+      return
+    }
+
     setSavingChecklist(true)
     const supabase = createClient()
 
@@ -655,6 +686,7 @@ export default function ServiceOrderPanel({
   if (!order) return null
 
   const checkedItems = checklist.filter((i) => i.checked)
+  const resolvedItems = checklist.filter((i) => i.checked && i.stock_item_id)
   const everCompleted = updates.some((u) => u.action_type === 'completed')
   // OS1 e OS2 ficam disponíveis juntas (e editáveis) durante todo o "em reparo" — inclusive
   // depois de reabrir uma OS já concluída antes.
@@ -741,6 +773,7 @@ export default function ServiceOrderPanel({
                 </div>
               ))}
             </div>
+            {checklistError && <p className="text-xs text-red-500">{checklistError}</p>}
             <button
               onClick={handleSaveChecklist}
               disabled={savingChecklist}
@@ -777,11 +810,11 @@ export default function ServiceOrderPanel({
       {showTimeline && (
       <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Acompanhamento / linha do tempo</p>
-        {checkedItems.length === 0 ? (
-          <p className="text-sm text-gray-400">Marque ao menos um componente na checklist (OS 1) para registrar atualizações.</p>
+        {resolvedItems.length === 0 ? (
+          <p className="text-sm text-gray-400">Marque e vincule a uma peça de estoque ao menos um componente na checklist (OS 1) para registrar atualizações.</p>
         ) : (
           <div className="space-y-3">
-            {checkedItems.map((item) => {
+            {resolvedItems.map((item) => {
               const componentUpdates = updates.filter((u) => u.action_type === 'update' && u.component === item.component)
               const isUpdatingThis = updatingComponent === item.component
               return (
@@ -960,7 +993,7 @@ export default function ServiceOrderPanel({
           onClick={() => !creatingPart && setPendingStockItem(null)}
         >
           <div
-            className="bg-white w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl p-5 space-y-3"
+            className="bg-white w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <p className="text-sm font-semibold text-gray-800">Este item ainda não está cadastrado, deseja cadastrar agora?</p>
@@ -1004,15 +1037,58 @@ export default function ServiceOrderPanel({
               />
             </div>
             {partError && <p className="text-xs text-red-500">{partError}</p>}
-            <div className="flex gap-2">
-              <button
-                onClick={handleConfirmNewStockItem}
-                disabled={creatingPart}
-                className="flex-1 btn-primary flex items-center justify-center gap-2"
-              >
-                {creatingPart ? <Loader2 className="w-4 h-4 animate-spin" /> : <Boxes className="w-4 h-4" />}
-                Cadastrar e vincular
-              </button>
+            <button
+              onClick={handleConfirmNewStockItem}
+              disabled={creatingPart}
+              className="btn-primary w-full flex items-center justify-center gap-2"
+            >
+              {creatingPart ? <Loader2 className="w-4 h-4 animate-spin" /> : <Boxes className="w-4 h-4" />}
+              Cadastrar e vincular
+            </button>
+
+            <div className="pt-2 border-t border-gray-100 space-y-2">
+              <p className="text-sm font-semibold text-gray-800">Deseja usar o mesmo componente de outro modelo para este reparo?</p>
+              <p className="text-xs text-gray-400">
+                Se não tiver a peça exata, busque uma já cadastrada em outro aparelho que sirva pra este reparo.
+              </p>
+              <div className="relative">
+                <input
+                  value={similarSearch}
+                  onChange={(e) => { setSimilarSearch(e.target.value); setSimilarSearchOpen(true) }}
+                  onFocus={() => setSimilarSearchOpen(true)}
+                  onBlur={() => setTimeout(() => setSimilarSearchOpen(false), 150)}
+                  placeholder="Buscar peça já cadastrada..."
+                  className="input-field text-sm"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  name="similar-search"
+                  data-1p-ignore
+                />
+                {similarSearchOpen && similarSuggestions.length > 0 && (
+                  <ul className="absolute z-20 mt-1 w-full max-h-40 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg py-1">
+                    {similarSuggestions.map((s) => (
+                      <li key={s.id}>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => selectSimilarComponent(s)}
+                          className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-red-50 hover:text-vr-red transition-colors"
+                        >
+                          {s.name}
+                          <span className="text-xs text-gray-400">
+                            {' '}(R$ {Number(s.price ?? 0).toFixed(2)}{s.warranty_days != null ? ` · ${s.warranty_days} dias` : ''})
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end">
               <button
                 type="button"
                 onClick={() => setPendingStockItem(null)}
