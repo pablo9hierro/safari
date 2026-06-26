@@ -59,7 +59,13 @@ export interface ServiceOrderChecklistItem {
   description: string
   media_urls?: string[]
   value?: number | null
-  warranty?: string | null
+  // Resolução com o estoque, feita no momento em que o item é marcado na checklist (OS1).
+  stock_item_id?: string | null
+  warranty_days?: number | null
+  // Setado na conclusão (OS3) — marca a peça como comprometida (trava edição numa reabertura
+  // e é o ponto de partida pro cálculo de validade da garantia).
+  added_at?: string | null
+  note?: string | null
 }
 
 export type ServiceOrderActionType =
@@ -76,6 +82,7 @@ export interface ServiceOrderUpdate {
   message: string | null
   media_urls: string[]
   action_type: ServiceOrderActionType | string
+  component?: string | null
 }
 
 export interface ServiceOrder {

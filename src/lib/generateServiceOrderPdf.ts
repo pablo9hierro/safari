@@ -323,8 +323,7 @@ export async function generateServiceOrderPdf({
     const iconW = 9
     const compW = 38
     const valorW = 26
-    const garantiaW = 26
-    const descW = contentWidth - 6 - iconW - compW - valorW - garantiaW
+    const descW = contentWidth - 6 - iconW - compW - valorW
     const tableHeaderHeight = 8
     const lineH = 4.1
     const tx = marginX + 3
@@ -338,7 +337,6 @@ export async function generateServiceOrderPdf({
       setText(WHITE)
       doc.text('COMPONENTE', tx + iconW + 2, y + tableHeaderHeight / 2 + 1.1)
       doc.text('DESCRIÇÃO', tx + iconW + compW + 2, y + tableHeaderHeight / 2 + 1.1)
-      doc.text('GARANTIA', tx + iconW + compW + descW + 2, y + tableHeaderHeight / 2 + 1.1)
       doc.text('VALOR', tx + tw - 2, y + tableHeaderHeight / 2 + 1.1, { align: 'right' })
       y += tableHeaderHeight
     }
@@ -349,8 +347,7 @@ export async function generateServiceOrderPdf({
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(8.2)
       const descLines = doc.splitTextToSize(item.description || '—', descW - 3)
-      const warrantyLines = doc.splitTextToSize(item.warranty || '—', garantiaW - 3)
-      const rowHeight = Math.max(descLines.length, warrantyLines.length, 1) * lineH + 5
+      const rowHeight = Math.max(descLines.length, 1) * lineH + 5
 
       if (y + rowHeight > pageHeight - marginBottom) {
         startNewPage()
@@ -373,7 +370,6 @@ export async function generateServiceOrderPdf({
       doc.setFontSize(8.2)
       setText(GRAY)
       doc.text(descLines, tx + iconW + compW + 2, y + 5)
-      doc.text(warrantyLines, tx + iconW + compW + descW + 2, y + 5)
 
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(9)

@@ -60,8 +60,10 @@ export default function EstoqueClient({
 
     const trimmedName = newName.trim()
     const qty = parseFloat(newQuantity)
+    const priceNum = parseFloat(newPrice)
     if (!trimmedName) { setCreateError('Informe o nome do item.'); return }
     if (!newQuantity || isNaN(qty) || qty < 0) { setCreateError('Informe uma quantidade válida.'); return }
+    if (!newPrice || isNaN(priceNum) || priceNum < 0) { setCreateError('Informe o valor do reparo.'); return }
 
     setCreating(true)
     const supabase = createClient()
@@ -71,7 +73,7 @@ export default function EstoqueClient({
         name: trimmedName,
         quantity: qty,
         unit: newUnit,
-        price: newPrice.trim() ? parseFloat(newPrice) : null,
+        price: priceNum,
         warranty_days: newWarrantyDays.trim() ? parseInt(newWarrantyDays, 10) : null,
       })
       .select()
@@ -120,8 +122,10 @@ export default function EstoqueClient({
 
     const trimmedName = editName.trim()
     const qty = parseFloat(editQuantity)
+    const priceNum = parseFloat(editPrice)
     if (!trimmedName) { setEditError('Informe o nome do item.'); return }
     if (!editQuantity || isNaN(qty) || qty < 0) { setEditError('Informe uma quantidade válida.'); return }
+    if (!editPrice || isNaN(priceNum) || priceNum < 0) { setEditError('Informe o valor do reparo.'); return }
 
     setSavingEdit(true)
     const supabase = createClient()
@@ -131,7 +135,7 @@ export default function EstoqueClient({
         name: trimmedName,
         quantity: qty,
         unit: editUnit,
-        price: editPrice.trim() ? parseFloat(editPrice) : null,
+        price: priceNum,
         warranty_days: editWarrantyDays.trim() ? parseInt(editWarrantyDays, 10) : null,
         updated_at: new Date().toISOString(),
       })
@@ -254,7 +258,7 @@ export default function EstoqueClient({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Valor do reparo (R$)</label>
+            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Valor do reparo (R$) *</label>
             <input
               type="number"
               step="0.01"
@@ -486,7 +490,7 @@ export default function EstoqueClient({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Valor do reparo (R$)</label>
+                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Valor do reparo (R$) *</label>
                 <input
                   type="number"
                   step="0.01"

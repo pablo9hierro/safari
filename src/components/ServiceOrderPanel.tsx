@@ -38,16 +38,16 @@ function isVideo(url: string) {
   return /\.(mp4|mov|webm|m4v)$/i.test(url)
 }
 
-// Data em que a garantia de uma peça usada no reparo expira (null = sem garantia informada).
-function partWarrantyExpiry(part: UsedPart): Date | null {
-  if (!part.warranty_days || !part.added_at) return null
-  const expiry = new Date(part.added_at)
-  expiry.setDate(expiry.getDate() + part.warranty_days)
+// Data em que a garantia de um componente reparado expira (null = sem garantia informada/iniciada ainda).
+function computeWarrantyExpiry(addedAt: string | null | undefined, warrantyDays: number | null | undefined): Date | null {
+  if (!warrantyDays || !addedAt) return null
+  const expiry = new Date(addedAt)
+  expiry.setDate(expiry.getDate() + warrantyDays)
   return expiry
 }
 
-function isPartWarrantyActive(part: UsedPart): boolean {
-  const expiry = partWarrantyExpiry(part)
+function isWarrantyActive(addedAt: string | null | undefined, warrantyDays: number | null | undefined): boolean {
+  const expiry = computeWarrantyExpiry(addedAt, warrantyDays)
   return !!expiry && new Date() <= expiry
 }
 
@@ -151,14 +151,6 @@ function MediaPickerButtons({ onFiles }: { onFiles: (files: File[]) => void }) {
   )
 }
 
-const ACTION_LABELS: Record<string, { label: string; icon: React.ReactNode }> = {
-  created: { label: 'OS aberta', icon: <ClipboardList className="w-4 h-4" /> },
-  checklist_update: { label: 'Checklist atualizado', icon: <Wrench className="w-4 h-4" /> },
-  update: { label: 'Atualização', icon: <Wrench className="w-4 h-4" /> },
-  completed: { label: 'Reparo concluído', icon: <PackageCheck className="w-4 h-4" /> },
-  reopened: { label: 'OS reaberta', icon: <RotateCcw className="w-4 h-4" /> },
-}
-
 export default function ServiceOrderPanel({
   request,
   status,
@@ -183,9 +175,9 @@ export default function ServiceOrderPanel({
   const [checklistValues, setChecklistValues] = useState<Record<number, string>>({})
   const [savingChecklist, setSavingChecklist] = useState(false)
 
-  const [newMessage, setNewMessage] = useState('')
-  const [newFiles, setNewFiles] = useState<File[]>([])
-  const [updateComponent, setUpdateComponent] = useState('')
+  const [updatingComponent, setUpdatingComponent] = useState<string | null>(null)
+  const [updateText, setUpdateText] = useState('')
+  const [updateFiles, setUpdateFiles] = useState<File[]>([])
   const [addingUpdate, setAddingUpdate] = useState(false)
 
   const [completedServices, setCompletedServices] = useState('')
@@ -197,21 +189,16 @@ export default function ServiceOrderPanel({
   const [reopenReason, setReopenReason] = useState('')
   const [reopening, setReopening] = useState(false)
 
-  const [partPriceDrafts, setPartPriceDrafts] = useState<Record<string, string>>({})
-  const [partNoteDrafts, setPartNoteDrafts] = useState<Record<string, string>>({})
+  const [conclusionValueDrafts, setConclusionValueDrafts] = useState<Record<number, string>>({})
+  const [conclusionNoteDrafts, setConclusionNoteDrafts] = useState<Record<number, string>>({})
 
   const [stockItems, setStockItems] = useState<StockItem[]>([])
-  const [usedParts, setUsedParts] = useState<UsedPart[]>([])
-  const [committedPartIds, setCommittedPartIds] = useState<Set<string>>(new Set())
-  const [partSearch, setPartSearch] = useState('')
-  const [partSelectedId, setPartSelectedId] = useState<string | null>(null)
-  const [partSearchOpen, setPartSearchOpen] = useState(false)
-  const [partError, setPartError] = useState<string | null>(null)
-  const [pendingNewPart, setPendingNewPart] = useState<{ name: string } | null>(null)
+  const [pendingStockItem, setPendingStockItem] = useState<{ idx: number; name: string } | null>(null)
   const [newPartStock, setNewPartStock] = useState('')
   const [newPartPrice, setNewPartPrice] = useState('')
   const [newPartWarranty, setNewPartWarranty] = useState('')
   const [creatingPart, setCreatingPart] = useState(false)
+  const [partError, setPartError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const supabase = createClient()
@@ -227,9 +214,6 @@ export default function ServiceOrderPanel({
       setChecklist((rest.checklist as ServiceOrderChecklistItem[])?.length ? rest.checklist : buildInitialChecklist())
       setUpdates([...(service_order_updates ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at)))
       setCompletedServices(rest.completed_services ?? '')
-      const existingParts = rest.used_parts ?? []
-      setUsedParts(existingParts)
-      setCommittedPartIds(new Set(existingParts.map((p) => p.stock_item_id).filter((id): id is string => !!id)))
     } else if (!readOnly) {
       const initialChecklist = buildInitialChecklist()
       const { data: created } = await supabase
@@ -300,8 +284,84 @@ export default function ServiceOrderPanel({
     onOrderStateChange?.({ closed: !!order?.closed_at, hasUpdate })
   }, [order?.closed_at, updates, onOrderStateChange])
 
+  // Marcar um componente já dispara a resolução com o estoque: busca o item cadastrado
+  // ("{componente} {modelo do aparelho}") e, se não existir, abre o popup de cadastro dinâmico.
+  const resolveStockForComponent = (idx: number, component: string) => {
+    const fullName = `${component} ${request.phone_model}`.trim()
+    const matched = stockItems.find((s) => s.name.toLowerCase() === fullName.toLowerCase())
+    if (matched) {
+      setChecklist((prev) => prev.map((it, i) => (i === idx ? {
+        ...it,
+        stock_item_id: matched.id,
+        value: it.value ?? matched.price ?? null,
+        warranty_days: matched.warranty_days ?? null,
+      } : it)))
+      return
+    }
+    setPendingStockItem({ idx, name: fullName })
+    setNewPartStock('')
+    setNewPartPrice('')
+    setNewPartWarranty('')
+    setPartError(null)
+  }
+
   const toggleChecklistItem = (idx: number, checked: boolean) => {
     setChecklist((prev) => prev.map((item, i) => (i === idx ? { ...item, checked } : item)))
+    if (!checked) return
+    const item = checklist[idx]
+    if (item.stock_item_id) return
+    resolveStockForComponent(idx, item.component)
+  }
+
+  // Cadastra a peça nova em estoque (nome = componente + modelo do aparelho da OS) e já a vincula ao item da checklist.
+  const handleConfirmNewStockItem = async () => {
+    if (!pendingStockItem) return
+    setPartError(null)
+    const stockQty = parseFloat(newPartStock)
+    if (!newPartStock || isNaN(stockQty) || stockQty < 0) {
+      setPartError('Informe uma quantidade de estoque válida.')
+      return
+    }
+    const priceNum = parseFloat(newPartPrice)
+    if (!newPartPrice || isNaN(priceNum) || priceNum < 0) {
+      setPartError('Informe o valor do reparo.')
+      return
+    }
+    if (!newPartWarranty.trim()) {
+      setPartError('Informe a garantia da peça.')
+      return
+    }
+    const warrantyDays = parseInt(newPartWarranty, 10)
+    if (isNaN(warrantyDays) || warrantyDays < 0) {
+      setPartError('Informe a garantia em dias (número).')
+      return
+    }
+
+    setCreatingPart(true)
+    const supabase = createClient()
+
+    const { data: created, error } = await supabase
+      .from('stock_items')
+      .insert({ name: pendingStockItem.name, quantity: stockQty, unit: 'unidade', price: priceNum, warranty_days: warrantyDays })
+      .select()
+      .single()
+
+    if (error || !created) {
+      setPartError(error?.code === '23505' ? 'Já existe um item de estoque com este nome.' : 'Não foi possível cadastrar o item.')
+      setCreatingPart(false)
+      return
+    }
+
+    const item = created as StockItem
+    setStockItems((prev) => [...prev, item].sort((a, b) => a.name.localeCompare(b.name)))
+    setChecklist((prev) => prev.map((it, i) => (i === pendingStockItem.idx ? {
+      ...it,
+      stock_item_id: item.id,
+      value: it.value ?? item.price ?? null,
+      warranty_days: item.warranty_days ?? null,
+    } : it)))
+    setPendingStockItem(null)
+    setCreatingPart(false)
   }
 
   const updateChecklistDescription = (idx: number, description: string) => {
@@ -317,7 +377,7 @@ export default function ServiceOrderPanel({
     setChecklistFiles((prev) => ({ ...prev, [idx]: (prev[idx] ?? []).filter((_, i) => i !== fileIdx) }))
   }
 
-  // Checklist é preenchido após o status avançar para 'em reparo'.
+  // Checklist (OS1) fica editável durante todo o "em reparo" — pode ser salva quantas vezes for preciso.
   const handleSaveChecklist = async () => {
     if (!order) return
     setSavingChecklist(true)
@@ -346,19 +406,19 @@ export default function ServiceOrderPanel({
     setChecklistFiles({})
     setChecklistValues({})
 
-    const checkedItems = updatedChecklist.filter((i) => i.checked)
-    const summary = checkedItems.length
-      ? checkedItems.map((i) => `${i.component}${i.description ? `: ${i.description}` : ''}${i.value != null ? ` (R$ ${Number(i.value).toFixed(2)})` : ''}`).join('; ')
+    const checkedItemsNow = updatedChecklist.filter((i) => i.checked)
+    const summary = checkedItemsNow.length
+      ? checkedItemsNow.map((i) => `${i.component}${i.description ? `: ${i.description}` : ''}${i.value != null ? ` (R$ ${Number(i.value).toFixed(2)})` : ''}`).join('; ')
       : 'Nenhum componente marcado'
 
     const { data: logEntry } = await supabase
       .from('service_order_updates')
-      .insert({ service_order_id: order.id, action_type: 'checklist_update', message: `Checklist de avaliação registrado — ${summary}` })
+      .insert({ service_order_id: order.id, action_type: 'checklist_update', message: `Checklist de avaliação atualizado — ${summary}` })
       .select()
       .single()
     if (logEntry) setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
 
-    const itemsWithValue = checkedItems.filter((i) => i.value != null)
+    const itemsWithValue = checkedItemsNow.filter((i) => i.value != null)
     if (itemsWithValue.length > 0) {
       const newTotal = itemsWithValue.reduce((sum, i) => sum + Number(i.value), 0)
       const { error: quoteErr } = await supabase
@@ -371,181 +431,80 @@ export default function ServiceOrderPanel({
     setSavingChecklist(false)
   }
 
-  const handleAddUpdate = async () => {
+  // OS2: atualização vinculada a um componente específico já selecionado na checklist.
+  const handleAddUpdate = async (component: string) => {
     if (!order) return
-    if (!newMessage.trim() && newFiles.length === 0) return
+    if (!updateText.trim() && updateFiles.length === 0) return
     setAddingUpdate(true)
     const supabase = createClient()
-    const mediaUrls = await uploadMedia(supabase, order.id, newFiles, 'update')
-    const component = updateComponent.trim()
-    const text = newMessage.trim()
-    const message = component ? (text ? `${component}: ${text}` : component) : (text || null)
+    const mediaUrls = await uploadMedia(supabase, order.id, updateFiles, 'update')
 
     const { data: inserted } = await supabase
       .from('service_order_updates')
-      .insert({ service_order_id: order.id, message, media_urls: mediaUrls, action_type: 'update' })
+      .insert({ service_order_id: order.id, message: updateText.trim() || null, media_urls: mediaUrls, action_type: 'update', component })
       .select()
       .single()
 
     if (inserted) setUpdates((prev) => [...prev, inserted as ServiceOrderUpdate])
-    setNewMessage('')
-    setNewFiles([])
-    setUpdateComponent('')
+    setUpdateText('')
+    setUpdateFiles([])
+    setUpdatingComponent(null)
     setAddingUpdate(false)
   }
 
-  const partSuggestions = partSearch.trim()
-    ? stockItems.filter((i) => i.name.toLowerCase().includes(partSearch.trim().toLowerCase())).slice(0, 6)
-    : []
-
-  const selectPartSuggestion = (item: StockItem) => {
-    setPartSearch(item.name)
-    setPartSelectedId(item.id)
-    setPartSearchOpen(false)
-  }
-
-  // Só pode remover/editar peças que ainda não foram salvas em uma conclusão anterior —
-  // peças já comprometidas (de uma conclusão/reabertura passada) ficam travadas.
-  const isPartLocked = (part: UsedPart) => !!part.stock_item_id && committedPartIds.has(part.stock_item_id)
-
-  const removeUsedPart = (idx: number) => {
-    setUsedParts((prev) => prev.filter((_, i) => i !== idx))
-  }
-
-  const updatePartPrice = (idx: number, stockItemId: string, raw: string) => {
-    setPartPriceDrafts((prev) => ({ ...prev, [stockItemId]: raw }))
-    const parsed = raw.trim() ? parseFloat(raw) : null
-    setUsedParts((prev) => prev.map((p, i) => (i === idx ? { ...p, price: parsed != null && !isNaN(parsed) ? parsed : null } : p)))
-  }
-
-  const updatePartNote = (idx: number, stockItemId: string, raw: string) => {
-    setPartNoteDrafts((prev) => ({ ...prev, [stockItemId]: raw }))
-    setUsedParts((prev) => prev.map((p, i) => (i === idx ? { ...p, note: raw } : p)))
-  }
-
-  // Cada clique em "+ item" soma 1 unidade. Se a peça já estiver na lista, só incrementa a
-  // quantidade dela em vez de duplicar a linha — pedir a mesma peça de novo é só clicar de novo.
-  const addOrIncrementUsedPart = (stockItemId: string, name: string, unit: StockItem['unit'], price: number | null, warrantyDays: number | null) => {
-    setUsedParts((prev) => {
-      const idx = prev.findIndex((p) => p.stock_item_id === stockItemId)
-      if (idx >= 0) {
-        const next = [...prev]
-        next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 }
-        return next
-      }
-      return [...prev, { stock_item_id: stockItemId, name, quantity: 1, unit, price, note: null, warranty_days: warrantyDays, added_at: new Date().toISOString() }]
-    })
-  }
-
-  // "+ item": usa a peça já cadastrada (selecionada na busca ou nome digitado igual a uma existente)
-  // ou abre o popup de cadastro dinâmico quando nenhuma peça em estoque corresponde ao texto digitado.
-  const handleAddPartClick = () => {
-    setPartError(null)
-    const trimmedName = partSearch.trim()
-    if (!trimmedName) return
-
-    const matched = stockItems.find((i) => i.id === partSelectedId)
-      ?? stockItems.find((i) => i.name.toLowerCase() === trimmedName.toLowerCase())
-
-    if (matched) {
-      addOrIncrementUsedPart(matched.id, matched.name, matched.unit, matched.price ?? null, matched.warranty_days ?? null)
-      setPartSearch('')
-      setPartSelectedId(null)
-      return
-    }
-
-    setPendingNewPart({ name: trimmedName })
-    setNewPartStock('')
-    setNewPartPrice('')
-    setNewPartWarranty('')
-  }
-
-  // Cadastra a peça nova em estoque (nome = texto digitado + modelo do aparelho da OS) e já a adiciona à lista.
-  const handleConfirmNewPart = async () => {
-    if (!pendingNewPart) return
-    setPartError(null)
-    const stockQty = parseFloat(newPartStock)
-    if (!newPartStock || isNaN(stockQty) || stockQty < 0) {
-      setPartError('Informe uma quantidade de estoque válida.')
-      return
-    }
-    if (!newPartWarranty.trim()) {
-      setPartError('Informe a garantia da peça.')
-      return
-    }
-    const warrantyDays = parseInt(newPartWarranty, 10)
-    if (isNaN(warrantyDays) || warrantyDays < 0) {
-      setPartError('Informe a garantia em dias (número).')
-      return
-    }
-    const priceNum = newPartPrice.trim() ? parseFloat(newPartPrice) : null
-
-    setCreatingPart(true)
-    const supabase = createClient()
-    const fullName = `${pendingNewPart.name} ${request.phone_model}`.trim()
-
-    const { data: created, error } = await supabase
-      .from('stock_items')
-      .insert({ name: fullName, quantity: stockQty, unit: 'unidade', price: priceNum, warranty_days: warrantyDays })
-      .select()
-      .single()
-
-    if (error || !created) {
-      setPartError(error?.code === '23505' ? 'Já existe um item de estoque com este nome.' : 'Não foi possível cadastrar o item.')
-      setCreatingPart(false)
-      return
-    }
-
-    const item = created as StockItem
-    setStockItems((prev) => [...prev, item].sort((a, b) => a.name.localeCompare(b.name)))
-    addOrIncrementUsedPart(item.id, item.name, item.unit, item.price ?? null, item.warranty_days ?? null)
-    setPartSearch('')
-    setPartSelectedId(null)
-    setPendingNewPart(null)
-    setCreatingPart(false)
-  }
-
-  // Conclusão = itens usados no reparo (com valor/garantia/observação) + dados finais da OS.
-  // Numa reabertura, peças já comprometidas em conclusões anteriores ficam travadas (não somam
-  // de novo no valor nem geram nova saída de estoque) — só peças novas entram na conta.
+  // Conclusão = os próprios itens marcados na checklist (OS1), com valor/observação editáveis e
+  // garantia vinda do cadastro da peça. Numa reabertura, itens já comprometidos (added_at setado
+  // numa conclusão anterior) ficam travados — só itens novos (recém-marcados) entram na conta.
   const handleSaveCompletion = async () => {
     if (!order) return
     setCompletionError(null)
     setSavingCompletion(true)
     const supabase = createClient()
-
     const closedAt = new Date().toISOString()
-    const finalParts = usedParts.map((p) => (
-      !p.stock_item_id || committedPartIds.has(p.stock_item_id) ? p : { ...p, added_at: closedAt }
-    ))
-    const newParts = finalParts.filter((p) => !p.stock_item_id || !committedPartIds.has(p.stock_item_id))
-    const newPartsTotal = newParts.reduce((sum, p) => sum + (p.price ?? 0), 0)
+
+    const updatedChecklist = checklist.map((item) => {
+      if (!item.checked || item.added_at) return item
+      return { ...item, added_at: closedAt }
+    })
+
+    const checkedItemsNow = updatedChecklist.filter((i) => i.checked)
+    const newItems = checkedItemsNow.filter((i) => i.added_at === closedAt)
+    const newTotal = newItems.reduce((sum, i) => sum + (i.value ?? 0), 0)
 
     const isFirstConclusion = !everCompleted
     const previousFinalValue = order.final_value ?? 0
     const finalValue = isFirstConclusion
-      ? (finalParts.length > 0 ? newPartsTotal : (quoteValue ?? 0))
-      : previousFinalValue + newPartsTotal
+      ? (checkedItemsNow.length > 0 ? newTotal : (quoteValue ?? 0))
+      : previousFinalValue + newTotal
 
-    const warrantySummary = finalParts.length > 0
-      ? finalParts.map((p) => `${p.name}: ${p.warranty_days != null ? `${p.warranty_days} dias` : 'não informada'}`).join('; ')
+    const warrantySummary = checkedItemsNow.length > 0
+      ? checkedItemsNow.map((i) => `${i.component}: ${i.warranty_days != null ? `${i.warranty_days} dias` : 'não informada'}`).join('; ')
       : null
 
-    // Só registra saída de estoque para peças realmente novas desde o último save
-    // (evita decrementar de novo as mesmas peças se a OS for reaberta e salva outra vez).
-    for (const part of newParts) {
-      if (!part.stock_item_id) continue
-      await supabase.from('stock_movements').insert({ item_id: part.stock_item_id, type: 'saida', quantity: part.quantity, unit: part.unit })
+    // Só registra saída de estoque para itens realmente novos desde a última conclusão
+    // (evita decrementar de novo os mesmos componentes se a OS for reaberta e salva outra vez).
+    for (const item of newItems) {
+      if (!item.stock_item_id) continue
+      await supabase.from('stock_movements').insert({ item_id: item.stock_item_id, type: 'saida', quantity: 1, unit: 'unidade' })
     }
-    setCommittedPartIds(new Set(finalParts.map((p) => p.stock_item_id).filter((id): id is string => !!id)))
 
     let pdf_url: string | null = null
     try {
+      const usedPartsForPdf: UsedPart[] = checkedItemsNow.map((i) => ({
+        stock_item_id: i.stock_item_id ?? null,
+        name: i.component,
+        quantity: 1,
+        unit: 'unidade',
+        price: i.value ?? null,
+        note: i.note ?? null,
+        warranty_days: i.warranty_days ?? null,
+        added_at: i.added_at ?? closedAt,
+      }))
       const pdfBlob = await generateServiceOrderPdf({
         request,
         orderId: order.id,
-        checklist,
-        usedParts: finalParts,
+        checklist: updatedChecklist,
+        usedParts: usedPartsForPdf,
         completedServices: completedServices || null,
         warranty: warrantySummary,
         finalValue,
@@ -562,10 +521,10 @@ export default function ServiceOrderPanel({
     const { data: updated } = await supabase
       .from('service_orders')
       .update({
+        checklist: updatedChecklist,
         completed_services: completedServices || null,
         warranty: warrantySummary,
         final_value: finalValue,
-        used_parts: finalParts,
         pdf_url,
         closed_at: closedAt,
         updated_at: closedAt,
@@ -575,7 +534,7 @@ export default function ServiceOrderPanel({
       .single()
 
     if (updated) setOrder(updated as ServiceOrder)
-    setUsedParts(finalParts)
+    setChecklist(updatedChecklist)
 
     const { error: quoteErr } = await supabase
       .from('service_requests')
@@ -605,6 +564,17 @@ export default function ServiceOrderPanel({
     setSavingCompletion(false)
   }
 
+  const updateConclusionValue = (idx: number, raw: string) => {
+    setConclusionValueDrafts((prev) => ({ ...prev, [idx]: raw }))
+    const parsed = raw.trim() ? parseFloat(raw) : null
+    setChecklist((prev) => prev.map((it, i) => (i === idx ? { ...it, value: parsed != null && !isNaN(parsed) ? parsed : null } : it)))
+  }
+
+  const updateConclusionNote = (idx: number, raw: string) => {
+    setConclusionNoteDrafts((prev) => ({ ...prev, [idx]: raw }))
+    setChecklist((prev) => prev.map((it, i) => (i === idx ? { ...it, note: raw } : it)))
+  }
+
   // Gera o PDF para OS já concluídas antes desta funcionalidade existir (sem pdf_url).
   const handleGeneratePdf = async () => {
     if (!order || !order.closed_at) return
@@ -612,11 +582,21 @@ export default function ServiceOrderPanel({
     setPdfError(null)
     try {
       const supabase = createClient()
+      const usedPartsForPdf: UsedPart[] = (order.checklist ?? []).filter((i) => i.checked).map((i) => ({
+        stock_item_id: i.stock_item_id ?? null,
+        name: i.component,
+        quantity: 1,
+        unit: 'unidade',
+        price: i.value ?? null,
+        note: i.note ?? null,
+        warranty_days: i.warranty_days ?? null,
+        added_at: i.added_at ?? order.closed_at ?? new Date().toISOString(),
+      }))
       const pdfBlob = await generateServiceOrderPdf({
         request,
         orderId: order.id,
         checklist: order.checklist,
-        usedParts: order.used_parts ?? [],
+        usedParts: usedPartsForPdf,
         completedServices: order.completed_services,
         warranty: order.warranty,
         finalValue: order.final_value,
@@ -680,20 +660,20 @@ export default function ServiceOrderPanel({
   if (!order) return null
 
   const checkedItems = checklist.filter((i) => i.checked)
-  const checklistSubmitted = updates.some((u) => u.action_type === 'checklist_update')
   const everCompleted = updates.some((u) => u.action_type === 'completed')
-  const showChecklist = status === 'in_progress' && !checklistSubmitted
-  // Depois que a OS já foi concluída ao menos uma vez, reabrir libera tanto o
-  // acompanhamento (OS 2) quanto a conclusão/garantia (OS 3) juntos, em sequência,
-  // independente do status atual da solicitação (que pode já ter avançado).
-  const showTimeline = checklistSubmitted && !order.closed_at && (status === 'in_progress' || everCompleted)
+  // OS1 e OS2 ficam disponíveis juntas (e editáveis) durante todo o "em reparo" — inclusive
+  // depois de reabrir uma OS já concluída antes.
+  const osOpenForRepair = !order.closed_at && (status === 'in_progress' || everCompleted)
+  const showChecklist = osOpenForRepair
+  const showTimeline = osOpenForRepair
   const checklistEditable = showChecklist && !readOnly
   const updatesEditable = showTimeline && !readOnly
-  const showCompletion = !readOnly && !order.closed_at && checklistSubmitted && (status === 'completed' || everCompleted)
+  const showCompletion = !readOnly && !order.closed_at && (status === 'completed' || everCompleted)
   const showClosedSummary = !!order.closed_at
-  // Reabrir só é permitido se ainda houver garantia ativa em alguma peça usada (ou se nenhuma peça
-  // foi usada ainda, caso em que não há garantia pra checar).
-  const canReopen = (order.used_parts ?? []).length === 0 || (order.used_parts ?? []).some(isPartWarrantyActive)
+  // Reabrir só é permitido se ainda houver garantia ativa em algum componente já comprometido
+  // (ou se nenhum componente foi comprometido ainda, caso em que não há garantia pra checar).
+  const committedItems = (order.checklist ?? []).filter((i) => i.checked && i.added_at)
+  const canReopen = committedItems.length === 0 || committedItems.some((i) => isWarrantyActive(i.added_at, i.warranty_days))
 
   // Fora dessas condições (ex: status "aceito pelo cliente"), nenhuma OS deve aparecer na tela
   if (!showChecklist && !showTimeline && !showCompletion && !showClosedSummary) return null
@@ -705,14 +685,14 @@ export default function ServiceOrderPanel({
         Ordem de serviço
       </h3>
 
-      {/* Checklist — formulário 1: disponível só até o aparelho ser recolhido/entregue */}
+      {/* Checklist — formulário 1: editável durante todo o "em reparo" */}
       {showChecklist && (
       <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Checklist de avaliação</p>
         {checklistEditable ? (
           <div className="space-y-2">
             <p className="text-xs text-gray-400">
-              Marque os componentes com problema, descreva o estado, informe o valor do reparo e anexe fotos/vídeos.
+              Marque os componentes com problema, descreva o estado, informe o valor do reparo e anexe fotos/vídeos. Ao marcar, o componente já é vinculado a uma peça do estoque.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
               {checklist.map((item, idx) => (
@@ -766,6 +746,13 @@ export default function ServiceOrderPanel({
                           ))}
                         </div>
                       ) : null}
+                      {item.stock_item_id ? (
+                        <p className="text-xs text-green-600">
+                          Peça vinculada{item.warranty_days != null ? ` · garantia ${item.warranty_days} dias` : ''}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-amber-600">Peça ainda não vinculada ao estoque.</p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -803,209 +790,163 @@ export default function ServiceOrderPanel({
       </div>
       )}
 
-      {/* Timeline — formulário 2: disponível só durante o reparo */}
+      {/* Timeline — formulário 2: um container por componente já selecionado na checklist */}
       {showTimeline && (
       <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Acompanhamento / linha do tempo</p>
-        {updates.length === 0 ? (
-          <p className="text-sm text-gray-400">Sem atualizações ainda.</p>
+        {checkedItems.length === 0 ? (
+          <p className="text-sm text-gray-400">Marque ao menos um componente na checklist (OS 1) para registrar atualizações.</p>
         ) : (
-          <ul className="space-y-3">
-            {updates.map((u) => {
-              const meta = ACTION_LABELS[u.action_type] ?? { label: u.action_type, icon: <Wrench className="w-4 h-4" /> }
+          <div className="space-y-3">
+            {checkedItems.map((item) => {
+              const componentUpdates = updates.filter((u) => u.action_type === 'update' && u.component === item.component)
+              const isUpdatingThis = updatingComponent === item.component
               return (
-                <li key={u.id} className="flex gap-2.5">
-                  <div className="w-7 h-7 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-400 flex-shrink-0">
-                    {meta.icon}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-semibold text-gray-700">{meta.label}</span>
-                      <span className="text-xs text-gray-400">{new Date(u.created_at).toLocaleString('pt-BR')}</span>
-                    </div>
-                    {u.message && <p className="text-sm text-gray-700 mt-0.5">{u.message}</p>}
-                    {u.media_urls?.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {u.media_urls.map((url) => (
-                          <MediaThumb key={url} url={url} />
-                        ))}
+                <div key={item.component} className="bg-white rounded-xl border border-gray-200 p-3 space-y-2">
+                  <p className="text-sm font-semibold text-gray-800">{item.component}</p>
+                  {componentUpdates.length === 0 ? (
+                    <p className="text-xs text-gray-400">Sem atualizações ainda.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {componentUpdates.map((u) => (
+                        <li key={u.id} className="text-sm border-t border-gray-100 pt-2 first:border-t-0 first:pt-0">
+                          <span className="text-xs text-gray-400">{new Date(u.created_at).toLocaleString('pt-BR')}</span>
+                          {u.message && <p className="text-gray-700 mt-0.5">{u.message}</p>}
+                          {u.media_urls?.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-1.5">
+                              {u.media_urls.map((url) => (
+                                <MediaThumb key={url} url={url} size="sm" />
+                              ))}
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {updatesEditable && (
+                    isUpdatingThis ? (
+                      <div className="space-y-1.5 pt-2 border-t border-gray-100">
+                        <textarea
+                          value={updateText}
+                          onChange={(e) => setUpdateText(e.target.value)}
+                          placeholder="Descreva uma ocorrência/atualização deste componente..."
+                          rows={2}
+                          className="input-field text-sm resize-none"
+                        />
+                        {updateFiles.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {updateFiles.map((f, i) => (
+                              <span key={i} className="flex items-center gap-1 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
+                                {f.name}
+                                <button type="button" onClick={() => setUpdateFiles((prev) => prev.filter((_, idx) => idx !== i))}>
+                                  <X className="w-3 h-3 text-gray-400" />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <MediaPickerButtons onFiles={(files) => setUpdateFiles((prev) => [...prev, ...files])} />
+                          <button
+                            onClick={() => handleAddUpdate(item.component)}
+                            disabled={addingUpdate || (!updateText.trim() && updateFiles.length === 0)}
+                            className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold bg-vr-red text-white rounded-lg px-3 py-2 hover:bg-vr-red-dark transition-colors disabled:opacity-50"
+                          >
+                            {addingUpdate ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                            Adicionar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setUpdatingComponent(null); setUpdateText(''); setUpdateFiles([]) }}
+                            disabled={addingUpdate}
+                            className="text-xs font-semibold text-gray-500 hover:text-gray-700 px-2"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                </li>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => { setUpdatingComponent(item.component); setUpdateText(''); setUpdateFiles([]) }}
+                        className="flex items-center gap-1.5 text-xs font-semibold text-vr-red hover:text-vr-red-dark transition-colors pt-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Atualização
+                      </button>
+                    )
+                  )}
+                </div>
               )
             })}
-          </ul>
-        )}
-
-        {updatesEditable && (
-          <div className="space-y-2 pt-2 border-t border-gray-200">
-            <div>
-              <label className="label">Componente (opcional)</label>
-              <input
-                value={updateComponent}
-                onChange={(e) => setUpdateComponent(e.target.value)}
-                list={`os-components-${order.id}`}
-                placeholder="Buscar componente do aparelho..."
-                className="input-field text-sm"
-              />
-              <datalist id={`os-components-${order.id}`}>
-                {SERVICE_ORDER_COMPONENTS.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
-            </div>
-            <textarea
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="Descreva uma atualização do reparo (ex: peça substituída, ocorrência encontrada...)"
-              rows={2}
-              className="input-field text-sm resize-none"
-            />
-            {newFiles.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {newFiles.map((f, i) => (
-                  <span key={i} className="flex items-center gap-1 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
-                    {f.name}
-                    <button type="button" onClick={() => setNewFiles((prev) => prev.filter((_, idx) => idx !== i))}>
-                      <X className="w-3 h-3 text-gray-400" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <MediaPickerButtons onFiles={(files) => setNewFiles((prev) => [...prev, ...files])} />
-              <button
-                onClick={handleAddUpdate}
-                disabled={addingUpdate || (!newMessage.trim() && newFiles.length === 0)}
-                className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold bg-vr-red text-white rounded-lg px-3 py-2 hover:bg-vr-red-dark transition-colors disabled:opacity-50"
-              >
-                {addingUpdate ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                Adicionar atualização
-              </button>
-            </div>
           </div>
         )}
       </div>
       )}
 
-      {/* Conclusão */}
+      {/* Conclusão — trabalha apenas sobre os componentes já marcados na checklist (OS1) */}
       {showCompletion && (
         <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Concluir ordem de serviço</p>
 
-          <div className="space-y-3 pb-3 border-b border-gray-200">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Itens usados no reparo</p>
-            <p className="text-xs text-gray-400">
-              Busque uma peça do estoque ou digite o nome de uma peça nova para cadastrá-la na hora. O valor e a garantia vêm do cadastro da peça e podem ser ajustados abaixo.
-            </p>
-            <div className="flex gap-2">
-              <div className="relative flex-1 min-w-0">
-                <input
-                  value={partSearch}
-                  onChange={(e) => { setPartSearch(e.target.value); setPartSelectedId(null); setPartSearchOpen(true) }}
-                  onFocus={() => setPartSearchOpen(true)}
-                  onBlur={() => setTimeout(() => setPartSearchOpen(false), 150)}
-                  placeholder="Buscar peça em estoque..."
-                  className="input-field text-sm"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  name="part-search"
-                  data-1p-ignore
-                />
-                {partSearchOpen && partSuggestions.length > 0 && (
-                  <ul className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg py-1">
-                    {partSuggestions.map((item) => (
-                      <li key={item.id}>
-                        <button
-                          type="button"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => selectPartSuggestion(item)}
-                          className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-red-50 hover:text-vr-red transition-colors"
-                        >
-                          {item.name} <span className="text-xs text-gray-400">({Number(item.quantity)} {item.unit} em estoque)</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleAddPartClick}
-                className="flex items-center gap-1 text-xs font-semibold bg-vr-red text-white rounded-lg px-3 hover:bg-vr-red-dark transition-colors flex-shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" /> item
-              </button>
-            </div>
-            {partError && !pendingNewPart && <p className="text-xs text-red-500">{partError}</p>}
-
-            {usedParts.length > 0 && (
-              <div className="space-y-2">
-                {usedParts.map((part, idx) => {
-                  const locked = isPartLocked(part)
-                  const key = part.stock_item_id ?? `new-${idx}`
-                  const expiry = partWarrantyExpiry(part)
-                  const expired = locked && !!expiry && !isPartWarrantyActive(part)
-                  return (
-                    <div key={idx} className={`rounded-xl border p-3 space-y-2 ${locked ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-200'}`}>
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-gray-800">
-                          {part.name} <span className="text-gray-400 font-normal">× {part.quantity} {part.unit}</span>
-                        </p>
-                        {!locked && (
-                          <button type="button" onClick={() => removeUsedPart(idx)}>
-                            <X className="w-3.5 h-3.5 text-gray-400" />
-                          </button>
-                        )}
-                      </div>
-                      <div>
-                        <label className="label">Valor do reparo (R$)</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          disabled={locked}
-                          value={partPriceDrafts[key] ?? (part.price != null ? String(part.price) : '')}
-                          onChange={(e) => updatePartPrice(idx, key, e.target.value)}
-                          placeholder="0,00"
-                          className="input-field disabled:opacity-60"
-                        />
-                      </div>
-                      <div>
-                        <label className="label">Observação (opcional)</label>
-                        <input
-                          disabled={locked}
-                          value={partNoteDrafts[key] ?? (part.note ?? '')}
-                          onChange={(e) => updatePartNote(idx, key, e.target.value)}
-                          placeholder="Detalhe algo sobre este item, se necessário..."
-                          className="input-field text-sm disabled:opacity-60"
-                        />
-                      </div>
-                      <p className={`text-xs ${expired ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
-                        {part.warranty_days == null
-                          ? 'Garantia não informada'
-                          : locked
-                            ? expired
-                              ? `Garantia expirada em ${expiry!.toLocaleDateString('pt-BR')}`
-                              : `Garantia: ${part.warranty_days} dias (até ${expiry!.toLocaleDateString('pt-BR')})`
-                            : `Garantia: ${part.warranty_days} dias (a partir da conclusão)`}
-                      </p>
+          {checkedItems.length > 0 && (
+            <div className="space-y-3 pb-3 border-b border-gray-200">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Itens reparados</p>
+              <p className="text-xs text-gray-400">
+                Confirme o valor de cada componente selecionado na checklist — a garantia vem do cadastro da peça.
+              </p>
+              {checklist.map((item, idx) => {
+                if (!item.checked) return null
+                const locked = !!item.added_at
+                const expiry = computeWarrantyExpiry(item.added_at, item.warranty_days)
+                const expired = locked && !!expiry && new Date() > expiry
+                return (
+                  <div key={item.component} className={`rounded-xl border p-3 space-y-2 ${locked ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-200'}`}>
+                    <p className="text-sm font-semibold text-gray-800">{item.component}</p>
+                    <div>
+                      <label className="label">Valor do reparo (R$)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        disabled={locked}
+                        value={conclusionValueDrafts[idx] ?? (item.value != null ? String(item.value) : '')}
+                        onChange={(e) => updateConclusionValue(idx, e.target.value)}
+                        placeholder="0,00"
+                        className="input-field disabled:opacity-60"
+                      />
                     </div>
-                  )
-                })}
-                <p className="text-sm font-bold text-gray-800">
-                  Valor total do serviço: R$ {usedParts
-                    .filter((p) => !isPartLocked(p))
-                    .reduce((sum, p) => sum + (p.price ?? 0), 0)
-                    .toFixed(2)}
-                </p>
-              </div>
-            )}
-          </div>
+                    <div>
+                      <label className="label">Observação (opcional)</label>
+                      <input
+                        disabled={locked}
+                        value={conclusionNoteDrafts[idx] ?? (item.note ?? '')}
+                        onChange={(e) => updateConclusionNote(idx, e.target.value)}
+                        placeholder="Detalhe algo sobre este item, se necessário..."
+                        className="input-field text-sm disabled:opacity-60"
+                      />
+                    </div>
+                    <p className={`text-xs ${expired ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+                      {item.warranty_days == null
+                        ? 'Garantia não informada'
+                        : locked
+                          ? expired
+                            ? `Garantia expirada em ${expiry!.toLocaleDateString('pt-BR')}`
+                            : `Garantia: ${item.warranty_days} dias (até ${expiry!.toLocaleDateString('pt-BR')})`
+                          : `Garantia: ${item.warranty_days} dias (a partir da conclusão)`}
+                    </p>
+                  </div>
+                )
+              })}
+              <p className="text-sm font-bold text-gray-800">
+                Valor total do serviço: R$ {checklist
+                  .filter((i) => i.checked && !i.added_at)
+                  .reduce((sum, i) => sum + (i.value ?? 0), 0)
+                  .toFixed(2)}
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="label">Serviços realizados</label>
@@ -1029,11 +970,11 @@ export default function ServiceOrderPanel({
         </div>
       )}
 
-      {/* Popup: cadastro dinâmico de peça nova em estoque */}
-      {pendingNewPart && (
+      {/* Popup: cadastro dinâmico de peça nova em estoque, disparado ao marcar um componente na checklist */}
+      {pendingStockItem && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
-          onClick={() => !creatingPart && setPendingNewPart(null)}
+          onClick={() => !creatingPart && setPendingStockItem(null)}
         >
           <div
             className="bg-white w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl p-5 space-y-3"
@@ -1041,7 +982,7 @@ export default function ServiceOrderPanel({
           >
             <p className="text-sm font-semibold text-gray-800">Este item ainda não está cadastrado, deseja cadastrar agora?</p>
             <p className="text-xs text-gray-400">
-              Será salvo em estoque como &quot;{pendingNewPart.name} {request.phone_model}&quot;.
+              Será salvo em estoque como &quot;{pendingStockItem.name}&quot;.
             </p>
             <div>
               <label className="label">Quantidade em estoque *</label>
@@ -1056,7 +997,7 @@ export default function ServiceOrderPanel({
               />
             </div>
             <div>
-              <label className="label">Valor (R$)</label>
+              <label className="label">Valor do reparo (R$) *</label>
               <input
                 type="number"
                 min="0"
@@ -1068,27 +1009,30 @@ export default function ServiceOrderPanel({
               />
             </div>
             <div>
-              <label className="label">Garantia *</label>
+              <label className="label">Garantia (dias) *</label>
               <input
+                type="number"
+                min="0"
+                step="1"
                 value={newPartWarranty}
                 onChange={(e) => setNewPartWarranty(e.target.value)}
-                placeholder="Ex: 90 dias"
+                placeholder="Ex: 90"
                 className="input-field"
               />
             </div>
             {partError && <p className="text-xs text-red-500">{partError}</p>}
             <div className="flex gap-2">
               <button
-                onClick={handleConfirmNewPart}
+                onClick={handleConfirmNewStockItem}
                 disabled={creatingPart}
                 className="flex-1 btn-primary flex items-center justify-center gap-2"
               >
                 {creatingPart ? <Loader2 className="w-4 h-4 animate-spin" /> : <Boxes className="w-4 h-4" />}
-                Cadastrar e adicionar
+                Cadastrar e vincular
               </button>
               <button
                 type="button"
-                onClick={() => setPendingNewPart(null)}
+                onClick={() => setPendingStockItem(null)}
                 disabled={creatingPart}
                 className="text-sm font-semibold text-gray-500 px-3"
               >
@@ -1107,9 +1051,9 @@ export default function ServiceOrderPanel({
           </p>
           {order.completed_services && <p className="text-sm text-gray-700"><strong>Serviços:</strong> {order.completed_services}</p>}
           {order.final_value != null && <p className="text-sm text-gray-700"><strong>Valor:</strong> R$ {Number(order.final_value).toFixed(2)}</p>}
-          {order.used_parts && order.used_parts.length > 0 && (
+          {(order.checklist ?? []).filter((i) => i.checked).length > 0 && (
             <p className="text-sm text-gray-700">
-              <strong>Peças utilizadas:</strong> {order.used_parts.map((p) => `${p.name} (${p.quantity} ${p.unit})`).join(', ')}
+              <strong>Componentes reparados:</strong> {(order.checklist ?? []).filter((i) => i.checked).map((i) => i.component).join(', ')}
             </p>
           )}
           {order.warranty && <p className="text-sm text-gray-700"><strong>Garantia:</strong> {order.warranty}</p>}
@@ -1147,7 +1091,7 @@ export default function ServiceOrderPanel({
             <div className="pt-2 mt-1 border-t border-green-100">
               <p className="text-xs text-red-600 flex items-start gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                Todas as garantias das peças usadas já expiraram — não é possível reabrir esta OS.
+                Todas as garantias dos componentes reparados já expiraram — não é possível reabrir esta OS.
               </p>
             </div>
           )}
