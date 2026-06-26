@@ -172,7 +172,6 @@ export default function ServiceOrderPanel({
   const [loading, setLoading] = useState(true)
   const [checklist, setChecklist] = useState<ServiceOrderChecklistItem[]>([])
   const [checklistFiles, setChecklistFiles] = useState<Record<number, File[]>>({})
-  const [checklistValues, setChecklistValues] = useState<Record<number, string>>({})
   const [savingChecklist, setSavingChecklist] = useState(false)
 
   const [updatingComponent, setUpdatingComponent] = useState<string | null>(null)
@@ -386,12 +385,9 @@ export default function ServiceOrderPanel({
     const updatedChecklist = await Promise.all(
       checklist.map(async (item, idx) => {
         const files = checklistFiles[idx] ?? []
-        const value = checklistValues[idx]?.trim()
-          ? parseFloat(checklistValues[idx])
-          : (item.value ?? null)
-        if (files.length === 0) return { ...item, value }
+        if (files.length === 0) return item
         const uploaded = await uploadMedia(supabase, order.id, files, `checklist-${idx}`)
-        return { ...item, value, media_urls: [...(item.media_urls ?? []), ...uploaded] }
+        return { ...item, media_urls: [...(item.media_urls ?? []), ...uploaded] }
       })
     )
 
@@ -404,7 +400,6 @@ export default function ServiceOrderPanel({
     if (updated) setOrder(updated as ServiceOrder)
     setChecklist(updatedChecklist)
     setChecklistFiles({})
-    setChecklistValues({})
 
     const checkedItemsNow = updatedChecklist.filter((i) => i.checked)
     const summary = checkedItemsNow.length
@@ -692,7 +687,7 @@ export default function ServiceOrderPanel({
         {checklistEditable ? (
           <div className="space-y-2">
             <p className="text-xs text-gray-400">
-              Marque os componentes com problema, descreva o estado, informe o valor do reparo e anexe fotos/vídeos. Ao marcar, o componente já é vinculado a uma peça do estoque.
+              Marque os componentes com problema, descreva o estado e anexe fotos/vídeos. Ao marcar, o componente já é vinculado a uma peça do estoque — o valor do reparo vem de lá.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
               {checklist.map((item, idx) => (
@@ -718,18 +713,6 @@ export default function ServiceOrderPanel({
                         rows={2}
                         className="input-field text-xs resize-none"
                       />
-                      <div className="relative">
-                        <span className="absolute left-3 top-2 text-gray-400 text-xs font-medium">R$</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={checklistValues[idx] ?? (item.value != null ? String(item.value) : '')}
-                          onChange={(e) => setChecklistValues((prev) => ({ ...prev, [idx]: e.target.value }))}
-                          placeholder="Valor do reparo (R$)"
-                          className="input-field text-xs pl-8"
-                        />
-                      </div>
                       <MediaPickerButtons onFiles={(files) => addChecklistFiles(idx, files)} />
                       {(item.media_urls?.length || checklistFiles[idx]?.length) ? (
                         <div className="flex flex-wrap gap-1.5">
@@ -748,7 +731,7 @@ export default function ServiceOrderPanel({
                       ) : null}
                       {item.stock_item_id ? (
                         <p className="text-xs text-green-600">
-                          Peça vinculada{item.warranty_days != null ? ` · garantia ${item.warranty_days} dias` : ''}
+                          Peça vinculada{item.value != null ? ` · R$ ${Number(item.value).toFixed(2)}` : ''}{item.warranty_days != null ? ` · garantia ${item.warranty_days} dias` : ''}
                         </p>
                       ) : (
                         <p className="text-xs text-amber-600">Peça ainda não vinculada ao estoque.</p>
