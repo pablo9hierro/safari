@@ -102,7 +102,7 @@ export interface StockItem {
   unit: StockUnit
   quantity: number
   price?: number | null
-  warranty?: string | null
+  warranty_days?: number | null
   created_at: string
   updated_at: string
 }
@@ -113,6 +113,9 @@ export interface UsedPart {
   quantity: number
   unit: StockUnit
   price: number | null
+  note?: string | null
+  warranty_days: number | null
+  added_at: string
 }
 
 export interface StockMovement {
@@ -165,6 +168,8 @@ export interface StoreOrderItem {
   unit_price: number
   quantity: number
   status: StoreOrderStatus
+  discount_percent?: number | null
+  payment_methods?: PaymentMethodEntry[]
 }
 
 export interface StoreOrder {

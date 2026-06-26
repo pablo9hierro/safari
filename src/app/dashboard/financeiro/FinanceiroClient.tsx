@@ -17,6 +17,8 @@ type StoreOrderItemRow = {
   unit_price: number
   quantity: number
   status: string
+  discount_percent: number | null
+  payment_methods: { method: string; value: number }[] | null
 }
 
 export type StoreOrderRow = {
@@ -108,7 +110,10 @@ export default function FinanceiroClient({
     const venda: Transaction[] = storeOrders
       .map((order): Transaction | null => {
         const soldItems = (order.store_order_items ?? []).filter((i) => i.status === 'vendido')
-        const value = soldItems.reduce((sum, i) => sum + Number(i.unit_price) * i.quantity, 0)
+        const value = soldItems.reduce((sum, i) => {
+          const discount = i.discount_percent ?? 0
+          return sum + Number(i.unit_price) * i.quantity * (1 - discount / 100)
+        }, 0)
         if (value <= 0) return null
         return {
           id: `store-${order.id}`,
@@ -117,7 +122,7 @@ export default function FinanceiroClient({
           title: order.customer_name,
           subtitle: soldItems.map((i) => `${i.quantity}x ${i.product_name}`).join(', '),
           value,
-          paymentMethods: [],
+          paymentMethods: Array.from(new Set(soldItems.flatMap((i) => (i.payment_methods ?? []).map((p) => p.method)))),
         }
       })
       .filter((t): t is Transaction => t !== null)

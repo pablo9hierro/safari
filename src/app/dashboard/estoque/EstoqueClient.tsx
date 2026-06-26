@@ -15,10 +15,12 @@ export default function EstoqueClient({
   const [items, setItems] = useState<StockItem[]>(initialItems)
   const [movements, setMovements] = useState<StockMovement[]>(initialMovements)
 
-  // Cadastro de item novo — só nome + quantidade (+ unidade). Sem busca, sem timestamp manual.
+  // Cadastro de item novo — nome + quantidade + unidade + valor do reparo + garantia.
   const [newName, setNewName] = useState('')
   const [newQuantity, setNewQuantity] = useState('')
   const [newUnit, setNewUnit] = useState<StockUnit>('unidade')
+  const [newPrice, setNewPrice] = useState('')
+  const [newWarrantyDays, setNewWarrantyDays] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -35,6 +37,8 @@ export default function EstoqueClient({
   const [editName, setEditName] = useState('')
   const [editQuantity, setEditQuantity] = useState('')
   const [editUnit, setEditUnit] = useState<StockUnit>('unidade')
+  const [editPrice, setEditPrice] = useState('')
+  const [editWarrantyDays, setEditWarrantyDays] = useState('')
   const [editError, setEditError] = useState<string | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
 
@@ -63,7 +67,13 @@ export default function EstoqueClient({
     const supabase = createClient()
     const { data: created, error } = await supabase
       .from('stock_items')
-      .insert({ name: trimmedName, quantity: qty, unit: newUnit })
+      .insert({
+        name: trimmedName,
+        quantity: qty,
+        unit: newUnit,
+        price: newPrice.trim() ? parseFloat(newPrice) : null,
+        warranty_days: newWarrantyDays.trim() ? parseInt(newWarrantyDays, 10) : null,
+      })
       .select()
       .single()
 
@@ -77,6 +87,8 @@ export default function EstoqueClient({
     setNewName('')
     setNewQuantity('')
     setNewUnit('unidade')
+    setNewPrice('')
+    setNewWarrantyDays('')
     setCreating(false)
   }
 
@@ -95,6 +107,8 @@ export default function EstoqueClient({
     setEditName(item.name)
     setEditQuantity(String(Number(item.quantity)))
     setEditUnit(item.unit)
+    setEditPrice(item.price != null ? String(item.price) : '')
+    setEditWarrantyDays(item.warranty_days != null ? String(item.warranty_days) : '')
     setEditError(null)
   }
 
@@ -113,7 +127,14 @@ export default function EstoqueClient({
     const supabase = createClient()
     const { data: updated, error } = await supabase
       .from('stock_items')
-      .update({ name: trimmedName, quantity: qty, unit: editUnit, updated_at: new Date().toISOString() })
+      .update({
+        name: trimmedName,
+        quantity: qty,
+        unit: editUnit,
+        price: editPrice.trim() ? parseFloat(editPrice) : null,
+        warranty_days: editWarrantyDays.trim() ? parseInt(editWarrantyDays, 10) : null,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', editItem.id)
       .select()
       .single()
@@ -229,6 +250,32 @@ export default function EstoqueClient({
               <option value="unidade">Unidade</option>
               <option value="caixa">Caixa</option>
             </select>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Valor do reparo (R$)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={newPrice}
+              onChange={(e) => setNewPrice(e.target.value)}
+              placeholder="0,00"
+              className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Garantia (dias)</label>
+            <input
+              type="number"
+              step="1"
+              min="0"
+              value={newWarrantyDays}
+              onChange={(e) => setNewWarrantyDays(e.target.value)}
+              placeholder="Ex: 90"
+              className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
+            />
           </div>
         </div>
 
@@ -435,6 +482,32 @@ export default function EstoqueClient({
                   <option value="unidade">Unidade</option>
                   <option value="caixa">Caixa</option>
                 </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Valor do reparo (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editPrice}
+                  onChange={(e) => setEditPrice(e.target.value)}
+                  placeholder="0,00"
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Garantia (dias)</label>
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={editWarrantyDays}
+                  onChange={(e) => setEditWarrantyDays(e.target.value)}
+                  placeholder="Ex: 90"
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
+                />
               </div>
             </div>
 

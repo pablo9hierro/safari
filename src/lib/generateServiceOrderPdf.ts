@@ -1,6 +1,17 @@
 import jsPDF from 'jspdf'
-import { ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceRequest } from './types'
+import { ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceRequest, UsedPart } from './types'
 import { SITE_URL, STORE_ADDRESS } from './constants'
+
+function formatPartWarranty(part: UsedPart): string {
+  if (part.warranty_days == null) return '—'
+  if (!part.added_at) return `${part.warranty_days} dias`
+  const expiry = new Date(part.added_at)
+  expiry.setDate(expiry.getDate() + part.warranty_days)
+  const expired = new Date() > expiry
+  return expired
+    ? `Expirada em ${expiry.toLocaleDateString('pt-BR')}`
+    : `${part.warranty_days} dias (até ${expiry.toLocaleDateString('pt-BR')})`
+}
 
 type RGB = readonly [number, number, number]
 
@@ -62,6 +73,7 @@ export async function generateServiceOrderPdf({
   request,
   orderId,
   checklist,
+  usedParts,
   completedServices,
   warranty,
   finalValue,
@@ -71,6 +83,7 @@ export async function generateServiceOrderPdf({
   request: ServiceRequest
   orderId: string
   checklist: ServiceOrderChecklistItem[]
+  usedParts: UsedPart[]
   completedServices: string | null
   warranty: string | null
   finalValue: number | null
@@ -381,9 +394,9 @@ export async function generateServiceOrderPdf({
     y += 4
   }
 
-  // ---------- tabela de garantia (componente / garantia / valor) ----------
-  const garantiaTable = (checkedItems: ServiceOrderChecklistItem[]) => {
-    if (checkedItems.length === 0) return
+  // ---------- tabela de garantia (peça usada / garantia / valor) ----------
+  const garantiaTable = (parts: UsedPart[]) => {
+    if (parts.length === 0) return
 
     const iconW = 9
     const compW = 70
@@ -400,7 +413,7 @@ export async function generateServiceOrderPdf({
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(7.6)
       setText(WHITE)
-      doc.text('COMPONENTE', tx + iconW + 2, y + tableHeaderHeight / 2 + 1.1)
+      doc.text('PEÇA / COMPONENTE', tx + iconW + 2, y + tableHeaderHeight / 2 + 1.1)
       doc.text('GARANTIA', tx + iconW + compW + 2, y + tableHeaderHeight / 2 + 1.1)
       doc.text('VALOR', tx + tw - 2, y + tableHeaderHeight / 2 + 1.1, { align: 'right' })
       y += tableHeaderHeight
@@ -408,10 +421,11 @@ export async function generateServiceOrderPdf({
 
     drawHeader()
 
-    checkedItems.forEach((item, idx) => {
+    parts.forEach((part, idx) => {
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(8.2)
-      const warrantyLines = doc.splitTextToSize(item.warranty || '—', garantiaW - 3)
+      const warrantyText = formatPartWarranty(part)
+      const warrantyLines = doc.splitTextToSize(warrantyText, garantiaW - 3)
       const rowHeight = Math.max(warrantyLines.length, 1) * lineH + 5
 
       if (y + rowHeight > pageHeight - marginBottom) {
@@ -429,7 +443,7 @@ export async function generateServiceOrderPdf({
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(9)
       setText(DARK)
-      doc.text(item.component, tx + iconW + 2, y + 5)
+      doc.text(part.name, tx + iconW + 2, y + 5)
 
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(8.2)
@@ -440,7 +454,7 @@ export async function generateServiceOrderPdf({
       doc.setFontSize(9)
       setText(VR_RED)
       doc.text(
-        item.value != null ? `R$ ${Number(item.value).toFixed(2)}` : '—',
+        part.price != null ? `R$ ${Number(part.price).toFixed(2)}` : '—',
         tx + tw - 2,
         y + 5,
         { align: 'right' }
@@ -534,7 +548,7 @@ export async function generateServiceOrderPdf({
   // para ciclos antigos já superados por uma reabertura posterior) ----------
   const renderConclusionStructured = () => {
     if (completedServices) field('Serviços realizados', completedServices)
-    garantiaTable(checklist.filter((i) => i.checked))
+    garantiaTable(usedParts)
     field('Valor total do serviço', `R$ ${Number(finalValue ?? 0).toFixed(2)}`)
     if (warranty) field('Garantia geral', warranty)
     field('Concluído em', new Date(closedAt).toLocaleString('pt-BR'))

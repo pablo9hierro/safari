@@ -38,6 +38,19 @@ function isVideo(url: string) {
   return /\.(mp4|mov|webm|m4v)$/i.test(url)
 }
 
+// Data em que a garantia de uma peça usada no reparo expira (null = sem garantia informada).
+function partWarrantyExpiry(part: UsedPart): Date | null {
+  if (!part.warranty_days || !part.added_at) return null
+  const expiry = new Date(part.added_at)
+  expiry.setDate(expiry.getDate() + part.warranty_days)
+  return expiry
+}
+
+function isPartWarrantyActive(part: UsedPart): boolean {
+  const expiry = partWarrantyExpiry(part)
+  return !!expiry && new Date() <= expiry
+}
+
 function buildInitialChecklist(): ServiceOrderChecklistItem[] {
   return SERVICE_ORDER_COMPONENTS.map((component) => ({ component, checked: false, description: '', media_urls: [] }))
 }
@@ -184,10 +197,8 @@ export default function ServiceOrderPanel({
   const [reopenReason, setReopenReason] = useState('')
   const [reopening, setReopening] = useState(false)
 
-  const [quoteValues, setQuoteValues] = useState<Record<number, string>>({})
-  const [quoteJustifications, setQuoteJustifications] = useState<Record<number, string>>({})
-  const [quoteFiles, setQuoteFiles] = useState<Record<number, File[]>>({})
-  const [quoteWarranties, setQuoteWarranties] = useState<Record<number, string>>({})
+  const [partPriceDrafts, setPartPriceDrafts] = useState<Record<string, string>>({})
+  const [partNoteDrafts, setPartNoteDrafts] = useState<Record<string, string>>({})
 
   const [stockItems, setStockItems] = useState<StockItem[]>([])
   const [usedParts, setUsedParts] = useState<UsedPart[]>([])
@@ -383,21 +394,6 @@ export default function ServiceOrderPanel({
     setAddingUpdate(false)
   }
 
-  // Itens "selecionados" no formulário de conclusão = marcados na OS 1 (checklist)
-  // ou citados como componente em alguma atualização da OS 2 (linha do tempo).
-  const getRevisionIndices = () => {
-    const form2Components = new Set<string>()
-    for (const u of updates) {
-      if (u.action_type !== 'update' || !u.message) continue
-      for (const c of SERVICE_ORDER_COMPONENTS) {
-        if (u.message === c || u.message.startsWith(`${c}: `)) form2Components.add(c)
-      }
-    }
-    return checklist
-      .map((_, idx) => idx)
-      .filter((idx) => checklist[idx].checked || form2Components.has(checklist[idx].component))
-  }
-
   const partSuggestions = partSearch.trim()
     ? stockItems.filter((i) => i.name.toLowerCase().includes(partSearch.trim().toLowerCase())).slice(0, 6)
     : []
@@ -408,13 +404,28 @@ export default function ServiceOrderPanel({
     setPartSearchOpen(false)
   }
 
+  // Só pode remover/editar peças que ainda não foram salvas em uma conclusão anterior —
+  // peças já comprometidas (de uma conclusão/reabertura passada) ficam travadas.
+  const isPartLocked = (part: UsedPart) => !!part.stock_item_id && committedPartIds.has(part.stock_item_id)
+
   const removeUsedPart = (idx: number) => {
     setUsedParts((prev) => prev.filter((_, i) => i !== idx))
   }
 
+  const updatePartPrice = (idx: number, stockItemId: string, raw: string) => {
+    setPartPriceDrafts((prev) => ({ ...prev, [stockItemId]: raw }))
+    const parsed = raw.trim() ? parseFloat(raw) : null
+    setUsedParts((prev) => prev.map((p, i) => (i === idx ? { ...p, price: parsed != null && !isNaN(parsed) ? parsed : null } : p)))
+  }
+
+  const updatePartNote = (idx: number, stockItemId: string, raw: string) => {
+    setPartNoteDrafts((prev) => ({ ...prev, [stockItemId]: raw }))
+    setUsedParts((prev) => prev.map((p, i) => (i === idx ? { ...p, note: raw } : p)))
+  }
+
   // Cada clique em "+ item" soma 1 unidade. Se a peça já estiver na lista, só incrementa a
   // quantidade dela em vez de duplicar a linha — pedir a mesma peça de novo é só clicar de novo.
-  const addOrIncrementUsedPart = (stockItemId: string, name: string, unit: StockItem['unit'], price: number | null) => {
+  const addOrIncrementUsedPart = (stockItemId: string, name: string, unit: StockItem['unit'], price: number | null, warrantyDays: number | null) => {
     setUsedParts((prev) => {
       const idx = prev.findIndex((p) => p.stock_item_id === stockItemId)
       if (idx >= 0) {
@@ -422,7 +433,7 @@ export default function ServiceOrderPanel({
         next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 }
         return next
       }
-      return [...prev, { stock_item_id: stockItemId, name, quantity: 1, unit, price }]
+      return [...prev, { stock_item_id: stockItemId, name, quantity: 1, unit, price, note: null, warranty_days: warrantyDays, added_at: new Date().toISOString() }]
     })
   }
 
@@ -437,7 +448,7 @@ export default function ServiceOrderPanel({
       ?? stockItems.find((i) => i.name.toLowerCase() === trimmedName.toLowerCase())
 
     if (matched) {
-      addOrIncrementUsedPart(matched.id, matched.name, matched.unit, matched.price ?? null)
+      addOrIncrementUsedPart(matched.id, matched.name, matched.unit, matched.price ?? null, matched.warranty_days ?? null)
       setPartSearch('')
       setPartSelectedId(null)
       return
@@ -462,6 +473,11 @@ export default function ServiceOrderPanel({
       setPartError('Informe a garantia da peça.')
       return
     }
+    const warrantyDays = parseInt(newPartWarranty, 10)
+    if (isNaN(warrantyDays) || warrantyDays < 0) {
+      setPartError('Informe a garantia em dias (número).')
+      return
+    }
     const priceNum = newPartPrice.trim() ? parseFloat(newPartPrice) : null
 
     setCreatingPart(true)
@@ -470,7 +486,7 @@ export default function ServiceOrderPanel({
 
     const { data: created, error } = await supabase
       .from('stock_items')
-      .insert({ name: fullName, quantity: stockQty, unit: 'unidade', price: priceNum, warranty: newPartWarranty.trim() })
+      .insert({ name: fullName, quantity: stockQty, unit: 'unidade', price: priceNum, warranty_days: warrantyDays })
       .select()
       .single()
 
@@ -482,89 +498,59 @@ export default function ServiceOrderPanel({
 
     const item = created as StockItem
     setStockItems((prev) => [...prev, item].sort((a, b) => a.name.localeCompare(b.name)))
-    addOrIncrementUsedPart(item.id, item.name, item.unit, item.price ?? null)
+    addOrIncrementUsedPart(item.id, item.name, item.unit, item.price ?? null, item.warranty_days ?? null)
     setPartSearch('')
     setPartSelectedId(null)
     setPendingNewPart(null)
     setCreatingPart(false)
   }
 
-  // Conclusão = revisão de orçamento e garantia (todos os itens da OS1+OS2) + dados finais da OS.
+  // Conclusão = itens usados no reparo (com valor/garantia/observação) + dados finais da OS.
+  // Numa reabertura, peças já comprometidas em conclusões anteriores ficam travadas (não somam
+  // de novo no valor nem geram nova saída de estoque) — só peças novas entram na conta.
   const handleSaveCompletion = async () => {
     if (!order) return
     setCompletionError(null)
-
-    const revisionIndices = getRevisionIndices()
-    for (const idx of revisionIndices) {
-      if (!quoteJustifications[idx]?.trim()) {
-        setCompletionError(`Preencha a justificativa para "${checklist[idx].component}" na revisão de orçamento e garantia.`)
-        return
-      }
-    }
-
     setSavingCompletion(true)
     const supabase = createClient()
 
-    const updatedChecklist = [...checklist]
-    const allUpdatesSoFar = [...updates]
-    let newTotal = 0
+    const closedAt = new Date().toISOString()
+    const finalParts = usedParts.map((p) => (
+      !p.stock_item_id || committedPartIds.has(p.stock_item_id) ? p : { ...p, added_at: closedAt }
+    ))
+    const newParts = finalParts.filter((p) => !p.stock_item_id || !committedPartIds.has(p.stock_item_id))
+    const newPartsTotal = newParts.reduce((sum, p) => sum + (p.price ?? 0), 0)
 
-    for (const idx of revisionIndices) {
-      const item = checklist[idx]
-      const value = quoteValues[idx]?.trim() ? parseFloat(quoteValues[idx]) : (item.value ?? 0)
-      const rawWarranty = quoteWarranties[idx]?.trim()
-      const itemWarranty = rawWarranty ? `${rawWarranty} dias` : null
-      newTotal += value
-      const mediaUrls = await uploadMedia(supabase, order.id, quoteFiles[idx] ?? [], `quote-${idx}`)
-      updatedChecklist[idx] = {
-        ...item,
-        checked: true,
-        value,
-        warranty: itemWarranty,
-        media_urls: [...(item.media_urls ?? []), ...mediaUrls],
-      }
+    const isFirstConclusion = !everCompleted
+    const previousFinalValue = order.final_value ?? 0
+    const finalValue = isFirstConclusion
+      ? (finalParts.length > 0 ? newPartsTotal : (quoteValue ?? 0))
+      : previousFinalValue + newPartsTotal
 
-      const { data: logEntry } = await supabase
-        .from('service_order_updates')
-        .insert({
-          service_order_id: order.id,
-          action_type: 'update',
-          message: `Revisão de orçamento — ${item.component}: R$ ${value.toFixed(2)} — ${quoteJustifications[idx].trim()}`,
-          media_urls: mediaUrls,
-        })
-        .select()
-        .single()
-      if (logEntry) {
-        setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
-        allUpdatesSoFar.push(logEntry as ServiceOrderUpdate)
-      }
-    }
-
-    const finalValue = revisionIndices.length > 0 ? newTotal : (quoteValue ?? 0)
-    const warrantySummary = revisionIndices.length > 0
-      ? revisionIndices.map((idx) => `${updatedChecklist[idx].component}: ${updatedChecklist[idx].warranty || 'não informada'}`).join('; ')
+    const warrantySummary = finalParts.length > 0
+      ? finalParts.map((p) => `${p.name}: ${p.warranty_days != null ? `${p.warranty_days} dias` : 'não informada'}`).join('; ')
       : null
 
     // Só registra saída de estoque para peças realmente novas desde o último save
     // (evita decrementar de novo as mesmas peças se a OS for reaberta e salva outra vez).
-    for (const part of usedParts) {
-      if (!part.stock_item_id || committedPartIds.has(part.stock_item_id)) continue
+    for (const part of newParts) {
+      if (!part.stock_item_id) continue
       await supabase.from('stock_movements').insert({ item_id: part.stock_item_id, type: 'saida', quantity: part.quantity, unit: part.unit })
     }
-    setCommittedPartIds(new Set(usedParts.map((p) => p.stock_item_id).filter((id): id is string => !!id)))
+    setCommittedPartIds(new Set(finalParts.map((p) => p.stock_item_id).filter((id): id is string => !!id)))
 
-    const closedAt = new Date().toISOString()
     let pdf_url: string | null = null
     try {
       const pdfBlob = await generateServiceOrderPdf({
         request,
         orderId: order.id,
-        checklist: updatedChecklist,
+        checklist,
+        usedParts: finalParts,
         completedServices: completedServices || null,
         warranty: warrantySummary,
         finalValue,
         closedAt,
-        updates: allUpdatesSoFar,
+        updates,
       })
       pdf_url = await uploadPdf(supabase, order.id, pdfBlob)
       if (!pdf_url) setPdfError('Não foi possível salvar o PDF no servidor. Tente gerar novamente abaixo.')
@@ -576,11 +562,10 @@ export default function ServiceOrderPanel({
     const { data: updated } = await supabase
       .from('service_orders')
       .update({
-        checklist: updatedChecklist,
         completed_services: completedServices || null,
         warranty: warrantySummary,
         final_value: finalValue,
-        used_parts: usedParts,
+        used_parts: finalParts,
         pdf_url,
         closed_at: closedAt,
         updated_at: closedAt,
@@ -590,15 +575,13 @@ export default function ServiceOrderPanel({
       .single()
 
     if (updated) setOrder(updated as ServiceOrder)
-    setChecklist(updatedChecklist)
+    setUsedParts(finalParts)
 
-    if (revisionIndices.length > 0) {
-      const { error: quoteErr } = await supabase
-        .from('service_requests')
-        .update({ quote_value: finalValue })
-        .eq('id', requestId)
-      if (!quoteErr) onQuoteValueChange?.(finalValue)
-    }
+    const { error: quoteErr } = await supabase
+      .from('service_requests')
+      .update({ quote_value: finalValue })
+      .eq('id', requestId)
+    if (!quoteErr) onQuoteValueChange?.(finalValue)
 
     const { data: logEntry } = await supabase
       .from('service_order_updates')
@@ -633,6 +616,7 @@ export default function ServiceOrderPanel({
         request,
         orderId: order.id,
         checklist: order.checklist,
+        usedParts: order.used_parts ?? [],
         completedServices: order.completed_services,
         warranty: order.warranty,
         finalValue: order.final_value,
@@ -707,7 +691,9 @@ export default function ServiceOrderPanel({
   const updatesEditable = showTimeline && !readOnly
   const showCompletion = !readOnly && !order.closed_at && checklistSubmitted && (status === 'completed' || everCompleted)
   const showClosedSummary = !!order.closed_at
-  const revisionIndices = showCompletion ? getRevisionIndices() : []
+  // Reabrir só é permitido se ainda houver garantia ativa em alguma peça usada (ou se nenhuma peça
+  // foi usada ainda, caso em que não há garantia pra checar).
+  const canReopen = (order.used_parts ?? []).length === 0 || (order.used_parts ?? []).some(isPartWarrantyActive)
 
   // Fora dessas condições (ex: status "aceito pelo cliente"), nenhuma OS deve aparecer na tela
   if (!showChecklist && !showTimeline && !showCompletion && !showClosedSummary) return null
@@ -909,83 +895,10 @@ export default function ServiceOrderPanel({
         <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Concluir ordem de serviço</p>
 
-          {revisionIndices.length > 0 && (
-            <div className="space-y-3 pb-3 border-b border-gray-200">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Revisão de orçamento e garantia</p>
-              <p className="text-xs text-gray-400">
-                Confirme ou reprecifique o valor de cada item identificado na OS 1 e na OS 2, informe a justificativa e defina a garantia (o anexo de mídia é opcional).
-              </p>
-              {revisionIndices.map((idx) => {
-                const item = checklist[idx]
-                return (
-                  <div key={item.component} className="bg-white rounded-xl border border-gray-200 p-3 space-y-2">
-                    <p className="text-sm font-semibold text-gray-800">{item.component}</p>
-                    <div>
-                      <label className="label">Valor do orçamento (R$)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={quoteValues[idx] ?? (item.value != null ? String(item.value) : '')}
-                        onChange={(e) => setQuoteValues((prev) => ({ ...prev, [idx]: e.target.value }))}
-                        placeholder="0,00"
-                        className="input-field"
-                      />
-                    </div>
-                    <div>
-                      <label className="label">Justificativa</label>
-                      <textarea
-                        value={quoteJustifications[idx] ?? ''}
-                        onChange={(e) => setQuoteJustifications((prev) => ({ ...prev, [idx]: e.target.value }))}
-                        placeholder="Descreva o que foi feito/identificado neste item..."
-                        rows={2}
-                        className="input-field text-sm resize-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="label">Garantia (dias)</label>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={quoteWarranties[idx] ?? (item.warranty ? item.warranty.replace(/\D/g, '') : '')}
-                          onChange={(e) => setQuoteWarranties((prev) => ({ ...prev, [idx]: e.target.value }))}
-                          placeholder="Ex: 90"
-                          className="input-field pr-12"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-medium">dias</span>
-                      </div>
-                    </div>
-                    {(quoteFiles[idx]?.length ?? 0) > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {(quoteFiles[idx] ?? []).map((f, fi) => (
-                          <span key={fi} className="flex items-center gap-1 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
-                            {f.name}
-                            <button type="button" onClick={() => setQuoteFiles((prev) => ({ ...prev, [idx]: (prev[idx] ?? []).filter((_, i) => i !== fi) }))}>
-                              <X className="w-3 h-3 text-gray-400" />
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <MediaPickerButtons onFiles={(files) => setQuoteFiles((prev) => ({ ...prev, [idx]: [...(prev[idx] ?? []), ...files] }))} />
-                  </div>
-                )
-              })}
-              <p className="text-sm font-bold text-gray-800">
-                Novo total: R$ {revisionIndices.reduce((sum, idx) => {
-                  const value = quoteValues[idx]?.trim() ? parseFloat(quoteValues[idx]) : (checklist[idx].value ?? 0)
-                  return sum + (isNaN(value) ? 0 : value)
-                }, 0).toFixed(2)}
-              </p>
-            </div>
-          )}
-
-          <div className="space-y-2 pb-3 border-b border-gray-200">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Itens utilizados no reparo</p>
+          <div className="space-y-3 pb-3 border-b border-gray-200">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Itens usados no reparo</p>
             <p className="text-xs text-gray-400">
-              Busque uma peça do estoque ou digite o nome de uma peça nova para cadastrá-la na hora.
+              Busque uma peça do estoque ou digite o nome de uma peça nova para cadastrá-la na hora. O valor e a garantia vêm do cadastro da peça e podem ser ajustados abaixo.
             </p>
             <div className="flex gap-2">
               <div className="relative flex-1 min-w-0">
@@ -1029,22 +942,68 @@ export default function ServiceOrderPanel({
               </button>
             </div>
             {partError && !pendingNewPart && <p className="text-xs text-red-500">{partError}</p>}
+
             {usedParts.length > 0 && (
-              <ul className="space-y-1.5">
-                {usedParts.map((part, idx) => (
-                  <li key={idx} className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                    <span className="text-gray-700">
-                      {part.name} <span className="text-gray-400">× {part.quantity} {part.unit}</span>
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {part.price != null && <span className="text-gray-500 text-xs">R$ {Number(part.price).toFixed(2)}</span>}
-                      <button type="button" onClick={() => removeUsedPart(idx)}>
-                        <X className="w-3.5 h-3.5 text-gray-400" />
-                      </button>
+              <div className="space-y-2">
+                {usedParts.map((part, idx) => {
+                  const locked = isPartLocked(part)
+                  const key = part.stock_item_id ?? `new-${idx}`
+                  const expiry = partWarrantyExpiry(part)
+                  const expired = locked && !!expiry && !isPartWarrantyActive(part)
+                  return (
+                    <div key={idx} className={`rounded-xl border p-3 space-y-2 ${locked ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-200'}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-gray-800">
+                          {part.name} <span className="text-gray-400 font-normal">× {part.quantity} {part.unit}</span>
+                        </p>
+                        {!locked && (
+                          <button type="button" onClick={() => removeUsedPart(idx)}>
+                            <X className="w-3.5 h-3.5 text-gray-400" />
+                          </button>
+                        )}
+                      </div>
+                      <div>
+                        <label className="label">Valor do reparo (R$)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          disabled={locked}
+                          value={partPriceDrafts[key] ?? (part.price != null ? String(part.price) : '')}
+                          onChange={(e) => updatePartPrice(idx, key, e.target.value)}
+                          placeholder="0,00"
+                          className="input-field disabled:opacity-60"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Observação (opcional)</label>
+                        <input
+                          disabled={locked}
+                          value={partNoteDrafts[key] ?? (part.note ?? '')}
+                          onChange={(e) => updatePartNote(idx, key, e.target.value)}
+                          placeholder="Detalhe algo sobre este item, se necessário..."
+                          className="input-field text-sm disabled:opacity-60"
+                        />
+                      </div>
+                      <p className={`text-xs ${expired ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+                        {part.warranty_days == null
+                          ? 'Garantia não informada'
+                          : locked
+                            ? expired
+                              ? `Garantia expirada em ${expiry!.toLocaleDateString('pt-BR')}`
+                              : `Garantia: ${part.warranty_days} dias (até ${expiry!.toLocaleDateString('pt-BR')})`
+                            : `Garantia: ${part.warranty_days} dias (a partir da conclusão)`}
+                      </p>
                     </div>
-                  </li>
-                ))}
-              </ul>
+                  )
+                })}
+                <p className="text-sm font-bold text-gray-800">
+                  Valor total do serviço: R$ {usedParts
+                    .filter((p) => !isPartLocked(p))
+                    .reduce((sum, p) => sum + (p.price ?? 0), 0)
+                    .toFixed(2)}
+                </p>
+              </div>
             )}
           </div>
 
@@ -1184,7 +1143,16 @@ export default function ServiceOrderPanel({
             </div>
           )}
 
-          {!readOnly && (
+          {!readOnly && !canReopen && (
+            <div className="pt-2 mt-1 border-t border-green-100">
+              <p className="text-xs text-red-600 flex items-start gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                Todas as garantias das peças usadas já expiraram — não é possível reabrir esta OS.
+              </p>
+            </div>
+          )}
+
+          {!readOnly && canReopen && (
             <div className="pt-2 mt-1 border-t border-green-100">
               {confirmingReopen ? (
                 <div className="bg-white border border-amber-200 rounded-xl p-3 space-y-2">
