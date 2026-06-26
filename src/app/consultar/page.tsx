@@ -350,7 +350,9 @@ function ConsultarContent() {
                         <div className="flex items-start gap-2">
                           <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
                           <span className="text-sm text-gray-500">
-                            {[req.address_street, req.address_number, req.address_neighborhood, req.address_city].filter(Boolean).join(', ') || (req.address_cep ? `CEP ${req.address_cep}` : 'Endereço não informado')}
+                            {req.self_pickup
+                              ? 'Você vai levar/buscar o aparelho — sem coleta/entrega'
+                              : [req.address_street, req.address_number, req.address_neighborhood, req.address_city].filter(Boolean).join(', ') || (req.address_cep ? `CEP ${req.address_cep}` : 'Endereço não informado')}
                           </span>
                         </div>
 

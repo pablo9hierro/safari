@@ -261,13 +261,15 @@ export default function RequestDetailModal({
   }
 
   const advance = getAdvanceConfig(status, osState, quoteValue, paymentSaved)
-  const fullAddress = [
-    request.address_street,
-    request.address_number,
-    request.address_neighborhood,
-    request.address_city,
-    request.address_state,
-  ].filter(Boolean).join(', ') || (request.address_cep ? `CEP ${request.address_cep}` : 'Endereço não informado')
+  const fullAddress = request.self_pickup
+    ? 'Cliente vai levar/buscar o aparelho — sem coleta/entrega'
+    : [
+        request.address_street,
+        request.address_number,
+        request.address_neighborhood,
+        request.address_city,
+        request.address_state,
+      ].filter(Boolean).join(', ') || (request.address_cep ? `CEP ${request.address_cep}` : 'Endereço não informado')
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -333,7 +335,9 @@ export default function RequestDetailModal({
                 <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-sm text-gray-900">{fullAddress}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Ref: {request.address_reference}</p>
+                  {!request.self_pickup && request.address_reference && (
+                    <p className="text-xs text-gray-500 mt-0.5">Ref: {request.address_reference}</p>
+                  )}
                 </div>
               </div>
             </div>

@@ -27,12 +27,13 @@ export interface ServiceRequest {
   problem_description: string
   image_url: string | null
   address_cep?: string | null
-  address_number: string
-  address_reference: string
-  address_street?: string
-  address_neighborhood?: string
-  address_city?: string
-  address_state?: string
+  address_number: string | null
+  address_reference: string | null
+  address_street?: string | null
+  address_neighborhood?: string | null
+  address_city?: string | null
+  address_state?: string | null
+  self_pickup?: boolean
   status: ServiceStatus
   quote_value: number | null
   owner_notes: string | null
@@ -47,10 +48,11 @@ export interface ServiceRequestFormData {
   phone_model: string
   problem_description: string
   image?: FileList
-  address_neighborhood: string
-  address_street: string
-  address_number: string
-  address_reference: string
+  self_pickup?: boolean
+  address_neighborhood?: string
+  address_street?: string
+  address_number?: string
+  address_reference?: string
 }
 
 export interface ServiceOrderChecklistItem {

@@ -10,10 +10,26 @@ export const serviceRequestSchema = z.object({
   customer_email: z.string().email('E-mail inválido'),
   phone_model: z.string().min(2, 'Informe o modelo do celular'),
   problem_description: z.string().min(10, 'Descreva o problema com pelo menos 10 caracteres'),
-  address_neighborhood: z.string().min(1, 'Selecione o bairro'),
-  address_street: z.string().min(3, 'Informe o nome da rua'),
-  address_number: z.string().min(1, 'Informe o número'),
-  address_reference: z.string().min(5, 'Informe um ponto de referência'),
+  self_pickup: z.boolean().optional(),
+  address_neighborhood: z.string().optional(),
+  address_street: z.string().optional(),
+  address_number: z.string().optional(),
+  address_reference: z.string().optional(),
+}).superRefine((data, ctx) => {
+  // Sem endereço pra validar quando o cliente mesmo vai levar/buscar o aparelho.
+  if (data.self_pickup) return
+  if (!data.address_neighborhood || data.address_neighborhood.trim().length < 1) {
+    ctx.addIssue({ code: 'custom', path: ['address_neighborhood'], message: 'Selecione o bairro' })
+  }
+  if (!data.address_street || data.address_street.trim().length < 3) {
+    ctx.addIssue({ code: 'custom', path: ['address_street'], message: 'Informe o nome da rua' })
+  }
+  if (!data.address_number || data.address_number.trim().length < 1) {
+    ctx.addIssue({ code: 'custom', path: ['address_number'], message: 'Informe o número' })
+  }
+  if (!data.address_reference || data.address_reference.trim().length < 5) {
+    ctx.addIssue({ code: 'custom', path: ['address_reference'], message: 'Informe um ponto de referência' })
+  }
 })
 
 export type ServiceRequestSchema = z.infer<typeof serviceRequestSchema>

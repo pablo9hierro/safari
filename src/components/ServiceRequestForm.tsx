@@ -66,7 +66,7 @@ export default function ServiceRequestForm() {
     const fields: Record<number, (keyof ServiceRequestSchema)[]> = {
       1: ['customer_name', 'customer_phone', 'customer_email'],
       2: ['phone_model', 'problem_description'],
-      3: ['address_neighborhood', 'address_street', 'address_number', 'address_reference'],
+      3: ['self_pickup', 'address_neighborhood', 'address_street', 'address_number', 'address_reference'],
     }
     const valid = await trigger(fields[step])
     if (valid) setStep((s) => s + 1)
@@ -98,12 +98,13 @@ export default function ServiceRequestForm() {
         customer_email: data.customer_email,
         phone_model: data.phone_model,
         problem_description: data.problem_description,
-        address_number: data.address_number,
-        address_reference: data.address_reference,
-        address_street: data.address_street,
-        address_neighborhood: data.address_neighborhood,
-        address_city: 'João Pessoa',
-        address_state: 'PB',
+        self_pickup: !!data.self_pickup,
+        address_number: data.self_pickup ? null : data.address_number,
+        address_reference: data.self_pickup ? null : data.address_reference,
+        address_street: data.self_pickup ? null : data.address_street,
+        address_neighborhood: data.self_pickup ? null : data.address_neighborhood,
+        address_city: data.self_pickup ? null : 'João Pessoa',
+        address_state: data.self_pickup ? null : 'PB',
         image_url,
         status: 'pending',
         quote_value: null,
@@ -306,45 +307,61 @@ export default function ServiceRequestForm() {
             <MapPin className="w-5 h-5 text-vr-red" />
             <h3 className="font-semibold text-gray-800">Endereço de coleta e entrega</h3>
           </div>
-          <div>
-            <label className="label">Bairro</label>
-            <Autocomplete
-              value={watch('address_neighborhood') ?? ''}
-              onChange={(v) => setValue('address_neighborhood', v, { shouldValidate: true })}
-              onBlur={() => trigger('address_neighborhood')}
-              options={JOAO_PESSOA_BAIRROS}
-              placeholder="Digite para buscar o bairro em João Pessoa..."
-            />
-            {errors.address_neighborhood && <p className="error-msg">{errors.address_neighborhood.message}</p>}
-          </div>
-          <div>
-            <label className="label">Nome da rua</label>
+
+          <label className="flex items-start gap-2.5 bg-gray-50 border border-gray-200 rounded-xl p-3 cursor-pointer">
             <input
-              {...register('address_street')}
-              placeholder="Ex: Rua das Flores"
-              className="input-field"
+              type="checkbox"
+              {...register('self_pickup')}
+              className="w-4 h-4 mt-0.5 accent-vr-red"
             />
-            {errors.address_street && <p className="error-msg">{errors.address_street.message}</p>}
-          </div>
-          <div>
-            <label className="label">Número</label>
-            <input
-              {...register('address_number')}
-              placeholder="123"
-              inputMode="numeric"
-              className="input-field"
-            />
-            {errors.address_number && <p className="error-msg">{errors.address_number.message}</p>}
-          </div>
-          <div>
-            <label className="label">Ponto de referência</label>
-            <input
-              {...register('address_reference')}
-              placeholder="Ex: Próximo ao mercado, portão azul..."
-              className="input-field"
-            />
-            {errors.address_reference && <p className="error-msg">{errors.address_reference.message}</p>}
-          </div>
+            <span className="text-sm text-gray-700">
+              Vou levar/buscar o aparelho eu mesmo (não preciso de coleta/entrega no endereço)
+            </span>
+          </label>
+
+          {!watch('self_pickup') && (
+            <>
+              <div>
+                <label className="label">Bairro</label>
+                <Autocomplete
+                  value={watch('address_neighborhood') ?? ''}
+                  onChange={(v) => setValue('address_neighborhood', v, { shouldValidate: true })}
+                  onBlur={() => trigger('address_neighborhood')}
+                  options={JOAO_PESSOA_BAIRROS}
+                  placeholder="Digite para buscar o bairro em João Pessoa..."
+                />
+                {errors.address_neighborhood && <p className="error-msg">{errors.address_neighborhood.message}</p>}
+              </div>
+              <div>
+                <label className="label">Nome da rua</label>
+                <input
+                  {...register('address_street')}
+                  placeholder="Ex: Rua das Flores"
+                  className="input-field"
+                />
+                {errors.address_street && <p className="error-msg">{errors.address_street.message}</p>}
+              </div>
+              <div>
+                <label className="label">Número</label>
+                <input
+                  {...register('address_number')}
+                  placeholder="123"
+                  inputMode="numeric"
+                  className="input-field"
+                />
+                {errors.address_number && <p className="error-msg">{errors.address_number.message}</p>}
+              </div>
+              <div>
+                <label className="label">Ponto de referência</label>
+                <input
+                  {...register('address_reference')}
+                  placeholder="Ex: Próximo ao mercado, portão azul..."
+                  className="input-field"
+                />
+                {errors.address_reference && <p className="error-msg">{errors.address_reference.message}</p>}
+              </div>
+            </>
+          )}
         </div>
       )}
 
