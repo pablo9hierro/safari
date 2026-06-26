@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { ServiceRequest } from '@/lib/types'
-import ServiceOrderPanel from '@/components/ServiceOrderPanel'
+import { ServiceRequest, ServiceStatus } from '@/lib/types'
+import { createClient } from '@/lib/supabase/client'
 import {
   Smartphone, Search, Loader2, MapPin, Clock, CheckCircle,
-  XCircle, Wrench, ChevronLeft, Package, Truck, AlertTriangle, Home,
-  PackageCheck, PartyPopper, CreditCard,
+  XCircle, Wrench, ChevronLeft, ChevronDown, Package, Truck, AlertTriangle, Home,
+  PackageCheck, PartyPopper, CreditCard, ClipboardList, Eye, Download,
 } from 'lucide-react'
 import Link from 'next/link'
 import Logo from '@/components/ui/Logo'
@@ -25,6 +25,145 @@ const STATUS_MAP: Record<string, { label: string; color: string; bg: string; ico
   delivered:      { label: 'Aparelho entregue',         color: 'text-cyan-700',   bg: 'bg-cyan-100',   icon: <PackageCheck className="w-3.5 h-3.5" /> },
   finished:       { label: 'Atendimento concluído',     color: 'text-emerald-700', bg: 'bg-emerald-100', icon: <PartyPopper className="w-3.5 h-3.5" /> },
   cancelled:      { label: 'Cancelado',                 color: 'text-rose-700',   bg: 'bg-rose-100',   icon: <XCircle className="w-3.5 h-3.5" /> },
+}
+
+// Etapas canônicas do atendimento — duas delas (busca/entrega) juntam os dois jeitos possíveis
+// de acontecer (motoboy ou o próprio cliente) num rótulo só, já que só guardamos o status atual.
+type Stage = { key: string; label: string; icon: React.ReactNode; statuses: ServiceStatus[] }
+
+const STAGES: Stage[] = [
+  { key: 'pending', label: 'Solicitação realizada', icon: <ClipboardList className="w-3.5 h-3.5" />, statuses: ['pending'] },
+  { key: 'accepted', label: 'Orçamento aceito', icon: <CheckCircle className="w-3.5 h-3.5" />, statuses: ['accepted'] },
+  { key: 'pickup', label: 'Em rota de busca / cliente vai levar', icon: <Truck className="w-3.5 h-3.5" />, statuses: ['em_busca', 'retirada_local'] },
+  { key: 'in_progress', label: 'Em reparo', icon: <Wrench className="w-3.5 h-3.5" />, statuses: ['in_progress'] },
+  { key: 'completed', label: 'Reparo concluído', icon: <PackageCheck className="w-3.5 h-3.5" />, statuses: ['completed'] },
+  { key: 'em_pagamento', label: 'Em pagamento', icon: <CreditCard className="w-3.5 h-3.5" />, statuses: ['em_pagamento'] },
+  { key: 'delivery', label: 'Em rota de entrega / cliente vai buscar', icon: <Truck className="w-3.5 h-3.5" />, statuses: ['em_entrega', 'delivered'] },
+  { key: 'finished', label: 'Atendimento concluído', icon: <PartyPopper className="w-3.5 h-3.5" />, statuses: ['finished'] },
+]
+
+function stageIndexForStatus(status: ServiceStatus): number {
+  return STAGES.findIndex((s) => s.statuses.includes(status))
+}
+
+async function downloadFile(url: string, fileName: string) {
+  const res = await fetch(url)
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objectUrl
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+function TimelineStep({
+  icon,
+  label,
+  current,
+  last,
+  children,
+}: {
+  icon: React.ReactNode
+  label: string
+  current?: boolean
+  last?: boolean
+  children?: React.ReactNode
+}) {
+  return (
+    <li className="relative pl-8 pb-5 last:pb-0">
+      {!last && <span className="absolute left-[11px] top-6 bottom-0 border-l-2 border-dashed border-red-200" />}
+      <span
+        className={`absolute left-0 top-0 w-6 h-6 rounded-full flex items-center justify-center ${
+          current ? 'bg-vr-red text-white' : 'bg-red-100 text-vr-red'
+        }`}
+      >
+        {icon}
+      </span>
+      <p className={`text-sm leading-6 ${current ? 'font-bold text-vr-red' : 'font-medium text-gray-700'}`}>{label}</p>
+      {children}
+    </li>
+  )
+}
+
+function RequestStatusTimeline({ request }: { request: ServiceRequest }) {
+  const [expanded, setExpanded] = useState(false)
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase
+      .from('service_orders')
+      .select('pdf_url')
+      .eq('request_id', request.id)
+      .maybeSingle()
+      .then(({ data }) => setPdfUrl(data?.pdf_url ?? null))
+  }, [request.id])
+
+  const current = STATUS_MAP[request.status] ?? STATUS_MAP.pending
+  const isInterrupted = request.status === 'rejected' || request.status === 'cancelled'
+  const currentIdx = stageIndexForStatus(request.status)
+  const visibleStages = isInterrupted ? [] : STAGES.slice(0, currentIdx + 1)
+
+  return (
+    <div className="border border-gray-100 rounded-xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-gray-50 transition-colors"
+      >
+        <span className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full ${current.bg} ${current.color}`}>
+          {current.icon}
+          {current.label}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 pt-1">
+          <ol>
+            {isInterrupted ? (
+              <>
+                <TimelineStep icon={<ClipboardList className="w-3.5 h-3.5" />} label="Solicitação realizada" />
+                <TimelineStep icon={current.icon} label={current.label} current last />
+              </>
+            ) : (
+              visibleStages.map((stage, i) => {
+                const isLast = i === visibleStages.length - 1
+                return (
+                  <TimelineStep key={stage.key} icon={stage.icon} label={stage.label} current={isLast} last={isLast}>
+                    {isLast && pdfUrl && (
+                      <div className="flex items-center gap-3 mt-1.5">
+                        <a
+                          href={pdfUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-vr-red hover:text-vr-red-dark font-semibold flex items-center gap-1"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          Visualizar OS
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => downloadFile(pdfUrl, `OS-${request.id.slice(0, 8)}.pdf`)}
+                          className="text-xs text-vr-red hover:text-vr-red-dark font-semibold flex items-center gap-1"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Baixar PDF
+                        </button>
+                      </div>
+                    )}
+                  </TimelineStep>
+                )
+              })
+            )}
+          </ol>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function formatPhone(value: string) {
@@ -189,16 +328,14 @@ function ConsultarContent() {
                 </div>
               ) : (
                 requests.map((req) => {
-                  const st = STATUS_MAP[req.status] ?? STATUS_MAP.pending
                   const cancellable = req.status === 'pending'
                   return (
                     <div key={req.id} className="bg-white rounded-2xl p-5 shadow">
                       <div className="flex items-start justify-between gap-2 mb-3">
-                        <span className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full ${st.bg} ${st.color}`}>
-                          {st.icon}
-                          {st.label}
-                        </span>
-                        <span className="text-xs text-gray-400 flex-shrink-0">
+                        <div className="flex-1 min-w-0">
+                          <RequestStatusTimeline request={req} />
+                        </div>
+                        <span className="text-xs text-gray-400 flex-shrink-0 pt-2.5">
                           {new Date(req.created_at).toLocaleDateString('pt-BR')}
                         </span>
                       </div>
@@ -241,8 +378,6 @@ function ConsultarContent() {
                             </button>
                           </div>
                         )}
-
-                        <ServiceOrderPanel request={req} status={req.status} readOnly />
                       </div>
                     </div>
                   )
