@@ -97,13 +97,21 @@ function getAdvanceConfig(
         blockedMessage: 'Conclua a ordem de serviço (formulário de conclusão) antes de avançar.',
       }
     case 'em_pagamento':
-      // O adm escolhe manualmente o caminho de entrega: retirada pelo cliente ou rota de entrega
+      // Caminho de entrega determinado pelo que o cliente escolheu no formulário.
+      // self_pickup=true → cliente vem buscar; false → motoboy entrega.
+      if (selfPickup) {
+        return {
+          type: 'single',
+          next: 'delivered',
+          label: '📬 Confirmar retirada pelo cliente',
+          ready: paymentReady,
+          blockedMessage: 'Registre a forma de pagamento antes de avançar.',
+        }
+      }
       return {
-        type: 'choice',
-        options: [
-          { next: 'delivered', label: '📬 Aparelho entregue (retirada pelo cliente)' },
-          { next: 'em_entrega', label: '📦 Em rota de entrega (motoboy)' },
-        ],
+        type: 'single',
+        next: 'em_entrega',
+        label: '📦 Confirmar saída para entrega (motoboy)',
         ready: paymentReady,
         blockedMessage: 'Registre a forma de pagamento antes de avançar.',
       }
@@ -363,7 +371,7 @@ export default function RequestDetailModal({
                 </div>
                 {!request.self_pickup && request.shipping_price && (
                   <p className="text-xs text-amber-600 mt-1.5">
-                    Frete (ida e volta): R$ {Number(request.shipping_price).toFixed(2)} — inclua este valor no orçamento acima.
+                    Frete (ida e volta): R$ {Number(request.shipping_price).toFixed(2)} — será somado automaticamente ao total.
                   </p>
                 )}
               </div>

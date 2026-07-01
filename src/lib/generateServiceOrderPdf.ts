@@ -77,6 +77,7 @@ export async function generateServiceOrderPdf({
   completedServices,
   warranty,
   finalValue,
+  shippingPrice,
   closedAt,
   updates,
 }: {
@@ -87,6 +88,7 @@ export async function generateServiceOrderPdf({
   completedServices: string | null
   warranty: string | null
   finalValue: number | null
+  shippingPrice?: number | null
   closedAt: string
   updates: ServiceOrderUpdate[]
 }): Promise<Blob> {
@@ -280,14 +282,19 @@ export async function generateServiceOrderPdf({
   field('Nome', request.customer_name)
   field('Telefone', request.customer_phone)
   field('E-mail', request.customer_email)
-  const address = [
-    request.address_street,
-    request.address_number,
-    request.address_neighborhood,
-    request.address_city,
-    request.address_state,
-  ].filter(Boolean).join(', ') || (request.address_cep ? `CEP ${request.address_cep}` : '-')
+  const address = request.self_pickup
+    ? 'Cliente vai levar/buscar o aparelho — sem coleta/entrega'
+    : [
+        request.address_neighborhood,
+        request.address_street,
+        request.address_number,
+        request.address_city,
+        request.address_state,
+      ].filter(Boolean).join(', ') || (request.address_cep ? `CEP ${request.address_cep}` : '-')
   field('Endereço', address)
+  if (request.address_reference && !request.self_pickup) {
+    field('Referência', request.address_reference)
+  }
   endContainer()
 
   // =====================================================
@@ -545,6 +552,9 @@ export async function generateServiceOrderPdf({
   const renderConclusionStructured = () => {
     if (completedServices) field('Serviços realizados', completedServices)
     garantiaTable(usedParts)
+    if (shippingPrice && shippingPrice > 0) {
+      field('Frete (ida e volta)', `R$ ${Number(shippingPrice).toFixed(2)}`)
+    }
     field('Valor total do serviço', `R$ ${Number(finalValue ?? 0).toFixed(2)}`)
     if (warranty) field('Garantia geral', warranty)
     field('Concluído em', new Date(closedAt).toLocaleString('pt-BR'))

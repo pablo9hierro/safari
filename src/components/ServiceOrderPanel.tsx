@@ -513,8 +513,10 @@ export default function ServiceOrderPanel({
 
     const isFirstConclusion = !everCompleted
     const previousFinalValue = order.final_value ?? 0
+    // Frete (ida e volta) é somado apenas na primeira conclusão — na reabertura não duplica.
+    const shippingCost = isFirstConclusion && !request.self_pickup ? (request.shipping_price ?? 0) : 0
     const finalValue = isFirstConclusion
-      ? (checkedItemsNow.length > 0 ? newTotal : (quoteValue ?? 0))
+      ? (checkedItemsNow.length > 0 ? newTotal + shippingCost : (quoteValue ?? 0))
       : previousFinalValue + newTotal
 
     const warrantySummary = checkedItemsNow.length > 0
@@ -548,6 +550,7 @@ export default function ServiceOrderPanel({
         completedServices: completedServices || null,
         warranty: warrantySummary,
         finalValue,
+        shippingPrice: shippingCost > 0 ? shippingCost : null,
         closedAt,
         updates,
       })

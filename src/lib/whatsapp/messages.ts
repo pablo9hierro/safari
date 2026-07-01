@@ -13,6 +13,10 @@ function currency(val: number | null | undefined) {
 }
 
 export function ownerNewRequestMessage(req: ServiceRequest) {
+  const enderecoLine = req.self_pickup
+    ? '🏠 *Entrega:* cliente vai levar/buscar o aparelho'
+    : `📍 *Endereço:* ${[req.address_neighborhood, req.address_city].filter(Boolean).join(', ')}${req.address_reference ? ` — Ref: ${req.address_reference}` : ''}`
+
   return [
     '🔔 *Nova solicitação de serviço!*',
     '',
@@ -20,8 +24,7 @@ export function ownerNewRequestMessage(req: ServiceRequest) {
     `📞 *Tel:* ${req.customer_phone}`,
     `📱 *Aparelho:* ${req.phone_model}`,
     `🔧 *Problema:* ${req.problem_description}`,
-    `📍 *Endereço:* ${[req.address_street, req.address_number, req.address_neighborhood, req.address_city].filter(Boolean).join(', ')}`,
-    `🏠 *Ref:* ${req.address_reference}`,
+    enderecoLine,
     '',
     '👉 Acesse o dashboard para responder.',
   ].join('\n')
@@ -77,7 +80,13 @@ export const STATUS_MESSAGES: Partial<Record<ServiceStatus, StatusMessageFn>> = 
     ].join('\n')
   },
 
-  em_entrega: () => '📦 Em rota de entrega para devolução do aparelho.',
+  em_entrega: (req) => [
+    `📦 *Seu aparelho está a caminho!*`,
+    '',
+    `Olá *${req.customer_name}*! Acabamos de sair com o *${req.phone_model}* para entrega no seu endereço.`,
+    '',
+    'Em breve chegamos! 🛵',
+  ].join('\n'),
 
   completed: (req, order) => {
     const services = (order?.completed_services || '')
