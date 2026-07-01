@@ -4,7 +4,7 @@ import { sendWhatsAppText } from '@/lib/whatsapp/evolutionClient'
 import { ownerNewRequestMessage, pendingCustomerMessage, STATUS_MESSAGES, OrderSummary } from '@/lib/whatsapp/messages'
 import { ServiceRequest, ServiceStatus } from '@/lib/types'
 
-const OWNER_PHONE = process.env.OWNER_PHONE || '5583987516699'
+const OWNER_PHONE = process.env.OWNER_PHONE || '558883920021373'
 
 function makeClient() {
   return createClient(
