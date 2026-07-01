@@ -143,7 +143,11 @@ export default function ServiceRequestForm() {
         }).catch((e) => console.error('Erro ao notificar WhatsApp:', e))
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro ao enviar solicitação. Tente novamente.'
+      const msg = err instanceof Error
+        ? err.message
+        : (typeof err === 'object' && err !== null && 'message' in err)
+          ? String((err as { message: unknown }).message)
+          : JSON.stringify(err)
       setError(msg)
     } finally {
       setLoading(false)
