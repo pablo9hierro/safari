@@ -242,15 +242,15 @@ export default function DevicePicker({
   // ── If value already set ─────────────────────────────────────────────────
   if (value) {
     return (
-      <div className="rounded-2xl border border-vr-red/30 bg-red-50 p-4 flex items-center justify-between gap-3">
+      <div className="rounded-2xl border border-vr-red/30 bg-vr-red/10 p-4 flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs text-gray-400 mb-0.5">Aparelho selecionado</p>
-          <p className="font-semibold text-gray-900 text-sm">{value}</p>
+          <p className="text-xs text-vr-silver/50 mb-0.5">Aparelho selecionado</p>
+          <p className="font-semibold text-white text-sm">{value}</p>
         </div>
         <button
           type="button"
           onClick={reset}
-          className="flex items-center gap-1 text-xs font-semibold text-vr-red hover:text-vr-red-dark transition-colors shrink-0"
+          className="flex items-center gap-1 text-xs font-semibold text-vr-red hover:text-vr-red-light transition-colors shrink-0"
         >
           <PenLine className="w-3.5 h-3.5" />
           Alterar
@@ -270,19 +270,19 @@ export default function DevicePicker({
           <button
             type="button"
             onClick={goBack}
-            className="flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-800 transition-colors"
+            className="flex items-center gap-1 text-xs font-semibold text-vr-silver/60 hover:text-white transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
             Voltar
           </button>
         )}
-        {showBack && <span className="text-gray-300 text-xs">|</span>}
-        <p className="text-xs text-gray-400 flex items-center gap-1 flex-wrap">
-          <span className={subStep === 'device' ? 'text-vr-red font-semibold' : 'text-gray-500'}>Aparelho</span>
+        {showBack && <span className="text-white/20 text-xs">|</span>}
+        <p className="text-xs text-vr-silver/50 flex items-center gap-1 flex-wrap">
+          <span className={subStep === 'device' ? 'text-vr-red font-semibold' : 'text-vr-silver/50'}>Aparelho</span>
           {deviceKey && (
             <>
               <ChevronRight className="w-3 h-3" />
-              <span className={subStep === 'brand' ? 'text-vr-red font-semibold' : 'text-gray-500'}>{deviceLabel}</span>
+              <span className={subStep === 'brand' ? 'text-vr-red font-semibold' : 'text-vr-silver/50'}>{deviceLabel}</span>
             </>
           )}
           {brandKey && brandKey !== 'outro' && (
@@ -302,7 +302,7 @@ export default function DevicePicker({
               key={d.key}
               type="button"
               onClick={() => handleDeviceSelect(d.key)}
-              className="flex flex-col items-center gap-2.5 p-5 rounded-2xl border-2 border-gray-200 bg-gray-50 hover:border-vr-red hover:bg-red-50 active:bg-red-100 transition-all text-gray-700 hover:text-vr-red"
+              className="flex flex-col items-center gap-2.5 p-5 rounded-2xl border-2 border-white/10 bg-vr-black hover:border-vr-red/70 hover:bg-vr-red/5 active:bg-vr-red/10 transition-all text-vr-silver/70 hover:text-white"
             >
               {d.icon}
               <span className="text-sm font-semibold">{d.label}</span>
@@ -319,7 +319,7 @@ export default function DevicePicker({
               key={b.key}
               type="button"
               onClick={() => handleBrandSelect(b.key, b.label, b.os)}
-              className="flex items-center justify-center gap-2 p-4 rounded-2xl border-2 border-gray-200 bg-gray-50 hover:border-vr-red hover:bg-red-50 active:bg-red-100 transition-all text-gray-700 hover:text-vr-red font-semibold text-sm"
+              className="flex items-center justify-center gap-2 p-4 rounded-2xl border-2 border-white/10 bg-vr-black hover:border-vr-red/70 hover:bg-vr-red/5 active:bg-vr-red/10 transition-all text-vr-silver/80 hover:text-white font-semibold text-sm"
             >
               {b.label}
             </button>
@@ -330,13 +330,13 @@ export default function DevicePicker({
       {/* Step: model — custom text input for "outro" */}
       {subStep === 'model' && brandKey === 'outro' && (
         <div className="space-y-2">
-          <p className="text-xs text-gray-500">Digite o modelo do aparelho:</p>
+          <p className="text-xs text-vr-silver/50">Digite o modelo do aparelho:</p>
           <input
             type="text"
             value={customModel}
             onChange={(e) => setCustomModel(e.target.value)}
             placeholder="Ex: Nokia C32, Motorola One..."
-            className="input-field"
+            className="w-full px-4 py-3 rounded-xl border border-white/10 bg-vr-black text-white placeholder-white/25 focus:border-vr-red/60 outline-none transition-all"
             autoFocus
           />
           <button
@@ -352,10 +352,10 @@ export default function DevicePicker({
 
       {/* Step: model — grouped list */}
       {subStep === 'model' && brandKey && brandKey !== 'outro' && deviceKey && (
-        <div className="max-h-72 overflow-y-auto rounded-2xl border border-gray-200 divide-y divide-gray-100">
+        <div className="max-h-72 overflow-y-auto rounded-2xl border border-white/10 bg-vr-black divide-y divide-white/5">
           {(MODELS[getModelKey(deviceKey, brandKey)] ?? []).map((group) => (
             <div key={group.group}>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider px-4 py-2 bg-gray-50 sticky top-0">
+              <p className="text-xs font-bold text-vr-silver/40 uppercase tracking-wider px-4 py-2 bg-vr-graphite sticky top-0">
                 {group.group}
               </p>
               {group.items.map((model) => (
@@ -363,10 +363,10 @@ export default function DevicePicker({
                   key={model}
                   type="button"
                   onClick={() => handleModelSelect(model)}
-                  className="w-full text-left px-4 py-2.5 text-sm text-gray-800 hover:bg-red-50 hover:text-vr-red transition-colors flex items-center justify-between group"
+                  className="w-full text-left px-4 py-2.5 text-sm text-vr-silver hover:bg-vr-red/10 hover:text-white transition-colors flex items-center justify-between group"
                 >
                   <span>{model}</span>
-                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-vr-red transition-colors" />
+                  <ChevronRight className="w-4 h-4 text-white/20 group-hover:text-vr-red transition-colors" />
                 </button>
               ))}
             </div>
@@ -374,7 +374,7 @@ export default function DevicePicker({
         </div>
       )}
 
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      {error && <p className="text-xs text-red-400">{error}</p>}
     </div>
   )
 }
