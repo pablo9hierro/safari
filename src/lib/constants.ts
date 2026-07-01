@@ -6,7 +6,7 @@ export const STORE_ADDRESS = {
   mapsUrl: 'https://www.google.com/maps/search/?api=1&query=Rua+Aposentado+Cl%C3%A1udio+de+Santana+37+Valentina+de+Figueiredo+Jo%C3%A3o+Pessoa',
 }
 
-export const SITE_URL = 'https://safari-nine-silk.vercel.app'
+export const SITE_URL = 'https://vrtech-jp.vercel.app'
 
 export const PAYMENT_METHODS = [
   'Pix',
