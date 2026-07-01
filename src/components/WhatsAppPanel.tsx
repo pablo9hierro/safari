@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Wifi, WifiOff, RefreshCw, Smartphone } from 'lucide-react'
+import { Wifi, WifiOff, RefreshCw, Smartphone, LogOut } from 'lucide-react'
 
 type WState = {
   status: 'connected' | 'connecting' | 'disconnected'
@@ -15,6 +15,7 @@ const AUTO_CONNECT_COOLDOWN_MS = 60000
 export default function WhatsAppPanel() {
   const [state, setState] = useState<WState | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
   const [connectDebug, setConnectDebug] = useState<string | null>(null)
   const lastConnectAttempt = useRef(0)
@@ -61,6 +62,14 @@ export default function WhatsAppPanel() {
     if ((state?.status ?? 'disconnected') !== 'connected') await autoConnect(true)
     await load()
     setRefreshing(false)
+  }
+
+  const handleDisconnect = async () => {
+    setDisconnecting(true)
+    setConnectError(null)
+    await autoConnect(true)
+    await load()
+    setDisconnecting(false)
   }
 
   useEffect(() => {
@@ -148,7 +157,17 @@ export default function WhatsAppPanel() {
       )}
 
       {status === 'connected' && (
-        <p className="text-xs text-green-500 mt-1">✓ Notificações automáticas ativas</p>
+        <div className="flex items-center justify-between mt-1">
+          <p className="text-xs text-green-500">✓ Notificações automáticas ativas</p>
+          <button
+            onClick={handleDisconnect}
+            disabled={disconnecting}
+            className="flex items-center gap-1 text-xs text-vr-silver/40 hover:text-vr-red-light transition-colors"
+          >
+            <LogOut className="w-3 h-3" />
+            {disconnecting ? 'Desconectando...' : 'Desconectar'}
+          </button>
+        </div>
       )}
     </div>
   )
