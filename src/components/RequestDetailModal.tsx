@@ -52,7 +52,8 @@ function getAdvanceConfig(
   current: ServiceStatus,
   osState: { closed: boolean; hasUpdate: boolean },
   quoteValue: string,
-  paymentReady: boolean
+  paymentReady: boolean,
+  selfPickup: boolean
 ): AdvanceConfig {
   switch (current) {
     case 'pending':
@@ -64,7 +65,10 @@ function getAdvanceConfig(
         blockedMessage: 'Preencha o valor do orçamento antes de avançar.',
       }
     case 'accepted':
-      // O adm escolhe manualmente como o aparelho será coletado/entregue
+      if (selfPickup) {
+        // Cliente já avisou que vai trazer/buscar — confirma chegada diretamente
+        return { type: 'single', next: 'retirada_local', label: '🏠 Confirmar chegada do aparelho', ready: true }
+      }
       return {
         type: 'choice',
         options: [
@@ -111,10 +115,6 @@ function getAdvanceConfig(
   }
 }
 
-// Atendimento pode ser cancelado enquanto o aparelho ainda não foi devolvido/entregue.
-function canCancel(current: ServiceStatus) {
-  return (['pending', 'accepted', 'retirada_local', 'em_busca', 'in_progress'] as ServiceStatus[]).includes(current)
-}
 
 export default function RequestDetailModal({
   request,
@@ -260,7 +260,7 @@ export default function RequestDetailModal({
     }
   }
 
-  const advance = getAdvanceConfig(status, osState, quoteValue, paymentSaved)
+  const advance = getAdvanceConfig(status, osState, quoteValue, paymentSaved, !!request.self_pickup)
   const fullAddress = request.self_pickup
     ? 'Cliente vai levar/buscar o aparelho — sem coleta/entrega'
     : [
@@ -361,12 +361,20 @@ export default function RequestDetailModal({
                     className="input-field pl-10"
                   />
                 </div>
+                {!request.self_pickup && request.shipping_price && (
+                  <p className="text-xs text-amber-600 mt-1.5">
+                    Frete (ida e volta): R$ {Number(request.shipping_price).toFixed(2)} — inclua este valor no orçamento acima.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="bg-slate-50 rounded-2xl p-4">
                 <p className="text-sm text-gray-600">
                   Valor atual: <span className="font-semibold text-gray-900">R$ {Number(quoteValue || 0).toFixed(2)}</span>
                 </p>
+                {!request.self_pickup && request.shipping_price && (
+                  <p className="text-xs text-gray-400 mt-0.5">Inclui frete ida e volta: R$ {Number(request.shipping_price).toFixed(2)}</p>
+                )}
               </div>
             )}
           </section>
@@ -547,25 +555,14 @@ export default function RequestDetailModal({
               </div>
             )}
 
-            {canCancel(status) && (
-              <div className="flex gap-2">
-                {status === 'pending' && (
-                  <button
-                    onClick={() => handleAdvance('rejected')}
-                    disabled={loading}
-                    className="flex-1 text-sm font-medium text-red-600 border border-red-200 rounded-xl py-2 hover:bg-red-50 transition-colors disabled:opacity-50"
-                  >
-                    Recusar
-                  </button>
-                )}
-                <button
-                  onClick={() => handleAdvance('cancelled')}
-                  disabled={loading}
-                  className="flex-1 text-sm font-medium text-gray-500 border border-gray-200 rounded-xl py-2 hover:bg-gray-50 transition-colors disabled:opacity-50"
-                >
-                  Cancelar atendimento
-                </button>
-              </div>
+            {status === 'pending' && (
+              <button
+                onClick={() => handleAdvance('rejected')}
+                disabled={loading}
+                className="w-full text-sm font-medium text-red-600 border border-red-200 rounded-xl py-2 hover:bg-red-50 transition-colors disabled:opacity-50"
+              >
+                Recusar orçamento
+              </button>
             )}
 
             {waError && (

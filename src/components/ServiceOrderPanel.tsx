@@ -188,7 +188,6 @@ export default function ServiceOrderPanel({
   const [reopenReason, setReopenReason] = useState('')
   const [reopening, setReopening] = useState(false)
 
-  const [conclusionValueDrafts, setConclusionValueDrafts] = useState<Record<number, string>>({})
   const [conclusionNoteDrafts, setConclusionNoteDrafts] = useState<Record<number, string>>({})
 
   const [stockItems, setStockItems] = useState<StockItem[]>([])
@@ -215,7 +214,14 @@ export default function ServiceOrderPanel({
       setOrder(rest as ServiceOrder)
       setChecklist((rest.checklist as ServiceOrderChecklistItem[])?.length ? rest.checklist : buildInitialChecklist())
       setUpdates([...(service_order_updates ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at)))
-      setCompletedServices(rest.completed_services ?? '')
+      // Prefer localStorage draft over DB value so in-progress edits survive modal close/page reload
+      try {
+        const saved = JSON.parse(localStorage.getItem(`os-drafts-${existing.id}`) ?? '{}')
+        setCompletedServices(saved.completedServices ?? rest.completed_services ?? '')
+        if (saved.conclusionNoteDrafts) setConclusionNoteDrafts(saved.conclusionNoteDrafts)
+      } catch {
+        setCompletedServices(rest.completed_services ?? '')
+      }
     } else if (!readOnly) {
       const initialChecklist = buildInitialChecklist()
       const { data: created } = await supabase
@@ -241,6 +247,14 @@ export default function ServiceOrderPanel({
   useEffect(() => {
     load()
   }, [load])
+
+  // Persiste rascunhos do formulário de conclusão no localStorage para sobreviver ao fechamento do modal.
+  useEffect(() => {
+    if (!order?.id) return
+    try {
+      localStorage.setItem(`os-drafts-${order.id}`, JSON.stringify({ completedServices, conclusionNoteDrafts }))
+    } catch {}
+  }, [order?.id, completedServices, conclusionNoteDrafts])
 
   // Estoque só é relevante no fluxo do admin (a página pública /consultar usa readOnly).
   useEffect(() => {
@@ -587,13 +601,10 @@ export default function ServiceOrderPanel({
       }).catch((e) => console.error('Erro ao notificar WhatsApp:', e))
     }
 
-    setSavingCompletion(false)
-  }
+    // Rascunhos não são mais necessários após a conclusão ser salva.
+    try { if (order?.id) localStorage.removeItem(`os-drafts-${order.id}`) } catch {}
 
-  const updateConclusionValue = (idx: number, raw: string) => {
-    setConclusionValueDrafts((prev) => ({ ...prev, [idx]: raw }))
-    const parsed = raw.trim() ? parseFloat(raw) : null
-    setChecklist((prev) => prev.map((it, i) => (i === idx ? { ...it, value: parsed != null && !isNaN(parsed) ? parsed : null } : it)))
+    setSavingCompletion(false)
   }
 
   const updateConclusionNote = (idx: number, raw: string) => {
@@ -920,18 +931,11 @@ export default function ServiceOrderPanel({
                 return (
                   <div key={item.component} className={`rounded-xl border p-3 space-y-2 ${locked ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-200'}`}>
                     <p className="text-sm font-semibold text-gray-800">{item.component}</p>
-                    <div>
-                      <label className="label">Valor do reparo (R$)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        disabled={locked}
-                        value={conclusionValueDrafts[idx] ?? (item.value != null ? String(item.value) : '')}
-                        onChange={(e) => updateConclusionValue(idx, e.target.value)}
-                        placeholder="0,00"
-                        className="input-field disabled:opacity-60"
-                      />
+                    <div className="flex items-center justify-between py-1">
+                      <span className="text-xs text-gray-500">Valor do reparo</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        R$ {(item.value ?? 0).toFixed(2)}
+                      </span>
                     </div>
                     <div>
                       <label className="label">Observação (opcional)</label>

@@ -8,7 +8,7 @@ export type ServiceOrderRow = {
   closed_at: string | null
   final_value: number | null
   request_id: string
-  service_requests: { customer_name: string; phone_model: string; payment_methods: { method: string; value: number }[] | null } | null
+  service_requests: { customer_name: string; customer_phone: string; phone_model: string; payment_methods: { method: string; value: number }[] | null } | null
 }
 
 type StoreOrderItemRow = {
@@ -33,6 +33,7 @@ type Transaction = {
   type: 'manutencao' | 'venda'
   date: string
   title: string
+  phone: string
   subtitle: string
   value: number
   paymentMethods: string[]
@@ -102,6 +103,7 @@ export default function FinanceiroClient({
         type: 'manutencao' as const,
         date: o.closed_at as string,
         title: o.service_requests?.customer_name ?? 'Cliente',
+        phone: o.service_requests?.customer_phone ?? '',
         subtitle: o.service_requests?.phone_model ?? '',
         value: Number(o.final_value),
         paymentMethods: (o.service_requests?.payment_methods ?? []).map((p) => p.method),
@@ -120,6 +122,7 @@ export default function FinanceiroClient({
           type: 'venda',
           date: order.created_at,
           title: order.customer_name,
+          phone: '',
           subtitle: soldItems.map((i) => `${i.quantity}x ${i.product_name}`).join(', '),
           value,
           paymentMethods: Array.from(new Set(soldItems.flatMap((i) => (i.payment_methods ?? []).map((p) => p.method)))),
@@ -321,7 +324,10 @@ export default function FinanceiroClient({
                   {t.type === 'manutencao' ? <Wrench className="w-4 h-4" /> : <ShoppingBag className="w-4 h-4" />}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm text-white truncate">{t.title}</p>
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-sm text-white truncate">{t.title}</p>
+                    {t.phone && <p className="text-xs text-vr-silver/40 flex-shrink-0">{t.phone}</p>}
+                  </div>
                   {t.subtitle && <p className="text-xs text-vr-silver/50 truncate">{t.subtitle}</p>}
                   {t.paymentMethods.length > 0 && (
                     <p className="text-xs text-vr-silver/40 truncate">{t.paymentMethods.join(' + ')}</p>

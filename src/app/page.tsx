@@ -121,9 +121,9 @@ export default function Home() {
 
       {/* Formulário de orçamento */}
       <section id="orcamento" className="px-5 sm:px-10 py-16 bg-gradient-to-b from-vr-graphite/40 to-vr-black">
-        <div className="max-w-lg mx-auto bg-white rounded-3xl shadow-2xl p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-1">Solicitar orçamento</h2>
-          <p className="text-gray-500 text-sm mb-6">Preencha os dados abaixo e responderemos em até 2h</p>
+        <div className="max-w-lg mx-auto bg-vr-graphite border border-white/8 rounded-3xl shadow-2xl p-6">
+          <h2 className="text-lg font-bold text-white mb-1">Solicitar orçamento</h2>
+          <p className="text-vr-silver/50 text-sm mb-6">Preencha os dados abaixo e responderemos em até 2h</p>
           <ServiceRequestForm />
         </div>
       </section>

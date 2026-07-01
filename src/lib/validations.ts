@@ -12,8 +12,6 @@ export const serviceRequestSchema = z.object({
   problem_description: z.string().min(10, 'Descreva o problema com pelo menos 10 caracteres'),
   self_pickup: z.boolean().optional(),
   address_neighborhood: z.string().optional(),
-  address_street: z.string().optional(),
-  address_number: z.string().optional(),
   address_reference: z.string().optional(),
 }).superRefine((data, ctx) => {
   // Sem endereço pra validar quando o cliente mesmo vai levar/buscar o aparelho.
@@ -21,13 +19,7 @@ export const serviceRequestSchema = z.object({
   if (!data.address_neighborhood || data.address_neighborhood.trim().length < 1) {
     ctx.addIssue({ code: 'custom', path: ['address_neighborhood'], message: 'Selecione o bairro' })
   }
-  if (!data.address_street || data.address_street.trim().length < 3) {
-    ctx.addIssue({ code: 'custom', path: ['address_street'], message: 'Informe o nome da rua' })
-  }
-  if (!data.address_number || data.address_number.trim().length < 1) {
-    ctx.addIssue({ code: 'custom', path: ['address_number'], message: 'Informe o número' })
-  }
-  if (!data.address_reference || data.address_reference.trim().length < 5) {
+  if (!data.address_reference || data.address_reference.trim().length < 3) {
     ctx.addIssue({ code: 'custom', path: ['address_reference'], message: 'Informe um ponto de referência' })
   }
 })

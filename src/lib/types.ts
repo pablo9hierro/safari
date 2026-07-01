@@ -27,12 +27,13 @@ export interface ServiceRequest {
   problem_description: string
   image_url: string | null
   address_cep?: string | null
-  address_number: string | null
-  address_reference: string | null
+  address_number?: string | null
+  address_reference?: string | null
   address_street?: string | null
   address_neighborhood?: string | null
   address_city?: string | null
   address_state?: string | null
+  shipping_price?: number | null
   self_pickup?: boolean
   status: ServiceStatus
   quote_value: number | null
