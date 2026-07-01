@@ -111,35 +111,41 @@ export default function ServiceRequestForm() {
       const oneWayRate = data.self_pickup ? null : (shippingRates[neighborhood] ?? null)
       const shippingPrice = oneWayRate != null ? oneWayRate * 2 : null
 
-      const { data: inserted, error: insertError } = await supabase.from('service_requests').insert([{
-        customer_name: data.customer_name,
-        customer_phone: data.customer_phone,
-        customer_email: data.customer_email,
-        phone_model: data.phone_model,
-        problem_description: data.problem_description,
-        self_pickup: !!data.self_pickup,
-        address_number: null,
-        address_street: null,
-        address_reference: data.self_pickup ? null : data.address_reference,
-        address_neighborhood: data.self_pickup ? null : neighborhood,
-        address_city: data.self_pickup ? null : 'João Pessoa',
-        address_state: data.self_pickup ? null : 'PB',
-        shipping_price: shippingPrice,
-        image_url,
-        status: 'pending',
-        quote_value: null,
-        owner_notes: null,
-      }]).select().single()
+      const res = await fetch('/api/service-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_name: data.customer_name,
+          customer_phone: data.customer_phone,
+          customer_email: data.customer_email,
+          phone_model: data.phone_model,
+          problem_description: data.problem_description,
+          self_pickup: !!data.self_pickup,
+          address_number: null,
+          address_street: null,
+          address_reference: data.self_pickup ? null : data.address_reference,
+          address_neighborhood: data.self_pickup ? null : neighborhood,
+          address_city: data.self_pickup ? null : 'João Pessoa',
+          address_state: data.self_pickup ? null : 'PB',
+          shipping_price: shippingPrice,
+          image_url,
+          status: 'pending',
+          quote_value: null,
+          owner_notes: null,
+        }),
+      })
 
-      if (insertError) throw insertError
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || `Erro ${res.status}`)
+
       setSubmittedPhone(data.customer_phone)
       setSubmitted(true)
 
-      if (inserted) {
+      if (json.data?.id) {
         fetch('/api/whatsapp/notify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ requestId: inserted.id, event: 'created' }),
+          body: JSON.stringify({ requestId: json.data.id, event: 'created' }),
         }).catch((e) => console.error('Erro ao notificar WhatsApp:', e))
       }
     } catch (err: unknown) {
