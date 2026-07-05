@@ -1,4 +1,5 @@
 import ServiceRequestForm from '@/components/ServiceRequestForm'
+import Logo from '@/components/ui/Logo'
 import {
   Smartphone,
   BatteryCharging,
@@ -29,25 +30,18 @@ const HIGHLIGHTS = [
   { icon: CheckCircle2, label: 'Acabamento confiável' },
 ]
 
-const BADGES = [
-  { emoji: '🏠', text: 'Reparo no conforto da sua casa' },
-  { emoji: '⭐', text: 'Qualidade • Garantia • Agilidade' },
-  { emoji: '📱', text: 'Especialista em iPhones' },
-  { emoji: '📍', text: 'João Pessoa' },
-]
-
 export default function Home() {
   return (
     <main className="min-h-screen bg-vr-black text-white">
       {/* Header */}
       <header className="px-5 sm:px-10 py-4 flex items-center justify-between max-w-6xl mx-auto">
-        <Link href="/" className="flex items-center">
+        <Link href="/">
           <Image
             src="https://res.cloudinary.com/dkqhped8y/image/upload/v1783212643/iconelogo_rpcnvw.png"
             alt="VR Tech"
-            width={52}
-            height={52}
-            className="rounded-full object-contain"
+            width={72}
+            height={72}
+            className="rounded-2xl object-contain"
             unoptimized
           />
         </Link>
@@ -70,9 +64,8 @@ export default function Home() {
       </header>
 
       {/* Hero */}
-      <section className="pt-4 pb-10 max-w-6xl mx-auto text-center overflow-hidden">
-        {/* Banner (área 2) */}
-        <div className="w-full px-4 sm:px-10 mb-2">
+      <section className="px-5 sm:px-10 pt-6 pb-16 max-w-6xl mx-auto text-center">
+        <div className="w-full mb-8">
           <Image
             src="https://res.cloudinary.com/dkqhped8y/image/upload/v1783213581/compleple_va79d6.png"
             alt="Conserto de celular com rapidez, qualidade e garantia"
@@ -83,25 +76,7 @@ export default function Home() {
             priority
           />
         </div>
-
-        {/* Foto com fade (área 3) */}
-        <div className="relative w-full mb-6">
-          <Image
-            src="https://res.cloudinary.com/dkqhped8y/image/upload/v1783213955/WhatsApp_Image_2026-07-04_at_22.11.54_mgd1on.jpg"
-            alt="VR Tech equipe"
-            width={1200}
-            height={600}
-            className="w-full object-cover"
-            style={{
-              maskImage: 'radial-gradient(ellipse 90% 85% at 50% 50%, black 40%, transparent 100%)',
-              WebkitMaskImage: 'radial-gradient(ellipse 90% 85% at 50% 50%, black 40%, transparent 100%)',
-            }}
-            unoptimized
-          />
-        </div>
-
-        {/* Botões */}
-        <div className="px-5 sm:px-10 flex flex-col sm:flex-row items-center justify-center gap-3">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <a href="#orcamento" className="btn-primary w-full sm:w-auto flex items-center justify-center gap-2">
             Solicitar orçamento <ArrowRight className="w-4 h-4" />
           </a>
@@ -112,18 +87,6 @@ export default function Home() {
           <Link href="/consultar" className="btn-secondary w-full sm:w-auto text-center">
             Acompanhar solicitação
           </Link>
-        </div>
-
-        {/* Badges */}
-        <div className="flex flex-wrap justify-center gap-2 mt-8 px-5">
-          {BADGES.map((b) => (
-            <span
-              key={b.text}
-              className="px-4 py-2 rounded-full bg-white/5 border border-white/10 text-xs sm:text-sm font-medium text-vr-silver"
-            >
-              {b.emoji} {b.text}
-            </span>
-          ))}
         </div>
       </section>
 
@@ -174,35 +137,10 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Foto da loja / equipe */}
-      <section className="w-full overflow-hidden">
-        <Image
-          src="https://res.cloudinary.com/dkqhped8y/image/upload/v1783214169/WhatsApp_Image_2026-06-09_at_17.53.03_poxn6y.jpg"
-          alt="VR Tech loja"
-          width={1600}
-          height={600}
-          className="w-full object-cover"
-          style={{
-            maskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)',
-            WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)',
-          }}
-          unoptimized
-        />
-      </section>
-
       {/* Footer */}
       <footer className="px-5 sm:px-10 py-10 border-t border-white/5">
         <div className="max-w-6xl mx-auto flex flex-col items-center gap-6 text-center">
-          <Link href="/">
-            <Image
-              src="https://res.cloudinary.com/dkqhped8y/image/upload/v1783212643/iconelogo_rpcnvw.png"
-              alt="VR Tech"
-              width={56}
-              height={56}
-              className="rounded-full object-contain"
-              unoptimized
-            />
-          </Link>
+          <Logo size="md" showTagline />
           <div className="flex flex-wrap items-center justify-center gap-4">
             {SERVICES.map((s) => (
               <span key={s.title} className="flex items-center gap-1.5 text-xs text-vr-silver/60">
