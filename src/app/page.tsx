@@ -34,13 +34,13 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-vr-black text-white">
       {/* Header */}
-      <header className="px-5 sm:px-10 py-4 flex items-center justify-between max-w-6xl mx-auto">
+      <header className="px-5 sm:px-10 py-5 flex items-center justify-between max-w-6xl mx-auto">
         <Link href="/">
           <Image
             src="https://res.cloudinary.com/dkqhped8y/image/upload/v1783212643/iconelogo_rpcnvw.png"
             alt="VR Tech"
-            width={72}
-            height={72}
+            width={80}
+            height={80}
             className="rounded-2xl object-contain"
             unoptimized
           />
@@ -64,18 +64,19 @@ export default function Home() {
       </header>
 
       {/* Hero */}
-      <section className="px-5 sm:px-10 pt-6 pb-16 max-w-6xl mx-auto text-center">
-        <div className="w-full mb-8">
-          <Image
-            src="https://res.cloudinary.com/dkqhped8y/image/upload/v1783213581/compleple_va79d6.png"
-            alt="Conserto de celular com rapidez, qualidade e garantia"
-            width={1200}
-            height={400}
-            className="w-full object-contain"
-            unoptimized
-            priority
-          />
-        </div>
+      <section className="px-5 sm:px-10 pt-8 pb-16 max-w-6xl mx-auto text-center">
+        <span className="inline-block text-vr-red text-xs font-bold tracking-[0.3em] uppercase mb-4">
+          Assistência técnica premium
+        </span>
+        <h1 className="text-4xl sm:text-6xl font-black leading-tight mb-4">
+          Conserto de celular
+          <br />
+          com <span className="text-vr-red">rapidez</span>, <span className="text-vr-red">qualidade</span> e{' '}
+          <span className="text-vr-red">garantia</span>
+        </h1>
+        <p className="text-vr-silver/70 max-w-xl mx-auto mb-8">
+          Buscamos, consertamos e devolvemos seu aparelho no seu endereço. Peça um orçamento gratuito agora mesmo.
+        </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <a href="#orcamento" className="btn-primary w-full sm:w-auto flex items-center justify-center gap-2">
             Solicitar orçamento <ArrowRight className="w-4 h-4" />
