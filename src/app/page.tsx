@@ -41,7 +41,7 @@ export default function Home() {
             alt="VR Tech"
             width={80}
             height={80}
-            className="rounded-2xl object-contain"
+            className="rounded-lg object-contain"
             unoptimized
           />
         </Link>
