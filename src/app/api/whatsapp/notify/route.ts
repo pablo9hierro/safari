@@ -9,7 +9,8 @@ const OWNER_PHONE = process.env.OWNER_PHONE || '5583920021373'
 function makeClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { db: { schema: 'vrtech' } }
   )
 }
 

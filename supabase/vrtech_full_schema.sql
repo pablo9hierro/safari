@@ -1,16 +1,22 @@
 -- =====================================================
 -- VR Tech — Schema COMPLETO (v1 → v19 consolidado)
 -- Execute no SQL Editor do novo Supabase
--- Multi-tenant: VR Tech usa o schema PUBLIC.
--- Outros apps devem usar schemas separados (ex: delivery.*) —
--- ver comentário ao final do arquivo.
+--
+-- Multi-tenant: VR Tech usa o schema 'vrtech' isolado.
+-- Outros apps usam schemas separados (ex: delivery.*).
+--
+-- IMPORTANTE: após rodar este SQL, vá em:
+--   Supabase Dashboard → Settings → API → "Extra Search Path"
+--   e adicione: vrtech
 -- =====================================================
 
+CREATE SCHEMA IF NOT EXISTS vrtech;
+
 -- ─────────────────────────────────────────────────────
--- 1. TABELAS PRINCIPAIS
+-- 1. TABELAS
 -- ─────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS service_requests (
+CREATE TABLE IF NOT EXISTS vrtech.service_requests (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   customer_name TEXT NOT NULL,
@@ -19,7 +25,6 @@ CREATE TABLE IF NOT EXISTS service_requests (
   phone_model TEXT NOT NULL,
   problem_description TEXT NOT NULL,
   image_url TEXT,
-  -- Endereço (todos opcionais quando self_pickup = true)
   address_cep TEXT,
   address_street TEXT,
   address_number TEXT,
@@ -27,7 +32,6 @@ CREATE TABLE IF NOT EXISTS service_requests (
   address_neighborhood TEXT,
   address_city TEXT,
   address_state TEXT,
-  -- Atendimento
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN (
       'pending','accepted','rejected','retirada_local','em_busca',
@@ -36,18 +40,19 @@ CREATE TABLE IF NOT EXISTS service_requests (
     )),
   quote_value NUMERIC,
   owner_notes TEXT,
-  discount_percent INTEGER CHECK (discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 100)),
+  discount_percent INTEGER
+    CHECK (discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 100)),
   payment_methods JSONB NOT NULL DEFAULT '[]'::jsonb,
   self_pickup BOOLEAN NOT NULL DEFAULT false,
   shipping_price NUMERIC
 );
 
-CREATE INDEX IF NOT EXISTS idx_service_requests_status     ON service_requests(status);
-CREATE INDEX IF NOT EXISTS idx_service_requests_created_at ON service_requests(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vrt_sr_status     ON vrtech.service_requests(status);
+CREATE INDEX IF NOT EXISTS idx_vrt_sr_created_at ON vrtech.service_requests(created_at DESC);
 
 -- ─────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS whatsapp_state (
+CREATE TABLE IF NOT EXISTS vrtech.whatsapp_state (
   id INTEGER PRIMARY KEY DEFAULT 1,
   status TEXT NOT NULL DEFAULT 'disconnected'
     CHECK (status IN ('connected','connecting','disconnected')),
@@ -57,9 +62,10 @@ CREATE TABLE IF NOT EXISTS whatsapp_state (
 
 -- ─────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS service_orders (
+CREATE TABLE IF NOT EXISTS vrtech.service_orders (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  request_id UUID NOT NULL UNIQUE REFERENCES service_requests(id) ON DELETE CASCADE,
+  request_id UUID NOT NULL UNIQUE
+    REFERENCES vrtech.service_requests(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   checklist JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -71,13 +77,14 @@ CREATE TABLE IF NOT EXISTS service_orders (
   used_parts JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
-CREATE INDEX IF NOT EXISTS idx_service_orders_request_id ON service_orders(request_id);
+CREATE INDEX IF NOT EXISTS idx_vrt_so_request_id ON vrtech.service_orders(request_id);
 
 -- ─────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS service_order_updates (
+CREATE TABLE IF NOT EXISTS vrtech.service_order_updates (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  service_order_id UUID NOT NULL REFERENCES service_orders(id) ON DELETE CASCADE,
+  service_order_id UUID NOT NULL
+    REFERENCES vrtech.service_orders(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   message TEXT,
   media_urls TEXT[] NOT NULL DEFAULT '{}',
@@ -86,13 +93,13 @@ CREATE TABLE IF NOT EXISTS service_order_updates (
   component TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_sou_order_id   ON service_order_updates(service_order_id);
-CREATE INDEX IF NOT EXISTS idx_sou_created_at ON service_order_updates(created_at);
-CREATE INDEX IF NOT EXISTS idx_sou_component  ON service_order_updates(service_order_id, component);
+CREATE INDEX IF NOT EXISTS idx_vrt_sou_order_id   ON vrtech.service_order_updates(service_order_id);
+CREATE INDEX IF NOT EXISTS idx_vrt_sou_created_at ON vrtech.service_order_updates(created_at);
+CREATE INDEX IF NOT EXISTS idx_vrt_sou_component  ON vrtech.service_order_updates(service_order_id, component);
 
 -- ─────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS stock_items (
+CREATE TABLE IF NOT EXISTS vrtech.stock_items (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   unit TEXT NOT NULL DEFAULT 'unidade' CHECK (unit IN ('unidade','caixa')),
@@ -103,11 +110,11 @@ CREATE TABLE IF NOT EXISTS stock_items (
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_stock_items_name ON stock_items(lower(name));
+CREATE INDEX IF NOT EXISTS idx_vrt_si_name ON vrtech.stock_items(lower(name));
 
-CREATE TABLE IF NOT EXISTS stock_movements (
+CREATE TABLE IF NOT EXISTS vrtech.stock_movements (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  item_id UUID NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+  item_id UUID NOT NULL REFERENCES vrtech.stock_items(id) ON DELETE CASCADE,
   type TEXT NOT NULL CHECK (type IN ('entrada','saida')),
   quantity NUMERIC NOT NULL CHECK (quantity > 0),
   unit TEXT NOT NULL CHECK (unit IN ('unidade','caixa')),
@@ -115,29 +122,33 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_stock_movements_item_id  ON stock_movements(item_id);
-CREATE INDEX IF NOT EXISTS idx_stock_movements_moved_at ON stock_movements(moved_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vrt_sm_item_id  ON vrtech.stock_movements(item_id);
+CREATE INDEX IF NOT EXISTS idx_vrt_sm_moved_at ON vrtech.stock_movements(moved_at DESC);
 
-CREATE OR REPLACE FUNCTION apply_stock_movement()
+CREATE OR REPLACE FUNCTION vrtech.apply_stock_movement()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   IF NEW.type = 'entrada' THEN
-    UPDATE stock_items SET quantity = quantity + NEW.quantity, updated_at = NOW() WHERE id = NEW.item_id;
+    UPDATE vrtech.stock_items
+    SET quantity = quantity + NEW.quantity, updated_at = NOW()
+    WHERE id = NEW.item_id;
   ELSE
-    UPDATE stock_items SET quantity = quantity - NEW.quantity, updated_at = NOW() WHERE id = NEW.item_id;
+    UPDATE vrtech.stock_items
+    SET quantity = quantity - NEW.quantity, updated_at = NOW()
+    WHERE id = NEW.item_id;
   END IF;
   RETURN NEW;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_apply_stock_movement ON stock_movements;
+DROP TRIGGER IF EXISTS trg_apply_stock_movement ON vrtech.stock_movements;
 CREATE TRIGGER trg_apply_stock_movement
-  AFTER INSERT ON stock_movements
-  FOR EACH ROW EXECUTE FUNCTION apply_stock_movement();
+  AFTER INSERT ON vrtech.stock_movements
+  FOR EACH ROW EXECUTE FUNCTION vrtech.apply_stock_movement();
 
 -- ─────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS neighborhood_shipping_rates (
+CREATE TABLE IF NOT EXISTS vrtech.neighborhood_shipping_rates (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   neighborhood TEXT NOT NULL UNIQUE,
   price NUMERIC NOT NULL DEFAULT 0,
@@ -145,7 +156,7 @@ CREATE TABLE IF NOT EXISTS neighborhood_shipping_rates (
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
-INSERT INTO neighborhood_shipping_rates (neighborhood, price) VALUES
+INSERT INTO vrtech.neighborhood_shipping_rates (neighborhood, price) VALUES
   ('Aeroclube',0),('Alto do Céu',0),('Alto do Mateus',0),('Anatólia',0),
   ('Água Fria',0),('Bairro das Indústrias',0),('Bairro dos Estados',0),
   ('Bairro dos Ipês',0),('Bancários',0),('Barra de Gramame',0),('Bessa',0),
@@ -166,19 +177,19 @@ ON CONFLICT (neighborhood) DO NOTHING;
 
 -- ─────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS product_categories (
+CREATE TABLE IF NOT EXISTS vrtech.product_categories (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS products (
+CREATE TABLE IF NOT EXISTS vrtech.products (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT,
   price NUMERIC NOT NULL DEFAULT 0,
   quantity NUMERIC NOT NULL DEFAULT 0,
-  category_id UUID REFERENCES product_categories(id) ON DELETE SET NULL,
+  category_id UUID REFERENCES vrtech.product_categories(id) ON DELETE SET NULL,
   image_url TEXT,
   image_urls TEXT[] NOT NULL DEFAULT '{}'
     CHECK (array_length(image_urls, 1) IS NULL OR array_length(image_urls, 1) <= 3),
@@ -187,11 +198,11 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
+CREATE INDEX IF NOT EXISTS idx_vrt_products_category ON vrtech.products(category_id);
 
 -- ─────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS store_orders (
+CREATE TABLE IF NOT EXISTS vrtech.store_orders (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   customer_name TEXT NOT NULL,
   customer_whatsapp TEXT NOT NULL,
@@ -205,10 +216,11 @@ CREATE TABLE IF NOT EXISTS store_orders (
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS store_order_items (
+CREATE TABLE IF NOT EXISTS vrtech.store_order_items (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  store_order_id UUID NOT NULL REFERENCES store_orders(id) ON DELETE CASCADE,
-  product_id UUID REFERENCES products(id) ON DELETE SET NULL,
+  store_order_id UUID NOT NULL
+    REFERENCES vrtech.store_orders(id) ON DELETE CASCADE,
+  product_id UUID REFERENCES vrtech.products(id) ON DELETE SET NULL,
   product_name TEXT NOT NULL,
   unit_price NUMERIC NOT NULL,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
@@ -219,180 +231,154 @@ CREATE TABLE IF NOT EXISTS store_order_items (
   payment_methods JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
-CREATE INDEX IF NOT EXISTS idx_store_order_items_order ON store_order_items(store_order_id);
+CREATE INDEX IF NOT EXISTS idx_vrt_soi_order ON vrtech.store_order_items(store_order_id);
 
 -- ─────────────────────────────────────────────────────
 -- 2. RLS
 -- ─────────────────────────────────────────────────────
 
-ALTER TABLE service_requests        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE whatsapp_state          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE service_orders          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE service_order_updates   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stock_items             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stock_movements         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE neighborhood_shipping_rates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE product_categories      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE products                ENABLE ROW LEVEL SECURITY;
-ALTER TABLE store_orders            ENABLE ROW LEVEL SECURITY;
-ALTER TABLE store_order_items       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vrtech.service_requests        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vrtech.whatsapp_state          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vrtech.service_orders          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vrtech.service_order_updates   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vrtech.stock_items             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vrtech.stock_movements         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vrtech.neighborhood_shipping_rates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vrtech.product_categories      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vrtech.products                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vrtech.store_orders            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vrtech.store_order_items       ENABLE ROW LEVEL SECURITY;
 
 -- service_requests
-DROP POLICY IF EXISTS "anon_insert_service_requests" ON service_requests;
-CREATE POLICY "anon_insert_service_requests" ON service_requests
+DROP POLICY IF EXISTS "anon_insert_service_requests" ON vrtech.service_requests;
+CREATE POLICY "anon_insert_service_requests" ON vrtech.service_requests
   FOR INSERT TO anon WITH CHECK (true);
-DROP POLICY IF EXISTS "anon_select_service_requests" ON service_requests;
-CREATE POLICY "anon_select_service_requests" ON service_requests
+DROP POLICY IF EXISTS "anon_select_service_requests" ON vrtech.service_requests;
+CREATE POLICY "anon_select_service_requests" ON vrtech.service_requests
   FOR SELECT TO anon USING (true);
-DROP POLICY IF EXISTS "auth_select_service_requests" ON service_requests;
-CREATE POLICY "auth_select_service_requests" ON service_requests
+DROP POLICY IF EXISTS "auth_select_service_requests" ON vrtech.service_requests;
+CREATE POLICY "auth_select_service_requests" ON vrtech.service_requests
   FOR SELECT TO authenticated USING (true);
-DROP POLICY IF EXISTS "auth_update_service_requests" ON service_requests;
-CREATE POLICY "auth_update_service_requests" ON service_requests
+DROP POLICY IF EXISTS "auth_update_service_requests" ON vrtech.service_requests;
+CREATE POLICY "auth_update_service_requests" ON vrtech.service_requests
   FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 
 -- whatsapp_state
-DROP POLICY IF EXISTS "auth_all_whatsapp_state" ON whatsapp_state;
-CREATE POLICY "auth_all_whatsapp_state" ON whatsapp_state
+DROP POLICY IF EXISTS "auth_all_whatsapp_state" ON vrtech.whatsapp_state;
+CREATE POLICY "auth_all_whatsapp_state" ON vrtech.whatsapp_state
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- service_orders
-DROP POLICY IF EXISTS "anon_select_service_orders" ON service_orders;
-CREATE POLICY "anon_select_service_orders" ON service_orders
+DROP POLICY IF EXISTS "anon_select_service_orders" ON vrtech.service_orders;
+CREATE POLICY "anon_select_service_orders" ON vrtech.service_orders
   FOR SELECT TO anon USING (true);
-DROP POLICY IF EXISTS "auth_all_service_orders" ON service_orders;
-CREATE POLICY "auth_all_service_orders" ON service_orders
+DROP POLICY IF EXISTS "auth_all_service_orders" ON vrtech.service_orders;
+CREATE POLICY "auth_all_service_orders" ON vrtech.service_orders
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- service_order_updates
-DROP POLICY IF EXISTS "anon_select_service_order_updates" ON service_order_updates;
-CREATE POLICY "anon_select_service_order_updates" ON service_order_updates
+DROP POLICY IF EXISTS "anon_select_service_order_updates" ON vrtech.service_order_updates;
+CREATE POLICY "anon_select_service_order_updates" ON vrtech.service_order_updates
   FOR SELECT TO anon USING (true);
-DROP POLICY IF EXISTS "auth_all_service_order_updates" ON service_order_updates;
-CREATE POLICY "auth_all_service_order_updates" ON service_order_updates
+DROP POLICY IF EXISTS "auth_all_service_order_updates" ON vrtech.service_order_updates;
+CREATE POLICY "auth_all_service_order_updates" ON vrtech.service_order_updates
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- stock
-DROP POLICY IF EXISTS "auth_all_stock_items" ON stock_items;
-CREATE POLICY "auth_all_stock_items" ON stock_items
+DROP POLICY IF EXISTS "auth_all_stock_items" ON vrtech.stock_items;
+CREATE POLICY "auth_all_stock_items" ON vrtech.stock_items
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
-DROP POLICY IF EXISTS "auth_all_stock_movements" ON stock_movements;
-CREATE POLICY "auth_all_stock_movements" ON stock_movements
+DROP POLICY IF EXISTS "auth_all_stock_movements" ON vrtech.stock_movements;
+CREATE POLICY "auth_all_stock_movements" ON vrtech.stock_movements
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- frete / categorias / produtos
-DROP POLICY IF EXISTS "anon_select_shipping_rates" ON neighborhood_shipping_rates;
-CREATE POLICY "anon_select_shipping_rates" ON neighborhood_shipping_rates
+DROP POLICY IF EXISTS "anon_select_shipping_rates" ON vrtech.neighborhood_shipping_rates;
+CREATE POLICY "anon_select_shipping_rates" ON vrtech.neighborhood_shipping_rates
   FOR SELECT TO anon USING (true);
-DROP POLICY IF EXISTS "auth_all_shipping_rates" ON neighborhood_shipping_rates;
-CREATE POLICY "auth_all_shipping_rates" ON neighborhood_shipping_rates
+DROP POLICY IF EXISTS "auth_all_shipping_rates" ON vrtech.neighborhood_shipping_rates;
+CREATE POLICY "auth_all_shipping_rates" ON vrtech.neighborhood_shipping_rates
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-DROP POLICY IF EXISTS "anon_select_product_categories" ON product_categories;
-CREATE POLICY "anon_select_product_categories" ON product_categories
+DROP POLICY IF EXISTS "anon_select_product_categories" ON vrtech.product_categories;
+CREATE POLICY "anon_select_product_categories" ON vrtech.product_categories
   FOR SELECT TO anon USING (true);
-DROP POLICY IF EXISTS "auth_all_product_categories" ON product_categories;
-CREATE POLICY "auth_all_product_categories" ON product_categories
+DROP POLICY IF EXISTS "auth_all_product_categories" ON vrtech.product_categories;
+CREATE POLICY "auth_all_product_categories" ON vrtech.product_categories
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-DROP POLICY IF EXISTS "anon_select_active_products" ON products;
-CREATE POLICY "anon_select_active_products" ON products
+DROP POLICY IF EXISTS "anon_select_active_products" ON vrtech.products;
+CREATE POLICY "anon_select_active_products" ON vrtech.products
   FOR SELECT TO anon USING (active = true);
-DROP POLICY IF EXISTS "auth_all_products" ON products;
-CREATE POLICY "auth_all_products" ON products
+DROP POLICY IF EXISTS "auth_all_products" ON vrtech.products;
+CREATE POLICY "auth_all_products" ON vrtech.products
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- loja
-DROP POLICY IF EXISTS "anon_insert_store_orders" ON store_orders;
-CREATE POLICY "anon_insert_store_orders" ON store_orders
+DROP POLICY IF EXISTS "anon_insert_store_orders" ON vrtech.store_orders;
+CREATE POLICY "anon_insert_store_orders" ON vrtech.store_orders
   FOR INSERT TO anon WITH CHECK (true);
-DROP POLICY IF EXISTS "auth_all_store_orders" ON store_orders;
-CREATE POLICY "auth_all_store_orders" ON store_orders
+DROP POLICY IF EXISTS "auth_all_store_orders" ON vrtech.store_orders;
+CREATE POLICY "auth_all_store_orders" ON vrtech.store_orders
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
-DROP POLICY IF EXISTS "anon_insert_store_order_items" ON store_order_items;
-CREATE POLICY "anon_insert_store_order_items" ON store_order_items
+DROP POLICY IF EXISTS "anon_insert_store_order_items" ON vrtech.store_order_items;
+CREATE POLICY "anon_insert_store_order_items" ON vrtech.store_order_items
   FOR INSERT TO anon WITH CHECK (true);
-DROP POLICY IF EXISTS "auth_all_store_order_items" ON store_order_items;
-CREATE POLICY "auth_all_store_order_items" ON store_order_items
+DROP POLICY IF EXISTS "auth_all_store_order_items" ON vrtech.store_order_items;
+CREATE POLICY "auth_all_store_order_items" ON vrtech.store_order_items
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- ─────────────────────────────────────────────────────
--- 3. STORAGE BUCKETS
+-- 3. STORAGE BUCKETS (independentes de schema)
 -- ─────────────────────────────────────────────────────
 
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('service-images', 'service-images', true)
+VALUES ('vrtech-service-images', 'vrtech-service-images', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
 
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('service-order-media', 'service-order-media', true)
+VALUES ('vrtech-service-order-media', 'vrtech-service-order-media', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
 
-DROP POLICY IF EXISTS "anon_upload_service_images" ON storage.objects;
-CREATE POLICY "anon_upload_service_images" ON storage.objects
-  FOR INSERT TO anon WITH CHECK (bucket_id = 'service-images');
+DROP POLICY IF EXISTS "vrtech_anon_upload_images" ON storage.objects;
+CREATE POLICY "vrtech_anon_upload_images" ON storage.objects
+  FOR INSERT TO anon WITH CHECK (bucket_id = 'vrtech-service-images');
 
-DROP POLICY IF EXISTS "public_read_service_images" ON storage.objects;
-CREATE POLICY "public_read_service_images" ON storage.objects
-  FOR SELECT TO anon, authenticated USING (bucket_id = 'service-images');
+DROP POLICY IF EXISTS "vrtech_public_read_images" ON storage.objects;
+CREATE POLICY "vrtech_public_read_images" ON storage.objects
+  FOR SELECT TO anon, authenticated USING (bucket_id = 'vrtech-service-images');
 
-DROP POLICY IF EXISTS "auth_upload_service_order_media" ON storage.objects;
-CREATE POLICY "auth_upload_service_order_media" ON storage.objects
-  FOR INSERT TO authenticated WITH CHECK (bucket_id = 'service-order-media');
+DROP POLICY IF EXISTS "vrtech_auth_upload_media" ON storage.objects;
+CREATE POLICY "vrtech_auth_upload_media" ON storage.objects
+  FOR INSERT TO authenticated WITH CHECK (bucket_id = 'vrtech-service-order-media');
 
-DROP POLICY IF EXISTS "auth_update_service_order_media" ON storage.objects;
-CREATE POLICY "auth_update_service_order_media" ON storage.objects
-  FOR UPDATE TO authenticated USING (bucket_id = 'service-order-media');
+DROP POLICY IF EXISTS "vrtech_auth_update_media" ON storage.objects;
+CREATE POLICY "vrtech_auth_update_media" ON storage.objects
+  FOR UPDATE TO authenticated USING (bucket_id = 'vrtech-service-order-media');
 
-DROP POLICY IF EXISTS "public_read_service_order_media" ON storage.objects;
-CREATE POLICY "public_read_service_order_media" ON storage.objects
-  FOR SELECT TO anon, authenticated USING (bucket_id = 'service-order-media');
+DROP POLICY IF EXISTS "vrtech_public_read_media" ON storage.objects;
+CREATE POLICY "vrtech_public_read_media" ON storage.objects
+  FOR SELECT TO anon, authenticated USING (bucket_id = 'vrtech-service-order-media');
 
 -- ─────────────────────────────────────────────────────
 -- 4. FUNÇÕES RPC
 -- ─────────────────────────────────────────────────────
 
-DROP FUNCTION IF EXISTS public.search_requests_by_phone(text);
-CREATE FUNCTION public.search_requests_by_phone(phone_digits text)
-RETURNS SETOF public.service_requests
+DROP FUNCTION IF EXISTS vrtech.search_requests_by_phone(text);
+CREATE FUNCTION vrtech.search_requests_by_phone(phone_digits text)
+RETURNS SETOF vrtech.service_requests
 LANGUAGE sql STABLE SECURITY DEFINER AS $$
-  SELECT * FROM public.service_requests
+  SELECT * FROM vrtech.service_requests
   WHERE regexp_replace(customer_phone, '\D', '', 'g')
         LIKE '%' || phone_digits || '%'
   ORDER BY created_at DESC;
 $$;
-GRANT EXECUTE ON FUNCTION public.search_requests_by_phone TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION vrtech.search_requests_by_phone TO anon, authenticated;
 
 -- ─────────────────────────────────────────────────────
 -- 5. ROW INICIAL DO whatsapp_state
 -- ─────────────────────────────────────────────────────
 
-INSERT INTO whatsapp_state (id, status) VALUES (1, 'disconnected')
+INSERT INTO vrtech.whatsapp_state (id, status) VALUES (1, 'disconnected')
 ON CONFLICT (id) DO NOTHING;
-
--- =====================================================
--- MULTI-TENANCY — COMO ADICIONAR OUTRO APP
--- =====================================================
--- O segundo app (ex: sistema de delivery) deve usar um
--- schema separado para evitar conflito com as tabelas
--- 'products' e 'neighborhood_shipping_rates' do VR Tech.
---
--- Passos:
--- 1. Crie o schema:
---    CREATE SCHEMA IF NOT EXISTS delivery;
---
--- 2. Crie as tabelas do outro app com o prefixo delivery.*
---    CREATE TABLE delivery.orders (...);
---    CREATE TABLE delivery.products (...);
---    etc.
---
--- 3. No painel do Supabase:
---    Settings → API → PostgREST → Extra Search Path
---    Adicione: delivery
---
--- 4. No cliente JS do outro app:
---    const supabase = createClient(url, key, {
---      db: { schema: 'delivery' }
---    })
--- =====================================================

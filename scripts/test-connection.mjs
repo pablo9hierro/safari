@@ -13,7 +13,7 @@ if (!SERVICE_ROLE_KEY) {
   process.exit(1)
 }
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { db: { schema: 'vrtech' } })
 
 const TABLES = [
   'service_requests',
