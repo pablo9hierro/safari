@@ -55,7 +55,7 @@ function buildInitialChecklist(): ServiceOrderChecklistItem[] {
   return SERVICE_ORDER_COMPONENTS.map((component) => ({ component, checked: false, description: '', media_urls: [] }))
 }
 
-async function uploadMedia(supabase: SupabaseClient, orderId: string, files: File[], prefix: string): Promise<string[]> {
+async function uploadMedia(supabase: SupabaseClient<any, any, any>, orderId: string, files: File[], prefix: string): Promise<string[]> {
   const urls: string[] = []
   for (const file of files) {
     const ext = file.name.split('.').pop()
@@ -69,7 +69,7 @@ async function uploadMedia(supabase: SupabaseClient, orderId: string, files: Fil
   return urls
 }
 
-async function uploadPdf(supabase: SupabaseClient, orderId: string, blob: Blob): Promise<string | null> {
+async function uploadPdf(supabase: SupabaseClient<any, any, any>, orderId: string, blob: Blob): Promise<string | null> {
   const fileName = `${orderId}/os-${Date.now()}.pdf`
   const { error } = await supabase.storage.from('service-order-media').upload(fileName, blob, { contentType: 'application/pdf' })
   if (error) return null
