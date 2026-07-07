@@ -10,96 +10,8 @@ import {
   Wrench,
   ChevronRight,
   Package,
-  KeyRound,
-  X,
 } from 'lucide-react'
 import RequestDetailModal from '@/components/RequestDetailModal'
-import WhatsAppPanel from '@/components/WhatsAppPanel'
-import { createClient } from '@/lib/supabase/client'
-
-function ChangePasswordModal({ onClose }: { onClose: () => void }) {
-  const [email, setEmail] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    if (!email && !newPassword) { setError('Preencha ao menos um campo'); return }
-    if (newPassword && newPassword.length < 6) { setError('A senha deve ter pelo menos 6 caracteres'); return }
-    if (newPassword && newPassword !== confirm) { setError('As senhas não coincidem'); return }
-    setLoading(true)
-    const supabase = createClient()
-    const updates: { email?: string; password?: string } = {}
-    if (email) updates.email = email
-    if (newPassword) updates.password = newPassword
-    const { error: err } = await supabase.auth.updateUser(updates)
-    setLoading(false)
-    if (err) { setError(err.message); return }
-    setSuccess(true)
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="bg-vr-graphite border border-white/10 rounded-2xl w-full max-w-sm p-6 relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-vr-silver/40 hover:text-white">
-          <X className="w-5 h-5" />
-        </button>
-        <h2 className="text-white font-bold text-lg mb-1">Alterar credenciais</h2>
-        <p className="text-vr-silver/40 text-xs mb-5">Preencha apenas o que quiser alterar</p>
-        {success ? (
-          <p className="text-green-400 text-sm text-center py-4">Alterações salvas com sucesso!</p>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="text-xs text-vr-silver/60 block mb-1">Novo e-mail</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-vr-black border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-vr-red"
-                placeholder="novo@email.com"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-vr-silver/60 block mb-1">Nova senha</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full bg-vr-black border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-vr-red"
-                placeholder="Mínimo 6 caracteres"
-              />
-            </div>
-            {newPassword && (
-              <div>
-                <label className="text-xs text-vr-silver/60 block mb-1">Confirmar senha</label>
-                <input
-                  type="password"
-                  value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  className="w-full bg-vr-black border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-vr-red"
-                  placeholder="Repita a senha"
-                />
-              </div>
-            )}
-            {error && <p className="text-red-400 text-xs">{error}</p>}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-vr-red hover:bg-vr-red-light text-white font-semibold py-2 rounded-xl text-sm transition-colors disabled:opacity-50"
-            >
-              {loading ? 'Salvando...' : 'Salvar alterações'}
-            </button>
-          </form>
-        )}
-      </div>
-    </div>
-  )
-}
 
 const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: string }> = {
   pending:        { label: 'Pendente',                     color: 'text-yellow-700', bg: 'bg-yellow-100' },
@@ -136,7 +48,6 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
   const [requests, setRequests] = useState<ServiceRequest[]>(initialRequests)
   const [filter, setFilter] = useState<ServiceStatus | 'all'>('all')
   const [selected, setSelected] = useState<ServiceRequest | null>(null)
-  const [showChangePassword, setShowChangePassword] = useState(false)
 
   const filtered = filter === 'all' ? requests : requests.filter((r) => r.status === filter)
 
@@ -154,17 +65,7 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
   return (
     <>
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-bold text-white">Solicitações</h1>
-          <button
-            onClick={() => setShowChangePassword(true)}
-            className="flex items-center gap-1.5 text-xs text-vr-silver/40 hover:text-vr-silver transition-colors"
-          >
-            <KeyRound className="w-3.5 h-3.5" />
-            Alterar senha
-          </button>
-        </div>
-        <WhatsAppPanel />
+        <h1 className="text-lg font-bold text-white">Solicitações</h1>
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
@@ -261,7 +162,6 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
           onUpdate={handleUpdate}
         />
       )}
-      {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
     </>
   )
 }
