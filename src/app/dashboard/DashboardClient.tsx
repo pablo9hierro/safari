@@ -18,6 +18,7 @@ import WhatsAppPanel from '@/components/WhatsAppPanel'
 import { createClient } from '@/lib/supabase/client'
 
 function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const [email, setEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [loading, setLoading] = useState(false)
@@ -27,11 +28,15 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    if (newPassword.length < 6) { setError('A senha deve ter pelo menos 6 caracteres'); return }
-    if (newPassword !== confirm) { setError('As senhas não coincidem'); return }
+    if (!email && !newPassword) { setError('Preencha ao menos um campo'); return }
+    if (newPassword && newPassword.length < 6) { setError('A senha deve ter pelo menos 6 caracteres'); return }
+    if (newPassword && newPassword !== confirm) { setError('As senhas não coincidem'); return }
     setLoading(true)
     const supabase = createClient()
-    const { error: err } = await supabase.auth.updateUser({ password: newPassword })
+    const updates: { email?: string; password?: string } = {}
+    if (email) updates.email = email
+    if (newPassword) updates.password = newPassword
+    const { error: err } = await supabase.auth.updateUser(updates)
     setLoading(false)
     if (err) { setError(err.message); return }
     setSuccess(true)
@@ -43,11 +48,22 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
         <button onClick={onClose} className="absolute top-4 right-4 text-vr-silver/40 hover:text-white">
           <X className="w-5 h-5" />
         </button>
-        <h2 className="text-white font-bold text-lg mb-5">Alterar senha</h2>
+        <h2 className="text-white font-bold text-lg mb-1">Alterar credenciais</h2>
+        <p className="text-vr-silver/40 text-xs mb-5">Preencha apenas o que quiser alterar</p>
         {success ? (
-          <p className="text-green-400 text-sm text-center py-4">Senha alterada com sucesso!</p>
+          <p className="text-green-400 text-sm text-center py-4">Alterações salvas com sucesso!</p>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="text-xs text-vr-silver/60 block mb-1">Novo e-mail</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-vr-black border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-vr-red"
+                placeholder="novo@email.com"
+              />
+            </div>
             <div>
               <label className="text-xs text-vr-silver/60 block mb-1">Nova senha</label>
               <input
@@ -56,27 +72,27 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setNewPassword(e.target.value)}
                 className="w-full bg-vr-black border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-vr-red"
                 placeholder="Mínimo 6 caracteres"
-                required
               />
             </div>
-            <div>
-              <label className="text-xs text-vr-silver/60 block mb-1">Confirmar senha</label>
-              <input
-                type="password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                className="w-full bg-vr-black border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-vr-red"
-                placeholder="Repita a senha"
-                required
-              />
-            </div>
+            {newPassword && (
+              <div>
+                <label className="text-xs text-vr-silver/60 block mb-1">Confirmar senha</label>
+                <input
+                  type="password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  className="w-full bg-vr-black border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-vr-red"
+                  placeholder="Repita a senha"
+                />
+              </div>
+            )}
             {error && <p className="text-red-400 text-xs">{error}</p>}
             <button
               type="submit"
               disabled={loading}
               className="w-full bg-vr-red hover:bg-vr-red-light text-white font-semibold py-2 rounded-xl text-sm transition-colors disabled:opacity-50"
             >
-              {loading ? 'Salvando...' : 'Salvar senha'}
+              {loading ? 'Salvando...' : 'Salvar alterações'}
             </button>
           </form>
         )}
