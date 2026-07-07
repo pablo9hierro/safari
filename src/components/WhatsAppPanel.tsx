@@ -81,7 +81,7 @@ export default function WhatsAppPanel() {
     const supabase = createClient()
     const ch = supabase
       .channel('wwa_panel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'whatsapp_state' }, load)
+      .on('postgres_changes', { event: '*', schema: 'vrtech', table: 'whatsapp_state' }, load)
       .subscribe()
 
     return () => {
