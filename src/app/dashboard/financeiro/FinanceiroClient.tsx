@@ -1,14 +1,14 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Wallet, Wrench, ShoppingBag } from 'lucide-react'
+import { Wallet, Wrench, ShoppingBag, Truck } from 'lucide-react'
 
 export type ServiceOrderRow = {
   id: string
   closed_at: string | null
   final_value: number | null
   request_id: string
-  service_requests: { customer_name: string; customer_phone: string; phone_model: string; payment_methods: { method: string; value: number }[] | null } | null
+  service_requests: { customer_name: string; customer_phone: string; phone_model: string; payment_methods: { method: string; value: number }[] | null; shipping_price: number | null } | null
 }
 
 type StoreOrderItemRow = {
@@ -25,6 +25,7 @@ export type StoreOrderRow = {
   id: string
   customer_name: string
   created_at: string
+  shipping_price: number | null
   store_order_items: StoreOrderItemRow[] | null
 }
 
@@ -36,6 +37,7 @@ type Transaction = {
   phone: string
   subtitle: string
   value: number
+  freteValue: number
   paymentMethods: string[]
 }
 
@@ -43,6 +45,7 @@ const TYPE_FILTERS = [
   { key: 'all', label: 'Tudo' },
   { key: 'manutencao', label: 'Manutenção' },
   { key: 'venda', label: 'Venda' },
+  { key: 'frete', label: 'Frete' },
 ] as const
 
 const DATE_PRESETS = [
@@ -106,6 +109,7 @@ export default function FinanceiroClient({
         phone: o.service_requests?.customer_phone ?? '',
         subtitle: o.service_requests?.phone_model ?? '',
         value: Number(o.final_value),
+        freteValue: Number(o.service_requests?.shipping_price ?? 0),
         paymentMethods: (o.service_requests?.payment_methods ?? []).map((p) => p.method),
       }))
 
@@ -116,7 +120,7 @@ export default function FinanceiroClient({
           const discount = i.discount_percent ?? 0
           return sum + Number(i.unit_price) * i.quantity * (1 - discount / 100)
         }, 0)
-        if (value <= 0) return null
+        if (value <= 0 && !order.shipping_price) return null
         return {
           id: `store-${order.id}`,
           type: 'venda',
@@ -125,6 +129,7 @@ export default function FinanceiroClient({
           phone: '',
           subtitle: soldItems.map((i) => `${i.quantity}x ${i.product_name}`).join(', '),
           value,
+          freteValue: Number(order.shipping_price ?? 0),
           paymentMethods: Array.from(new Set(soldItems.flatMap((i) => (i.payment_methods ?? []).map((p) => p.method)))),
         }
       })
@@ -142,7 +147,8 @@ export default function FinanceiroClient({
 
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
-      if (typeFilter !== 'all' && t.type !== typeFilter) return false
+      if (typeFilter === 'frete' && t.freteValue <= 0) return false
+      if (typeFilter !== 'all' && typeFilter !== 'frete' && t.type !== typeFilter) return false
       if (paymentFilter !== 'all' && !t.paymentMethods.includes(paymentFilter)) return false
       const d = new Date(t.date)
       if (customFrom || customTo) {
@@ -160,13 +166,17 @@ export default function FinanceiroClient({
   }, [transactions, typeFilter, paymentFilter, rangeStart, customFrom, customTo])
 
   const totals = useMemo(() => {
-    const manutencao = filtered.filter((t) => t.type === 'manutencao').reduce((s, t) => s + t.value, 0)
-    const venda = filtered.filter((t) => t.type === 'venda').reduce((s, t) => s + t.value, 0)
-    return { manutencao, venda, total: manutencao + venda }
-  }, [filtered])
+    const base = typeFilter === 'frete' ? transactions : filtered
+    const manutencao = base.filter((t) => t.type === 'manutencao').reduce((s, t) => s + t.value, 0)
+    const venda = base.filter((t) => t.type === 'venda').reduce((s, t) => s + t.value, 0)
+    const frete = base.reduce((s, t) => s + t.freteValue, 0)
+    return { manutencao, venda, frete, total: manutencao + venda + frete }
+  }, [filtered, transactions, typeFilter])
 
-  const pctManutencao = totals.total > 0 ? Math.round((totals.manutencao / totals.total) * 100) : 0
-  const pctVenda = totals.total > 0 ? 100 - pctManutencao : 0
+  const total3 = totals.manutencao + totals.venda + totals.frete
+  const pctManutencao = total3 > 0 ? Math.round((totals.manutencao / total3) * 100) : 0
+  const pctVenda = total3 > 0 ? Math.round((totals.venda / total3) * 100) : 0
+  const pctFrete = total3 > 0 ? 100 - pctManutencao - pctVenda : 0
 
   const dailyBreakdown = useMemo(() => {
     const map = new Map<string, number>()
@@ -254,31 +264,40 @@ export default function FinanceiroClient({
       )}
 
       {/* Totais */}
-      <div className="grid grid-cols-3 gap-2">
-        <div className="bg-vr-graphite rounded-2xl p-3.5 col-span-1">
-          <p className="text-xs text-vr-silver/50">Total</p>
-          <p className="text-lg font-black text-white truncate">{currency(totals.total)}</p>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-vr-graphite rounded-2xl p-3.5 col-span-2">
+          <p className="text-xs text-vr-silver/50">Total no período</p>
+          <p className="text-2xl font-black text-white">{currency(totals.total)}</p>
         </div>
         <div className="bg-vr-graphite rounded-2xl p-3.5">
           <p className="text-xs text-vr-silver/50 flex items-center gap-1"><Wrench className="w-3 h-3 text-vr-red" /> Manutenção</p>
-          <p className="text-base font-bold text-white truncate">{currency(totals.manutencao)}</p>
+          <p className="text-base font-bold text-white">{currency(totals.manutencao)}</p>
+          {total3 > 0 && <p className="text-xs text-vr-silver/40">{pctManutencao}% do total</p>}
         </div>
         <div className="bg-vr-graphite rounded-2xl p-3.5">
           <p className="text-xs text-vr-silver/50 flex items-center gap-1"><ShoppingBag className="w-3 h-3 text-green-500" /> Venda</p>
-          <p className="text-base font-bold text-white truncate">{currency(totals.venda)}</p>
+          <p className="text-base font-bold text-white">{currency(totals.venda)}</p>
+          {total3 > 0 && <p className="text-xs text-vr-silver/40">{pctVenda}% do total</p>}
+        </div>
+        <div className="bg-vr-graphite rounded-2xl p-3.5 col-span-2">
+          <p className="text-xs text-vr-silver/50 flex items-center gap-1"><Truck className="w-3 h-3 text-blue-400" /> Frete (coleta + entrega)</p>
+          <p className="text-base font-bold text-white">{currency(totals.frete)}</p>
+          {total3 > 0 && <p className="text-xs text-vr-silver/40">{pctFrete}% do total</p>}
         </div>
       </div>
 
       {/* Proporção visual */}
-      {totals.total > 0 && (
+      {total3 > 0 && (
         <div className="bg-vr-graphite rounded-2xl p-4 space-y-2">
           <div className="flex h-3 rounded-full overflow-hidden bg-vr-black">
             <div style={{ width: `${pctManutencao}%` }} className="bg-vr-red transition-all" />
             <div style={{ width: `${pctVenda}%` }} className="bg-green-500 transition-all" />
+            <div style={{ width: `${pctFrete}%` }} className="bg-blue-400 transition-all" />
           </div>
           <div className="flex justify-between text-xs text-vr-silver/60">
-            <span>Manutenção {pctManutencao}%</span>
-            <span>Venda {pctVenda}%</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-vr-red inline-block" /> Manutenção {pctManutencao}%</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Venda {pctVenda}%</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> Frete {pctFrete}%</span>
           </div>
         </div>
       )}
@@ -335,7 +354,10 @@ export default function FinanceiroClient({
                 </div>
               </div>
               <div className="text-right flex-shrink-0">
-                <p className="text-sm font-bold text-white">{currency(t.value)}</p>
+                <p className="text-sm font-bold text-white">{currency(typeFilter === 'frete' ? t.freteValue : t.value)}</p>
+                {typeFilter === 'frete' && t.value > 0 && (
+                  <p className="text-xs text-vr-silver/40">serviço: {currency(t.value)}</p>
+                )}
                 <p className="text-xs text-vr-silver/40">{new Date(t.date).toLocaleDateString('pt-BR')}</p>
               </div>
             </div>

@@ -6,13 +6,13 @@ export default async function FinanceiroPage() {
 
   const { data: serviceOrders } = await supabase
     .from('service_orders')
-    .select('id, closed_at, final_value, request_id, service_requests(customer_name, customer_phone, phone_model, payment_methods)')
+    .select('id, closed_at, final_value, request_id, service_requests(customer_name, customer_phone, phone_model, payment_methods, shipping_price)')
     .not('closed_at', 'is', null)
     .order('closed_at', { ascending: false })
 
   const { data: storeOrders } = await supabase
     .from('store_orders')
-    .select('id, customer_name, created_at, store_order_items(*)')
+    .select('id, customer_name, created_at, shipping_price, store_order_items(*)')
     .order('created_at', { ascending: false })
 
   return (
