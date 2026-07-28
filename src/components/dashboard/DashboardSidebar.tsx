@@ -4,14 +4,12 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Logo from '@/components/ui/Logo'
-import { ClipboardList, Boxes, Truck, Package, ShoppingBag, Wallet, LogOut, UserCog, BookOpen } from 'lucide-react'
+import { ClipboardList, Truck, Package, ShoppingBag, Wallet, LogOut, UserCog } from 'lucide-react'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Solicitações', icon: ClipboardList },
-  { href: '/dashboard/estoque', label: 'Estoque', icon: Boxes },
-  { href: '/dashboard/produtos', label: 'Produtos', icon: Package },
+  { href: '/dashboard/produtos', label: 'Produtos/Serviços', icon: Package },
   { href: '/dashboard/pedidos', label: 'Pedidos', icon: ShoppingBag },
-  { href: '/dashboard/catalogo', label: 'Catálogo', icon: BookOpen },
   { href: '/dashboard/frete', label: 'Frete', icon: Truck },
   { href: '/dashboard/financeiro', label: 'Financeiro', icon: Wallet },
   { href: '/dashboard/conta', label: 'Conta', icon: UserCog },
@@ -69,14 +67,14 @@ export default function DashboardSidebar() {
           Sair
         </button>
       </header>
-      <nav className="md:hidden flex gap-2 overflow-x-auto px-4 py-3 bg-vr-black border-b border-white/5 scrollbar-hide sticky top-[65px] z-10">
+      <nav className="md:hidden flex gap-2 overflow-x-auto px-4 py-3 bg-vr-black border-b border-white/5 scrollbar-hide sticky top-16.25 z-10">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href
           return (
             <Link
               key={href}
               href={href}
-              className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all
+              className={`shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all
                 ${active ? 'bg-vr-red text-white' : 'bg-vr-graphite border border-white/5 text-vr-silver hover:bg-vr-graphite-light'}`}
             >
               <Icon className="w-3.5 h-3.5" />

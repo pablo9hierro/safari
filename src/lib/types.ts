@@ -160,6 +160,8 @@ export interface Product {
   price: number
   quantity: number
   category_id: string | null
+  phone_brand: string | null
+  phone_model: string | null
   image_url: string | null
   image_urls?: string[]
   active: boolean

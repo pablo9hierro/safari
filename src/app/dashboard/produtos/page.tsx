@@ -4,15 +4,30 @@ import ProdutosClient from './ProdutosClient'
 export default async function ProdutosPage() {
   const supabase = await createClient()
 
-  const { data: products } = await supabase
-    .from('products')
-    .select('*, product_categories(name)')
-    .order('name')
+  const [
+    { data: products },
+    { data: categories },
+    { data: stockItems },
+    { data: stockMovements },
+    { data: catalogCategories },
+    { data: catalogItems },
+  ] = await Promise.all([
+    supabase.from('products').select('*, product_categories(name)').order('name'),
+    supabase.from('product_categories').select('*').order('name'),
+    supabase.from('stock_items').select('*').order('name'),
+    supabase.from('stock_movements').select('*, stock_items(name, unit)').order('moved_at', { ascending: false }).limit(50),
+    supabase.from('service_catalog_categories').select('*').order('sort_order'),
+    supabase.from('service_catalog_items').select('*').order('sort_order'),
+  ])
 
-  const { data: categories } = await supabase
-    .from('product_categories')
-    .select('*')
-    .order('name')
-
-  return <ProdutosClient initialProducts={products ?? []} initialCategories={categories ?? []} />
+  return (
+    <ProdutosClient
+      initialProducts={products ?? []}
+      initialCategories={categories ?? []}
+      initialStockItems={stockItems ?? []}
+      initialStockMovements={stockMovements ?? []}
+      initialCatalogCategories={catalogCategories ?? []}
+      initialCatalogItems={catalogItems ?? []}
+    />
+  )
 }

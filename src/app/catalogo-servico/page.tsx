@@ -3,6 +3,8 @@ import CatalogoClient from './CatalogoClient'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ArrowLeft } from 'lucide-react'
+import { CartProvider } from '@/lib/carrinho/context'
+import CarrinhoFlutuante from '@/components/CarrinhoFlutuante'
 
 export const revalidate = 60
 
@@ -39,6 +41,7 @@ export default async function CatalogoServicoPage() {
   ])
 
   return (
+    <CartProvider>
     <main className="min-h-screen bg-vr-black text-white">
       <header className="px-5 sm:px-10 py-5 flex items-center justify-between max-w-6xl mx-auto border-b border-white/5">
         <Link href="/">
@@ -80,6 +83,8 @@ export default async function CatalogoServicoPage() {
           </a>
         </div>
       </section>
+      <CarrinhoFlutuante />
     </main>
+    </CartProvider>
   )
 }
