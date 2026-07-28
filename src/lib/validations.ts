@@ -11,16 +11,14 @@ export const serviceRequestSchema = z.object({
   phone_model: z.string().min(2, 'Informe o modelo do celular'),
   problem_description: z.string().min(10, 'Descreva o problema com pelo menos 10 caracteres'),
   self_pickup: z.boolean().optional(),
-  address_neighborhood: z.string().optional(),
-  address_reference: z.string().optional(),
+  address_lat: z.number().optional(),
+  address_lng: z.number().optional(),
+  address_label: z.string().optional(),
+  address_bairro: z.string().optional(),
 }).superRefine((data, ctx) => {
-  // Sem endereço pra validar quando o cliente mesmo vai levar/buscar o aparelho.
   if (data.self_pickup) return
-  if (!data.address_neighborhood || data.address_neighborhood.trim().length < 1) {
-    ctx.addIssue({ code: 'custom', path: ['address_neighborhood'], message: 'Selecione o bairro' })
-  }
-  if (!data.address_reference || data.address_reference.trim().length < 3) {
-    ctx.addIssue({ code: 'custom', path: ['address_reference'], message: 'Informe um ponto de referência' })
+  if (!data.address_lat || !data.address_lng) {
+    ctx.addIssue({ code: 'custom', path: ['address_lat'], message: 'Selecione o endereço no mapa' })
   }
 })
 

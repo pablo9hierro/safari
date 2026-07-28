@@ -28,8 +28,7 @@ const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: s
   cancelled:      { label: 'Cancelado',                    color: 'text-rose-700',   bg: 'bg-rose-100'   },
 }
 
-const FILTERS: { key: ServiceStatus | 'all'; label: string }[] = [
-  { key: 'all',            label: 'Todos' },
+const FILTERS: { key: ServiceStatus; label: string }[] = [
   { key: 'pending',        label: 'Pendentes' },
   { key: 'accepted',       label: 'Aceitos' },
   { key: 'rejected',       label: 'Recusados' },
@@ -46,10 +45,10 @@ const FILTERS: { key: ServiceStatus | 'all'; label: string }[] = [
 
 export default function DashboardClient({ initialRequests }: { initialRequests: ServiceRequest[] }) {
   const [requests, setRequests] = useState<ServiceRequest[]>(initialRequests)
-  const [filter, setFilter] = useState<ServiceStatus | 'all'>('all')
+  const [filter, setFilter] = useState<ServiceStatus>('pending')
   const [selected, setSelected] = useState<ServiceRequest | null>(null)
 
-  const filtered = filter === 'all' ? requests : requests.filter((r) => r.status === filter)
+  const filtered = requests.filter((r) => r.status === filter)
 
   const handleUpdate = (updated: ServiceRequest) => {
     setRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
@@ -92,11 +91,9 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
                 ${filter === f.key ? 'bg-vr-red text-white' : 'bg-vr-graphite border border-white/5 text-vr-silver hover:bg-vr-graphite-light'}`}
             >
               {f.label}
-              {f.key !== 'all' && (
-                <span className={`ml-1.5 px-1.5 rounded-full text-xs ${filter === f.key ? 'bg-white/20 text-white' : 'bg-white/5 text-vr-silver/60'}`}>
-                  {requests.filter((r) => r.status === f.key).length}
-                </span>
-              )}
+              <span className={`ml-1.5 px-1.5 rounded-full text-xs ${filter === f.key ? 'bg-white/20 text-white' : 'bg-white/5 text-vr-silver/60'}`}>
+                {requests.filter((r) => r.status === f.key).length}
+              </span>
             </button>
           ))}
         </div>

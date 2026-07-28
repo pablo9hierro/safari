@@ -1,115 +1,149 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { NeighborhoodShippingRate } from '@/lib/types'
-import { JOAO_PESSOA_BAIRROS } from '@/lib/joaoPessoaBairros'
-import { Truck, Search, Loader2, Check } from 'lucide-react'
+import { Truck, Loader2, Check, MapPin, Navigation } from 'lucide-react'
 
-export default function FreteClient({ initialRates }: { initialRates: NeighborhoodShippingRate[] }) {
-  const [rates, setRates] = useState<NeighborhoodShippingRate[]>(initialRates)
-  const [edits, setEdits] = useState<Record<string, string>>({})
-  const [saving, setSaving] = useState<Record<string, boolean>>({})
-  const [saved, setSaved] = useState<Record<string, boolean>>({})
-  const [searchQuery, setSearchQuery] = useState('')
+interface ShippingSettings {
+  price_per_km: number
+  store_lat: number
+  store_lng: number
+  max_km: number | null
+}
 
-  const rateByNeighborhood = useMemo(() => {
-    const map = new Map<string, NeighborhoodShippingRate>()
-    for (const r of rates) map.set(r.neighborhood, r)
-    return map
-  }, [rates])
+const INPUT = 'w-full px-4 py-3 rounded-xl border border-white/10 bg-vr-black text-white placeholder-white/25 focus:border-vr-red/60 outline-none transition-all'
 
-  const filteredBairros = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    if (!q) return JOAO_PESSOA_BAIRROS
-    return JOAO_PESSOA_BAIRROS.filter((b) => b.toLowerCase().includes(q))
-  }, [searchQuery])
+export default function FreteClient({ initial }: { initial: ShippingSettings }) {
+  const [settings, setSettings] = useState<ShippingSettings>(initial)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleSave = async (neighborhood: string) => {
-    const raw = edits[neighborhood]
-    const price = parseFloat(raw)
-    if (raw === undefined || isNaN(price) || price < 0) return
+  const handleSave = async () => {
+    setError(null)
+    if (settings.price_per_km < 0) { setError('Preço por km não pode ser negativo'); return }
+    if (settings.max_km !== null && settings.max_km <= 0) { setError('Distância máxima deve ser positiva'); return }
 
-    setSaving((prev) => ({ ...prev, [neighborhood]: true }))
+    setSaving(true)
     const supabase = createClient()
-    const { data, error } = await supabase
-      .from('neighborhood_shipping_rates')
-      .upsert({ neighborhood, price }, { onConflict: 'neighborhood' })
-      .select()
-      .single()
+    const { error: err } = await supabase
+      .from('shipping_settings')
+      .upsert({ id: 1, ...settings }, { onConflict: 'id' })
 
-    if (!error && data) {
-      const updated = data as NeighborhoodShippingRate
-      setRates((prev) => {
-        const exists = prev.some((r) => r.neighborhood === neighborhood)
-        return exists ? prev.map((r) => (r.neighborhood === neighborhood ? updated : r)) : [...prev, updated]
-      })
-      setEdits((prev) => {
-        const { [neighborhood]: _removed, ...rest } = prev
-        return rest
-      })
-      setSaved((prev) => ({ ...prev, [neighborhood]: true }))
-      setTimeout(() => setSaved((prev) => ({ ...prev, [neighborhood]: false })), 1500)
-    }
-    setSaving((prev) => ({ ...prev, [neighborhood]: false }))
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
       <h1 className="text-lg font-bold text-white flex items-center gap-2">
         <Truck className="w-5 h-5 text-vr-red" />
-        Frete por bairro
+        Configuração de frete
       </h1>
       <p className="text-sm text-vr-silver/50">
-        Defina o valor de frete/entrega/busca para cada bairro de João Pessoa. Esse valor é usado automaticamente no checkout da loja.
+        O frete é calculado pela distância em linha reta entre a loja e o endereço do cliente (fórmula de Haversine).
       </p>
 
-      <div className="relative">
-        <Search className="w-4 h-4 text-vr-silver/40 absolute left-3 top-1/2 -translate-y-1/2" />
-        <input
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Buscar bairro..."
-          className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
-        />
+      <div className="bg-vr-graphite border border-white/5 rounded-2xl p-5 space-y-5">
+        <div>
+          <label className="block text-sm font-semibold text-vr-silver/80 mb-1.5">
+            Preço por km <span className="text-vr-silver/40 font-normal">(R$/km, ida + volta)</span>
+          </label>
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-vr-silver/50 text-sm font-medium">R$</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.10"
+              min="0"
+              value={settings.price_per_km}
+              onChange={(e) => setSettings((s) => ({ ...s, price_per_km: Number(e.target.value) }))}
+              className={`${INPUT} pl-10`}
+              placeholder="2.00"
+            />
+          </div>
+          <p className="text-xs text-vr-silver/40 mt-1.5">
+            Ex: 5 km × R$ {settings.price_per_km.toFixed(2)}/km = frete R$ {(5 * settings.price_per_km).toFixed(2)} por trecho
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-vr-silver/80 mb-1.5">
+            Raio máximo de atendimento <span className="text-vr-silver/40 font-normal">(km) — deixe vazio = sem limite</span>
+          </label>
+          <div className="relative">
+            <input
+              type="number"
+              inputMode="decimal"
+              step="1"
+              min="1"
+              value={settings.max_km ?? ''}
+              onChange={(e) => setSettings((s) => ({ ...s, max_km: e.target.value === '' ? null : Number(e.target.value) }))}
+              className={`${INPUT} pr-12`}
+              placeholder="Sem limite"
+            />
+            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-vr-silver/40 text-sm">km</span>
+          </div>
+        </div>
+
+        <div className="border-t border-white/5 pt-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-vr-silver/80">
+            <MapPin className="w-4 h-4 text-vr-red" />
+            Localização da loja (ponto de referência)
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-vr-silver/50 mb-1">Latitude</label>
+              <input
+                type="number"
+                step="any"
+                value={settings.store_lat}
+                onChange={(e) => setSettings((s) => ({ ...s, store_lat: Number(e.target.value) }))}
+                className={INPUT}
+                placeholder="-7.1195"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-vr-silver/50 mb-1">Longitude</label>
+              <input
+                type="number"
+                step="any"
+                value={settings.store_lng}
+                onChange={(e) => setSettings((s) => ({ ...s, store_lng: Number(e.target.value) }))}
+                className={INPUT}
+                placeholder="-34.8450"
+              />
+            </div>
+          </div>
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${settings.store_lat},${settings.store_lng}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs text-vr-red/70 hover:text-vr-red transition-colors"
+          >
+            <Navigation className="w-3 h-3" />
+            Ver no mapa
+          </a>
+          <p className="text-xs text-vr-silver/40">
+            Para encontrar as coordenadas da loja: Google Maps → clique com botão direito no endereço → copie as coordenadas.
+          </p>
+        </div>
       </div>
 
-      <div className="bg-vr-graphite rounded-2xl border border-white/5 divide-y divide-white/5">
-        {filteredBairros.map((bairro) => {
-          const rate = rateByNeighborhood.get(bairro)
-          const value = edits[bairro] ?? (rate ? String(Number(rate.price)) : '')
-          const dirty = edits[bairro] !== undefined
-          return (
-            <div key={bairro} className="flex items-center justify-between gap-3 px-4 py-3">
-              <span className="text-sm text-white truncate">{bairro}</span>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-vr-silver/40 text-xs font-medium">R$</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    min="0"
-                    value={value}
-                    onChange={(e) => setEdits((prev) => ({ ...prev, [bairro]: e.target.value }))}
-                    placeholder="0,00"
-                    className="w-28 pl-8 pr-2 py-1.5 rounded-lg bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleSave(bairro)}
-                  disabled={!dirty || saving[bairro]}
-                  className={`flex items-center justify-center w-8 h-8 rounded-lg text-white transition-colors disabled:opacity-30 disabled:bg-vr-black disabled:border disabled:border-white/10
-                    ${saved[bairro] ? 'bg-green-600' : 'bg-vr-red'}`}
-                >
-                  {saving[bairro] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      {error && <p className="text-red-400 text-sm">{error}</p>}
+
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={saving}
+        className={`w-full py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all
+          ${saved ? 'bg-green-600 text-white' : 'bg-vr-red text-white hover:bg-vr-red/90'}`}
+      >
+        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : null}
+        {saving ? 'Salvando…' : saved ? 'Salvo!' : 'Salvar configurações'}
+      </button>
     </div>
   )
 }
