@@ -13,6 +13,7 @@ export interface CatalogCategory {
   name: string
   slug: string
   sort_order: number
+  image_url: string | null
 }
 
 export interface CatalogItem {
@@ -22,6 +23,7 @@ export interface CatalogItem {
   repair_type: string
   price: number
   description: string | null
+  image_url: string | null
   sort_order: number
 }
 
@@ -31,11 +33,11 @@ export default async function CatalogoServicoPage() {
   const [{ data: categories }, { data: items }] = await Promise.all([
     supabase
       .from('service_catalog_categories')
-      .select('id, name, slug, sort_order')
+      .select('id, name, slug, sort_order, image_url')
       .order('sort_order'),
     supabase
       .from('service_catalog_items')
-      .select('id, category_id, model_name, repair_type, price, description, sort_order')
+      .select('id, category_id, model_name, repair_type, price, description, image_url, sort_order')
       .eq('active', true)
       .order('sort_order'),
   ])
