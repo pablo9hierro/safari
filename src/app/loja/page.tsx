@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
+import { CartProvider } from '@/lib/carrinho/context'
+import CarrinhoFlutuante from '@/components/CarrinhoFlutuante'
 import LojaClient from './LojaClient'
 
 export const dynamic = 'force-dynamic'
@@ -12,10 +14,10 @@ export default async function LojaPage() {
     .eq('active', true)
     .order('name')
 
-  const { data: rates } = await supabase
-    .from('neighborhood_shipping_rates')
-    .select('*')
-    .order('neighborhood')
-
-  return <LojaClient initialProducts={products ?? []} shippingRates={rates ?? []} />
+  return (
+    <CartProvider>
+      <LojaClient initialProducts={products ?? []} />
+      <CarrinhoFlutuante />
+    </CartProvider>
+  )
 }

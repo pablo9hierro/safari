@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { buscarEnderecos } from '@/lib/mapa/geocodificacao'
 import { Truck, Loader2, Check, MapPin, Navigation } from 'lucide-react'
 
 interface ShippingSettings {
@@ -9,6 +10,7 @@ interface ShippingSettings {
   store_lat: number
   store_lng: number
   max_km: number | null
+  store_address: string
 }
 
 const INPUT = 'w-full px-4 py-3 rounded-xl border border-white/10 bg-vr-black text-white placeholder-white/25 focus:border-vr-red/60 outline-none transition-all'
@@ -23,15 +25,47 @@ export default function FreteClient({ initial }: { initial: ShippingSettings }) 
     setError(null)
     if (settings.price_per_km < 0) { setError('Preço por km não pode ser negativo'); return }
     if (settings.max_km !== null && settings.max_km <= 0) { setError('Distância máxima deve ser positiva'); return }
+    if (!settings.store_address.trim()) { setError('Informe o endereço da loja'); return }
 
     setSaving(true)
+
+    let lat = settings.store_lat
+    let lng = settings.store_lng
+
+    try {
+      const results = await buscarEnderecos(settings.store_address)
+      if (results.length === 0) {
+        setError('Endereço não encontrado. Tente ser mais específico.')
+        setSaving(false)
+        return
+      }
+      lat = results[0].lat
+      lng = results[0].lng
+    } catch {
+      setError('Erro ao buscar coordenadas. Verifique sua conexão.')
+      setSaving(false)
+      return
+    }
+
     const supabase = createClient()
     const { error: err } = await supabase
       .from('shipping_settings')
-      .upsert({ id: 1, ...settings }, { onConflict: 'id' })
+      .upsert(
+        {
+          id: 1,
+          price_per_km: settings.price_per_km,
+          max_km: settings.max_km,
+          store_address: settings.store_address.trim(),
+          store_lat: lat,
+          store_lng: lng,
+        },
+        { onConflict: 'id' }
+      )
 
     setSaving(false)
     if (err) { setError(err.message); return }
+
+    setSettings((s) => ({ ...s, store_lat: lat, store_lng: lng }))
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -80,7 +114,9 @@ export default function FreteClient({ initial }: { initial: ShippingSettings }) 
               step="1"
               min="1"
               value={settings.max_km ?? ''}
-              onChange={(e) => setSettings((s) => ({ ...s, max_km: e.target.value === '' ? null : Number(e.target.value) }))}
+              onChange={(e) =>
+                setSettings((s) => ({ ...s, max_km: e.target.value === '' ? null : Number(e.target.value) }))
+              }
               className={`${INPUT} pr-12`}
               placeholder="Sem limite"
             />
@@ -91,44 +127,31 @@ export default function FreteClient({ initial }: { initial: ShippingSettings }) 
         <div className="border-t border-white/5 pt-4 space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-vr-silver/80">
             <MapPin className="w-4 h-4 text-vr-red" />
-            Localização da loja (ponto de referência)
+            Endereço da loja (ponto de partida do frete)
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-vr-silver/50 mb-1">Latitude</label>
-              <input
-                type="number"
-                step="any"
-                value={settings.store_lat}
-                onChange={(e) => setSettings((s) => ({ ...s, store_lat: Number(e.target.value) }))}
-                className={INPUT}
-                placeholder="-7.1195"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-vr-silver/50 mb-1">Longitude</label>
-              <input
-                type="number"
-                step="any"
-                value={settings.store_lng}
-                onChange={(e) => setSettings((s) => ({ ...s, store_lng: Number(e.target.value) }))}
-                className={INPUT}
-                placeholder="-34.8450"
-              />
-            </div>
+          <div>
+            <input
+              type="text"
+              value={settings.store_address}
+              onChange={(e) => setSettings((s) => ({ ...s, store_address: e.target.value }))}
+              className={INPUT}
+              placeholder="Ex: Rua das Trincheiras, 500 — João Pessoa, PB"
+            />
+            <p className="text-xs text-vr-silver/40 mt-1.5">
+              Digite o endereço como no Google Maps. As coordenadas serão calculadas automaticamente ao salvar.
+            </p>
           </div>
-          <a
-            href={`https://www.google.com/maps/search/?api=1&query=${settings.store_lat},${settings.store_lng}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-vr-red/70 hover:text-vr-red transition-colors"
-          >
-            <Navigation className="w-3 h-3" />
-            Ver no mapa
-          </a>
-          <p className="text-xs text-vr-silver/40">
-            Para encontrar as coordenadas da loja: Google Maps → clique com botão direito no endereço → copie as coordenadas.
-          </p>
+          {settings.store_lat !== 0 && settings.store_lng !== 0 && (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${settings.store_lat},${settings.store_lng}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs text-vr-red/70 hover:text-vr-red transition-colors"
+            >
+              <Navigation className="w-3 h-3" />
+              Ver localização atual no mapa
+            </a>
+          )}
         </div>
       </div>
 
