@@ -14,33 +14,37 @@ import {
 import RequestDetailModal from '@/components/RequestDetailModal'
 
 const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: string }> = {
-  pending:        { label: 'Pendente',                     color: 'text-yellow-700', bg: 'bg-yellow-100' },
-  accepted:       { label: 'Aceito',                       color: 'text-green-700',  bg: 'bg-green-100'  },
-  rejected:       { label: 'Recusado',                     color: 'text-red-700',    bg: 'bg-red-100'    },
-  retirada_local: { label: 'Retirada/entrega pelo cliente', color: 'text-teal-700',   bg: 'bg-teal-100'   },
-  em_busca:       { label: 'Em rota de recolhimento',      color: 'text-orange-700', bg: 'bg-orange-100' },
-  in_progress:    { label: 'Em reparo',                    color: 'text-purple-700', bg: 'bg-purple-100' },
-  completed:      { label: 'Concluído',                    color: 'text-gray-700',   bg: 'bg-gray-100'   },
-  em_pagamento:   { label: 'Em pagamento',                 color: 'text-lime-700',   bg: 'bg-lime-100'   },
-  em_entrega:     { label: 'Em rota de entrega',           color: 'text-indigo-700', bg: 'bg-indigo-100' },
-  delivered:      { label: 'Aparelho entregue',            color: 'text-cyan-700',   bg: 'bg-cyan-100'   },
-  finished:       { label: 'Atendimento concluído',        color: 'text-emerald-700', bg: 'bg-emerald-100' },
-  cancelled:      { label: 'Cancelado',                    color: 'text-rose-700',   bg: 'bg-rose-100'   },
+  pending:                 { label: 'Pendente',                     color: 'text-yellow-700',  bg: 'bg-yellow-100'  },
+  accepted:                { label: 'Aceito',                       color: 'text-green-700',   bg: 'bg-green-100'   },
+  rejected:                { label: 'Recusado',                     color: 'text-red-700',     bg: 'bg-red-100'     },
+  retirada_local:          { label: 'Retirada/entrega pelo cliente', color: 'text-teal-700',    bg: 'bg-teal-100'    },
+  em_busca:                { label: 'Em rota de recolhimento',      color: 'text-orange-700',  bg: 'bg-orange-100'  },
+  in_progress:             { label: 'Em reparo',                    color: 'text-purple-700',  bg: 'bg-purple-100'  },
+  completed:               { label: 'Concluído',                    color: 'text-gray-700',    bg: 'bg-gray-100'    },
+  em_pagamento:            { label: 'Em pagamento',                 color: 'text-lime-700',    bg: 'bg-lime-100'    },
+  em_entrega:              { label: 'Em rota de entrega',           color: 'text-indigo-700',  bg: 'bg-indigo-100'  },
+  delivered:               { label: 'Aparelho entregue',            color: 'text-cyan-700',    bg: 'bg-cyan-100'    },
+  finished:                { label: 'Atendimento concluído',        color: 'text-emerald-700', bg: 'bg-emerald-100' },
+  cancelled:               { label: 'Cancelado',                    color: 'text-rose-700',    bg: 'bg-rose-100'    },
+  aguardando_diagnostico:  { label: 'Aguardando diagnóstico',       color: 'text-blue-700',    bg: 'bg-blue-100'    },
+  diagnostico_enviado:     { label: 'Diagnóstico enviado',          color: 'text-violet-700',  bg: 'bg-violet-100'  },
 }
 
 const FILTERS: { key: ServiceStatus; label: string }[] = [
-  { key: 'pending',        label: 'Pendentes' },
-  { key: 'accepted',       label: 'Aceitos' },
-  { key: 'rejected',       label: 'Recusados' },
-  { key: 'retirada_local', label: 'Retirada/entrega' },
-  { key: 'em_busca',       label: 'Em recolhimento' },
-  { key: 'in_progress',    label: 'Em reparo' },
-  { key: 'completed',      label: 'Concluídos' },
-  { key: 'em_pagamento',   label: 'Em pagamento' },
-  { key: 'em_entrega',     label: 'Em entrega' },
-  { key: 'delivered',      label: 'Entregues' },
-  { key: 'finished',       label: 'Concluídos (final)' },
-  { key: 'cancelled',      label: 'Cancelados' },
+  { key: 'pending',                label: 'Pendentes' },
+  { key: 'aguardando_diagnostico', label: 'Diagnóstico' },
+  { key: 'diagnostico_enviado',    label: 'Diagnóstico enviado' },
+  { key: 'accepted',               label: 'Aceitos' },
+  { key: 'rejected',               label: 'Recusados' },
+  { key: 'retirada_local',         label: 'Retirada/entrega' },
+  { key: 'em_busca',               label: 'Em recolhimento' },
+  { key: 'in_progress',            label: 'Em reparo' },
+  { key: 'completed',              label: 'Concluídos' },
+  { key: 'em_pagamento',           label: 'Em pagamento' },
+  { key: 'em_entrega',             label: 'Em entrega' },
+  { key: 'delivered',              label: 'Entregues' },
+  { key: 'finished',               label: 'Concluídos (final)' },
+  { key: 'cancelled',              label: 'Cancelados' },
 ]
 
 export default function DashboardClient({ initialRequests }: { initialRequests: ServiceRequest[] }) {
@@ -87,7 +91,7 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
             <button
               key={f.key}
               onClick={() => setFilter(f.key)}
-              className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-all
+              className={`shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-all
                 ${filter === f.key ? 'bg-vr-red text-white' : 'bg-vr-graphite border border-white/5 text-vr-silver hover:bg-vr-graphite-light'}`}
             >
               {f.label}
@@ -128,17 +132,20 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
                       </div>
                       <h3 className="font-semibold text-white truncate">{req.customer_name}</h3>
                       <div className="flex items-center gap-1 text-vr-silver/70 text-sm">
-                        <Smartphone className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="truncate">{req.phone_model}</span>
+                        <Smartphone className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{req.phone_model ?? (req.diagnosis_requested ? '🔍 Diagnóstico solicitado' : '—')}</span>
                       </div>
                       <div className="flex items-center gap-1 text-vr-silver/40 text-xs mt-1">
-                        <MapPin className="w-3 h-3 flex-shrink-0" />
+                        <MapPin className="w-3 h-3 shrink-0" />
                         <span className="truncate">
-                          {[req.address_street, req.address_number, req.address_city].filter(Boolean).join(', ') || `CEP ${req.address_cep}`}
+                          {req.self_pickup ? 'Retirada pelo cliente'
+                            : req.address_label
+                              ? req.address_label
+                              : [req.address_street, req.address_number, req.address_city].filter(Boolean).join(', ') || (req.address_cep ? `CEP ${req.address_cep}` : '—')}
                         </span>
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                    <div className="flex flex-col items-end gap-2 shrink-0">
                       <span className="text-xs text-vr-silver/40">
                         {new Date(req.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
                       </span>

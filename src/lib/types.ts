@@ -11,6 +11,8 @@ export type ServiceStatus =
   | 'delivered'
   | 'finished'
   | 'cancelled'
+  | 'aguardando_diagnostico'
+  | 'diagnostico_enviado'
 
 export interface PaymentMethodEntry {
   method: string
@@ -23,7 +25,7 @@ export interface ServiceRequest {
   customer_name: string
   customer_phone: string
   customer_email: string
-  phone_model: string
+  phone_model: string | null
   problem_description: string
   image_url: string | null
   address_cep?: string | null
@@ -33,6 +35,7 @@ export interface ServiceRequest {
   address_neighborhood?: string | null
   address_city?: string | null
   address_state?: string | null
+  address_label?: string | null
   shipping_price?: number | null
   self_pickup?: boolean
   status: ServiceStatus
@@ -40,6 +43,38 @@ export interface ServiceRequest {
   owner_notes: string | null
   discount_percent?: number | null
   payment_methods?: PaymentMethodEntry[]
+  selected_service_ids?: string[]
+  diagnosis_requested?: boolean
+  estimated_quote?: number | null
+}
+
+export interface ServiceCatalogCategory {
+  id: string
+  name: string
+  slug: string
+  sort_order: number
+  image_url?: string | null
+}
+
+export interface ServiceCatalogItem {
+  id: string
+  category_id: string
+  model_name: string
+  repair_type: string
+  price: number
+  description: string | null
+  sort_order: number
+  active: boolean
+}
+
+export interface ServiceDiagnostic {
+  id: string
+  service_request_id: string
+  services_selected: Array<{ id: string; repair_type: string; price: number }>
+  notes: string | null
+  pdf_url: string | null
+  quote_confirmed: number | null
+  created_at: string
 }
 
 export interface ServiceRequestFormData {

@@ -5,6 +5,7 @@ import { PaymentMethodEntry, ServiceRequest, ServiceStatus } from '@/lib/types'
 import { PAYMENT_METHODS } from '@/lib/constants'
 import { createClient } from '@/lib/supabase/client'
 import ServiceOrderPanel, { isServiceOrderStatus } from '@/components/ServiceOrderPanel'
+import DiagnosticSection from '@/components/DiagnosticSection'
 import {
   X,
   Smartphone,
@@ -21,48 +22,71 @@ import {
 } from 'lucide-react'
 
 const STATUS_LABELS: Record<ServiceStatus, string> = {
-  pending:        'Pendente',
-  accepted:       'Aceito pelo cliente (orçamento confirmado)',
-  rejected:       '✅ Atendimento concluído — Recusado pelo cliente',
-  retirada_local: '🏠 Retirada/entrega pelo cliente',
-  em_busca:       '🛵 Em rota de recolhimento',
-  in_progress:    '🔧 Em reparo',
-  completed:      '✅ Reparo concluído',
-  em_pagamento:   '💳 Em pagamento',
-  em_entrega:     '📦 Em rota de entrega',
-  delivered:      '📬 Aparelho entregue',
-  finished:       '✅ Atendimento concluído',
-  cancelled:      '✅ Atendimento concluído — Cancelado pelo cliente',
+  pending:                'Pendente',
+  accepted:               'Aceito pelo cliente (orçamento confirmado)',
+  rejected:               '✅ Atendimento concluído — Recusado pelo cliente',
+  retirada_local:         '🏠 Retirada/entrega pelo cliente',
+  em_busca:               '🛵 Em rota de recolhimento',
+  in_progress:            '🔧 Em reparo',
+  completed:              '✅ Reparo concluído',
+  em_pagamento:           '💳 Em pagamento',
+  em_entrega:             '📦 Em rota de entrega',
+  delivered:              '📬 Aparelho entregue',
+  finished:               '✅ Atendimento concluído',
+  cancelled:              '✅ Atendimento concluído — Cancelado pelo cliente',
+  aguardando_diagnostico: '🔍 Aguardando diagnóstico físico do aparelho',
+  diagnostico_enviado:    '📄 Diagnóstico enviado — aguardando aprovação do cliente',
 }
 
-// Statuses com template de mensagem automática (espelha STATUS_MESSAGES em src/lib/whatsapp/messages.ts)
 const STATUS_MESSAGES_AVAILABLE: ServiceStatus[] = [
+  'aguardando_diagnostico', 'diagnostico_enviado',
   'accepted', 'rejected', 'retirada_local', 'em_busca', 'in_progress',
   'em_entrega', 'cancelled', 'delivered', 'finished',
 ]
 
 type AdvanceConfig =
   | { type: 'terminal' }
+  | { type: 'diagnostic' }
   | { type: 'single'; next: ServiceStatus; label: string; ready: boolean; blockedMessage?: string }
   | { type: 'choice'; options: { next: ServiceStatus; label: string }[]; ready: boolean; blockedMessage?: string }
 
-// O status só avança um passo por vez, nunca retrocede e nunca pula etapas.
-// Algumas transições exigem que a OS correspondente já tenha sido preenchida.
 function getAdvanceConfig(
   current: ServiceStatus,
   osState: { closed: boolean; hasUpdate: boolean },
   quoteValue: string,
   paymentReady: boolean,
-  selfPickup: boolean
+  selfPickup: boolean,
+  diagnosisRequested: boolean
 ): AdvanceConfig {
   switch (current) {
     case 'pending':
+      if (diagnosisRequested) {
+        return {
+          type: 'single',
+          next: 'aguardando_diagnostico',
+          label: '🔍 Aceitar para diagnóstico físico',
+          ready: true,
+        }
+      }
       return {
         type: 'single',
         next: 'accepted',
         label: 'Aceitar orçamento e avançar',
         ready: !!quoteValue,
         blockedMessage: 'Preencha o valor do orçamento antes de avançar.',
+      }
+
+    case 'aguardando_diagnostico':
+      return { type: 'diagnostic' }
+
+    case 'diagnostico_enviado':
+      return {
+        type: 'choice',
+        options: [
+          { next: 'accepted', label: '✅ Cliente aprovou o orçamento' },
+          { next: 'cancelled', label: '❌ Cliente cancelou' },
+        ],
+        ready: true,
       }
     case 'accepted':
       if (selfPickup) {
@@ -268,16 +292,18 @@ export default function RequestDetailModal({
     }
   }
 
-  const advance = getAdvanceConfig(status, osState, quoteValue, paymentSaved, !!request.self_pickup)
+  const advance = getAdvanceConfig(status, osState, quoteValue, paymentSaved, !!request.self_pickup, !!request.diagnosis_requested)
   const fullAddress = request.self_pickup
     ? 'Cliente vai levar/buscar o aparelho — sem coleta/entrega'
-    : [
-        request.address_street,
-        request.address_number,
-        request.address_neighborhood,
-        request.address_city,
-        request.address_state,
-      ].filter(Boolean).join(', ') || (request.address_cep ? `CEP ${request.address_cep}` : 'Endereço não informado')
+    : request.address_label
+      ? request.address_label
+      : [
+          request.address_street,
+          request.address_number,
+          request.address_neighborhood,
+          request.address_city,
+          request.address_state,
+        ].filter(Boolean).join(', ') || (request.address_cep ? `CEP ${request.address_cep}` : 'Endereço não informado')
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -296,16 +322,16 @@ export default function RequestDetailModal({
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Cliente</h3>
             <div className="bg-slate-50 rounded-2xl p-4 space-y-2">
               <div className="flex items-center gap-2">
-                <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <User className="w-4 h-4 text-gray-400 shrink-0" />
                 <span className="font-semibold text-gray-900">{request.customer_name}</span>
               </div>
               <a href={`https://wa.me/55${phoneDigits}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-green-600 hover:text-green-700">
-                <Phone className="w-4 h-4 flex-shrink-0" />
+                <Phone className="w-4 h-4 shrink-0" />
                 <span className="text-sm">{request.customer_phone}</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
               <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <Mail className="w-4 h-4 text-gray-400 shrink-0" />
                 <span className="text-sm text-gray-600">{request.customer_email}</span>
               </div>
             </div>
@@ -316,11 +342,13 @@ export default function RequestDetailModal({
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Celular</h3>
             <div className="bg-slate-50 rounded-2xl p-4 space-y-2">
               <div className="flex items-center gap-2">
-                <Smartphone className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                <span className="font-semibold text-gray-900">{request.phone_model}</span>
+                <Smartphone className="w-4 h-4 text-gray-400 shrink-0" />
+                <span className="font-semibold text-gray-900">
+                  {request.phone_model ?? (request.diagnosis_requested ? '🔍 Diagnóstico solicitado' : '—')}
+                </span>
               </div>
               <div className="flex items-start gap-2">
-                <MessageSquare className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                <MessageSquare className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
                 <p className="text-sm text-gray-700">{request.problem_description}</p>
               </div>
               {request.image_url && (
@@ -335,12 +363,23 @@ export default function RequestDetailModal({
             </div>
           </section>
 
+          {/* Diagnóstico — aparece apenas quando status = aguardando_diagnostico */}
+          {advance.type === 'diagnostic' && (
+            <DiagnosticSection
+              request={request}
+              onSaved={(newStatus) => {
+                setStatus(newStatus)
+                onUpdate({ ...request, status: newStatus })
+              }}
+            />
+          )}
+
           {/* Endereço */}
           <section className="space-y-2">
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Endereço</h3>
             <div className="bg-slate-50 rounded-2xl p-4 space-y-2">
               <div className="flex items-start gap-2">
-                <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                <MapPin className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
                 <div>
                   <p className="text-sm text-gray-900">{fullAddress}</p>
                   {!request.self_pickup && request.address_reference && (
@@ -520,12 +559,12 @@ export default function RequestDetailModal({
 
             {error && (
               <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl p-3 text-red-700 text-sm">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <AlertCircle className="w-4 h-4 shrink-0" />
                 {error}
               </div>
             )}
 
-            {advance.type !== 'terminal' && !advance.ready && advance.blockedMessage && (
+            {advance.type !== 'terminal' && advance.type !== 'diagnostic' && !advance.ready && advance.blockedMessage && (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
                 {advance.blockedMessage}
               </p>
@@ -575,7 +614,7 @@ export default function RequestDetailModal({
 
             {waError && (
               <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl p-3 text-red-700 text-xs">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <AlertCircle className="w-4 h-4 shrink-0" />
                 Falha ao enviar WhatsApp automático: {waError}
               </div>
             )}

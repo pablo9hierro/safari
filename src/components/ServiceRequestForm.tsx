@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { serviceRequestSchema, ServiceRequestSchema } from '@/lib/validations'
 import { createClient } from '@/lib/supabase/client'
+import { ServiceCatalogCategory, ServiceCatalogItem } from '@/lib/types'
 import dynamic from 'next/dynamic'
 import type { LocationPickerResult } from '@/components/LocationPicker'
 import {
@@ -16,9 +17,9 @@ import {
   Loader2,
   X,
   AlertCircle,
-  ExternalLink,
   MessageCircle,
   Truck,
+  HelpCircle,
 } from 'lucide-react'
 
 const LocationPicker = dynamic(() => import('@/components/LocationPicker'), { ssr: false })
@@ -37,6 +38,18 @@ export default function ServiceRequestForm() {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [showMap, setShowMap] = useState(false)
   const [location, setLocation] = useState<LocationPickerResult | null>(null)
+  const [gettingLocation, setGettingLocation] = useState(false)
+  const [gpsPosition, setGpsPosition] = useState<{ lat: number; lng: number } | null>(null)
+
+  // Catalog state
+  const [brands, setBrands] = useState<ServiceCatalogCategory[]>([])
+  const [catalogItems, setCatalogItems] = useState<ServiceCatalogItem[]>([])
+  const [loadingCatalog, setLoadingCatalog] = useState(false)
+  const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null)
+  const [selectedModelPill, setSelectedModelPill] = useState<string | null>(null)
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([])
+  const [diagnosisMode, setDiagnosisMode] = useState(false)
+
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
 
@@ -51,6 +64,58 @@ export default function ServiceRequestForm() {
     resolver: zodResolver(serviceRequestSchema),
     mode: 'onBlur',
   })
+
+  const selfPickup = watch('self_pickup')
+
+  // Fetch catalog when entering step 2 for the first time
+  useEffect(() => {
+    if (step !== 2 || brands.length > 0) return
+    setLoadingCatalog(true)
+    const supabase = createClient()
+    Promise.all([
+      supabase.from('service_catalog_categories').select('*').order('sort_order'),
+      supabase.from('service_catalog_items').select('*').eq('active', true).order('sort_order'),
+    ]).then(([{ data: cats }, { data: items }]) => {
+      setBrands((cats as ServiceCatalogCategory[]) ?? [])
+      setCatalogItems((items as ServiceCatalogItem[]) ?? [])
+    }).finally(() => setLoadingCatalog(false))
+  }, [step, brands.length])
+
+  // Distinct model names for selected brand
+  const modelList = useMemo(() => {
+    if (!selectedBrandId) return []
+    const seen = new Set<string>()
+    return catalogItems
+      .filter((i) => i.category_id === selectedBrandId)
+      .reduce<string[]>((acc, i) => {
+        if (!seen.has(i.model_name)) { seen.add(i.model_name); acc.push(i.model_name) }
+        return acc
+      }, [])
+      .sort()
+  }, [catalogItems, selectedBrandId])
+
+  // Service cards for selected brand + model
+  const serviceCards = useMemo(() => {
+    if (!selectedBrandId || !selectedModelPill) return []
+    return catalogItems.filter(
+      (i) => i.category_id === selectedBrandId && i.model_name === selectedModelPill
+    )
+  }, [catalogItems, selectedBrandId, selectedModelPill])
+
+  // Running total of selected services
+  const estimatedTotal = useMemo(
+    () => selectedServiceIds.reduce((sum, id) => {
+      const item = catalogItems.find((i) => i.id === id)
+      return sum + Number(item?.price ?? 0)
+    }, 0),
+    [selectedServiceIds, catalogItems]
+  )
+
+  const toggleService = (id: string) => {
+    setSelectedServiceIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
 
   const formatPhone = (value: string) => {
     const digits = value.replace(/\D/g, '')
@@ -76,16 +141,41 @@ export default function ServiceRequestForm() {
     setShowMap(false)
   }, [setValue])
 
-  const nextStep = async () => {
-    const fields: Record<number, (keyof ServiceRequestSchema)[]> = {
-      1: ['customer_name', 'customer_phone', 'customer_email'],
-      2: ['phone_model', 'problem_description'],
+  // Always request fresh geolocation then open map
+  const handleOpenMap = useCallback(() => {
+    setGettingLocation(true)
+    if (!navigator.geolocation) {
+      setGettingLocation(false)
+      setShowMap(true)
+      return
     }
-    const valid = await trigger(fields[step] ?? [])
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGpsPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+        setGettingLocation(false)
+        setShowMap(true)
+      },
+      () => {
+        setGettingLocation(false)
+        setShowMap(true)
+      },
+      { timeout: 8000, maximumAge: 0 }
+    )
+  }, [])
+
+  // Compose initial for LocationPicker: GPS position takes priority
+  const mapInitial: LocationPickerResult | null = gpsPosition
+    ? { lat: gpsPosition.lat, lng: gpsPosition.lng, label: '', bairro: undefined }
+    : location
+
+  const nextStep = async () => {
+    const fieldsToValidate: (keyof ServiceRequestSchema)[] =
+      step === 1 ? ['customer_name', 'customer_phone', 'customer_email']
+      : step === 2 ? (diagnosisMode ? ['problem_description'] : ['phone_model', 'problem_description'])
+      : []
+    const valid = await trigger(fieldsToValidate)
     if (valid) setStep((s) => s + 1)
   }
-
-  const selfPickup = watch('self_pickup')
 
   const onSubmit = async (data: ServiceRequestSchema) => {
     setLoading(true); setError(null)
@@ -102,7 +192,6 @@ export default function ServiceRequestForm() {
         image_url = publicUrl.publicUrl
       }
 
-      // Calcular frete pelo servidor via RPC
       let shippingPrice: number | null = null
       if (!data.self_pickup && data.address_lat && data.address_lng) {
         const { data: est } = await supabase.rpc('estimate_shipping', {
@@ -110,7 +199,7 @@ export default function ServiceRequestForm() {
           p_lng: data.address_lng,
         })
         if (est && typeof est === 'object' && 'price' in est) {
-          shippingPrice = Number((est as { price: number }).price) * 2 // ida + volta
+          shippingPrice = Number((est as { price: number }).price) * 2
         }
       }
 
@@ -118,23 +207,26 @@ export default function ServiceRequestForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_name: data.customer_name,
-          customer_phone: data.customer_phone,
-          customer_email: data.customer_email,
-          phone_model: data.phone_model,
-          problem_description: data.problem_description,
-          self_pickup: !!data.self_pickup,
-          address_lat: data.self_pickup ? null : data.address_lat,
-          address_lng: data.self_pickup ? null : data.address_lng,
-          address_label: data.self_pickup ? null : data.address_label,
-          address_neighborhood: data.self_pickup ? null : data.address_bairro,
-          address_city: data.self_pickup ? null : 'João Pessoa',
-          address_state: data.self_pickup ? null : 'PB',
-          shipping_price: shippingPrice,
+          customer_name:        data.customer_name,
+          customer_phone:       data.customer_phone,
+          customer_email:       data.customer_email,
+          phone_model:          data.phone_model ?? null,
+          problem_description:  data.problem_description,
+          diagnosis_requested:  !!data.diagnosis_requested,
+          selected_service_ids: selectedServiceIds,
+          estimated_quote:      selectedServiceIds.length > 0 ? estimatedTotal : null,
+          self_pickup:          !!data.self_pickup,
+          address_lat:          data.self_pickup ? null : (data.address_lat ?? null),
+          address_lng:          data.self_pickup ? null : (data.address_lng ?? null),
+          address_label:        data.self_pickup ? null : (data.address_label ?? null),
+          address_neighborhood: data.self_pickup ? null : (data.address_bairro ?? null),
+          address_city:         data.self_pickup ? null : 'João Pessoa',
+          address_state:        data.self_pickup ? null : 'PB',
+          shipping_price:       shippingPrice,
           image_url,
-          status: 'pending',
-          quote_value: null,
-          owner_notes: null,
+          status:               'pending',
+          quote_value:          null,
+          owner_notes:          null,
         }),
       })
 
@@ -180,7 +272,11 @@ export default function ServiceRequestForm() {
           Acompanhar minha solicitação
         </a>
         <button
-          onClick={() => { setSubmitted(false); setStep(1); setImageFile(null); setImagePreview(null); setLocation(null); setSubmittedPhone('') }}
+          onClick={() => {
+            setSubmitted(false); setStep(1); setImageFile(null); setImagePreview(null)
+            setLocation(null); setSubmittedPhone(''); setSelectedServiceIds([])
+            setSelectedBrandId(null); setSelectedModelPill(null); setDiagnosisMode(false)
+          }}
           className="text-sm text-vr-silver/40 hover:text-vr-silver/70 transition-colors"
         >
           Fazer nova solicitação
@@ -193,7 +289,7 @@ export default function ServiceRequestForm() {
     <>
       {showMap && (
         <LocationPicker
-          initial={location}
+          initial={mapInitial}
           onClose={() => setShowMap(false)}
           onConfirm={handleLocationConfirm}
         />
@@ -246,39 +342,186 @@ export default function ServiceRequestForm() {
 
         {/* Step 2 – Aparelho */}
         {step === 2 && (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-5">
             <div className="flex items-center gap-2 mb-1">
               <Smartphone className="w-5 h-5 text-vr-red" />
               <h3 className="font-semibold text-white">Sobre o aparelho</h3>
             </div>
 
-            {/* Link para catálogo */}
-            <a
-              href="/catalogo-servico"
-              target="_blank"
-              className="flex items-center gap-3 bg-vr-red/10 border border-vr-red/30 rounded-xl p-3.5 hover:bg-vr-red/15 transition-colors"
-            >
-              <ExternalLink className="w-4 h-4 text-vr-red flex-none" />
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-white">Ver catálogo de serviços e preços</div>
-                <div className="text-xs text-vr-silver/60">Consulte valores por modelo e tipo de reparo</div>
-              </div>
-            </a>
-
-            <div>
-              <label className={LABEL}>Modelo do celular</label>
+            {/* Checkbox: Não sei o modelo */}
+            <label className="flex items-start gap-3 bg-vr-black border border-white/10 rounded-xl p-3.5 cursor-pointer hover:border-vr-red/30 transition-colors">
               <input
-                {...register('phone_model')}
-                placeholder="Ex: iPhone 14 Pro, Samsung Galaxy A55..."
-                className={INPUT}
+                type="checkbox"
+                checked={diagnosisMode}
+                onChange={(e) => {
+                  const checked = e.target.checked
+                  setDiagnosisMode(checked)
+                  setValue('diagnosis_requested', checked)
+                  if (checked) {
+                    setSelectedBrandId(null)
+                    setSelectedModelPill(null)
+                    setSelectedServiceIds([])
+                    setValue('phone_model', undefined)
+                  }
+                }}
+                className="w-4 h-4 mt-0.5 accent-vr-red flex-none"
               />
-              {errors.phone_model && <p className={ERR}>{errors.phone_model.message}</p>}
-            </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <HelpCircle className="w-3.5 h-3.5 text-vr-red flex-none" />
+                  <span className="text-sm font-semibold text-white">Não sei o modelo do meu aparelho</span>
+                </div>
+                <p className="text-xs text-vr-silver/50 mt-0.5">Orçamento após diagnóstico físico do aparelho</p>
+              </div>
+            </label>
+
+            {/* Brand + model + service selector (hidden in diagnosis mode) */}
+            {!diagnosisMode && (
+              <>
+                {loadingCatalog ? (
+                  <div className="flex items-center gap-2 text-vr-silver/50 text-sm py-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-vr-red" />
+                    Carregando catálogo...
+                  </div>
+                ) : (
+                  <>
+                    {/* Brand pills */}
+                    {brands.length > 0 && (
+                      <div>
+                        <label className={LABEL}>Marca</label>
+                        <div className="flex flex-wrap gap-2">
+                          {brands.map((b) => (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedBrandId(b.id)
+                                setSelectedModelPill(null)
+                                setSelectedServiceIds([])
+                                setValue('phone_model', undefined)
+                              }}
+                              className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all
+                                ${selectedBrandId === b.id
+                                  ? 'bg-vr-red text-white border-vr-red'
+                                  : 'bg-vr-black border-white/10 text-vr-silver/70 hover:border-vr-red/40 hover:text-white'
+                                }`}
+                            >
+                              {b.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Model pills */}
+                    {selectedBrandId && modelList.length > 0 && (
+                      <div>
+                        <label className={LABEL}>Modelo</label>
+                        <div className="flex flex-wrap gap-2">
+                          {modelList.map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => {
+                                setSelectedModelPill(m)
+                                setValue('phone_model', m)
+                                setSelectedServiceIds([])
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
+                                ${selectedModelPill === m
+                                  ? 'bg-vr-red text-white border-vr-red'
+                                  : 'bg-vr-black border-white/10 text-vr-silver/60 hover:border-vr-red/40 hover:text-white'
+                                }`}
+                            >
+                              {m}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Service cards – horizontal scroll, multi-select */}
+                    {serviceCards.length > 0 && (
+                      <div>
+                        <label className={LABEL}>
+                          Serviços disponíveis
+                          {selectedServiceIds.length > 0 && (
+                            <span className="text-vr-red ml-2 font-normal">
+                              · {selectedServiceIds.length} selecionado{selectedServiceIds.length !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </label>
+                        <div className="overflow-x-auto flex gap-3 pb-2 -mx-1 px-1">
+                          {serviceCards.map((s) => {
+                            const sel = selectedServiceIds.includes(s.id)
+                            return (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => toggleService(s.id)}
+                                className={`flex-none w-44 rounded-xl p-3.5 text-left border-2 transition-all
+                                  ${sel
+                                    ? 'border-vr-red bg-vr-red/10'
+                                    : 'border-white/10 bg-vr-black hover:border-vr-red/30 hover:bg-vr-red/5'
+                                  }`}
+                              >
+                                <div className="text-sm font-semibold text-white leading-tight">{s.repair_type}</div>
+                                {s.description && (
+                                  <div className="text-xs text-vr-silver/50 mt-1 leading-snug line-clamp-2">{s.description}</div>
+                                )}
+                                <div className="text-vr-red font-bold text-sm mt-2">
+                                  R$ {Number(s.price).toFixed(2).replace('.', ',')}
+                                </div>
+                                {sel && <div className="text-xs text-vr-red mt-1 font-semibold">✓ Selecionado</div>}
+                              </button>
+                            )
+                          })}
+                        </div>
+
+                        {selectedServiceIds.length > 0 && (
+                          <div className="mt-2 p-3 bg-vr-red/10 rounded-xl border border-vr-red/20 flex justify-between items-center">
+                            <div>
+                              <div className="text-xs text-vr-silver/60">Total estimado</div>
+                              <div className="text-vr-red font-bold">
+                                R$ {estimatedTotal.toFixed(2).replace('.', ',')}
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-vr-silver/40 text-right max-w-[140px] leading-tight">
+                              *pode variar após diagnóstico
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Manual phone model input */}
+                    <div>
+                      <label className={LABEL}>
+                        {selectedModelPill ? 'Modelo selecionado' : 'Modelo do celular'}
+                      </label>
+                      <input
+                        {...register('phone_model')}
+                        placeholder="Ex: iPhone 14 Pro, Samsung Galaxy A55..."
+                        className={INPUT}
+                        onChange={(e) => {
+                          setValue('phone_model', e.target.value)
+                          // Clear pill if user types manually
+                          if (e.target.value !== selectedModelPill) setSelectedModelPill(null)
+                        }}
+                      />
+                      {errors.phone_model && <p className={ERR}>{errors.phone_model.message}</p>}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* Problem description – always shown */}
             <div>
               <label className={LABEL}>
                 <span className="flex items-center gap-1.5">
                   <MessageCircle className="w-3.5 h-3.5 text-vr-red" />
-                  Descreva o problema
+                  {diagnosisMode ? 'Descreva o problema' : 'Descreva o problema'}
                 </span>
               </label>
               <textarea
@@ -289,6 +532,8 @@ export default function ServiceRequestForm() {
               />
               {errors.problem_description && <p className={ERR}>{errors.problem_description.message}</p>}
             </div>
+
+            {/* Photo upload */}
             <div>
               <label className={LABEL}>
                 Foto do celular <span className="font-normal text-white/30">(opcional)</span>
@@ -351,29 +596,39 @@ export default function ServiceRequestForm() {
                   <div className="flex items-start gap-3 bg-vr-graphite border border-white/10 rounded-xl p-3.5">
                     <MapPin className="w-4 h-4 text-vr-red flex-none mt-0.5" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white font-medium truncate">{location.label}</p>
+                      <p className="text-sm text-white font-medium">{location.label}</p>
                       {location.bairro && <p className="text-xs text-vr-silver/60">{location.bairro}</p>}
                     </div>
                     <button
                       type="button"
-                      onClick={() => setShowMap(true)}
-                      className="text-xs text-vr-red/70 hover:text-vr-red transition-colors flex-none"
+                      onClick={handleOpenMap}
+                      disabled={gettingLocation}
+                      className="text-xs text-vr-red/70 hover:text-vr-red transition-colors flex-none flex items-center gap-1 disabled:opacity-50"
                     >
+                      {gettingLocation && <Loader2 className="w-3 h-3 animate-spin" />}
                       Alterar
                     </button>
                   </div>
                 ) : (
                   <button
                     type="button"
-                    onClick={() => setShowMap(true)}
-                    className="flex items-center gap-3 border-2 border-dashed border-white/15 rounded-xl p-4 hover:border-vr-red/40 hover:bg-vr-red/5 transition-all text-left"
+                    onClick={handleOpenMap}
+                    disabled={gettingLocation}
+                    className="flex items-center gap-3 border-2 border-dashed border-white/15 rounded-xl p-4 hover:border-vr-red/40 hover:bg-vr-red/5 transition-all text-left disabled:opacity-60"
                   >
                     <div className="w-10 h-10 rounded-full bg-vr-red/10 flex items-center justify-center flex-none">
-                      <MapPin className="w-5 h-5 text-vr-red" />
+                      {gettingLocation
+                        ? <Loader2 className="w-5 h-5 text-vr-red animate-spin" />
+                        : <MapPin className="w-5 h-5 text-vr-red" />
+                      }
                     </div>
                     <div>
-                      <div className="text-sm font-medium text-white">Selecionar endereço no mapa</div>
-                      <div className="text-xs text-vr-silver/50">Toque para abrir o mapa interativo</div>
+                      <div className="text-sm font-medium text-white">
+                        {gettingLocation ? 'Obtendo sua localização...' : 'Selecionar endereço no mapa'}
+                      </div>
+                      <div className="text-xs text-vr-silver/50">
+                        {gettingLocation ? 'Aguarde um momento' : 'Toque para abrir o mapa interativo'}
+                      </div>
                     </div>
                   </button>
                 )}

@@ -42,6 +42,22 @@ export function pendingCustomerMessage(req: ServiceRequest) {
 type StatusMessageFn = (req: ServiceRequest, order?: OrderSummary) => string
 
 export const STATUS_MESSAGES: Partial<Record<ServiceStatus, StatusMessageFn>> = {
+  aguardando_diagnostico: (req) => [
+    `Olá *${req.customer_name}*! 👋`,
+    '',
+    'Recebemos seu aparelho para diagnóstico. Em breve finalizamos a avaliação e te enviamos um orçamento detalhado pelo WhatsApp.',
+    '',
+    'Obrigado pela confiança! 🙏',
+  ].join('\n'),
+
+  diagnostico_enviado: (req) => [
+    `Olá *${req.customer_name}*! 👋`,
+    '',
+    `Finalizamos o diagnóstico do seu${req.phone_model ? ` *${req.phone_model}*` : ' aparelho'} e preparamos um orçamento detalhado.`,
+    '',
+    'Segue o PDF com os serviços identificados e valores. Confirma o orçamento para darmos início ao reparo?',
+  ].join('\n'),
+
   accepted: (req) => [
     `Olá *${req.customer_name}*! 👋`,
     '',

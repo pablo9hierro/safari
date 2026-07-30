@@ -302,7 +302,7 @@ export async function generateServiceOrderPdf({
   // =====================================================
   beginContainer('Dados da solicitação e do aparelho')
   field('Data da solicitação', new Date(request.created_at).toLocaleString('pt-BR'))
-  field('Modelo do aparelho', request.phone_model)
+  field('Modelo do aparelho', request.phone_model ?? 'Diagnóstico solicitado')
   field('Problema relatado', request.problem_description)
   endContainer()
 
