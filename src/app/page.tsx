@@ -12,6 +12,7 @@ import {
   Search,
   ArrowRight,
   ShoppingBag,
+  LayoutGrid,
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -87,6 +88,10 @@ export default function Home() {
             <Link href="/loja" className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2">
               <ShoppingBag className="w-4 h-4" />
               Ver catálogo
+            </Link>
+            <Link href="/catalogo-servico" className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2">
+              <LayoutGrid className="w-4 h-4" />
+              Catálogo de serviços
             </Link>
             <Link href="/consultar" className="btn-secondary w-full sm:w-auto text-center">
               Acompanhar solicitação

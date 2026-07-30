@@ -20,6 +20,11 @@ import {
   MessageCircle,
   Truck,
   HelpCircle,
+  Search,
+  Battery,
+  Camera,
+  Zap,
+  Check,
 } from 'lucide-react'
 
 const LocationPicker = dynamic(() => import('@/components/LocationPicker'), { ssr: false })
@@ -46,7 +51,7 @@ export default function ServiceRequestForm() {
   const [catalogItems, setCatalogItems] = useState<ServiceCatalogItem[]>([])
   const [loadingCatalog, setLoadingCatalog] = useState(false)
   const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null)
-  const [selectedModelPill, setSelectedModelPill] = useState<string | null>(null)
+  const [catalogSearch, setCatalogSearch] = useState('')
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([])
   const [diagnosisMode, setDiagnosisMode] = useState(false)
 
@@ -81,26 +86,31 @@ export default function ServiceRequestForm() {
     }).finally(() => setLoadingCatalog(false))
   }, [step, brands.length])
 
-  // Distinct model names for selected brand
-  const modelList = useMemo(() => {
-    if (!selectedBrandId) return []
-    const seen = new Set<string>()
-    return catalogItems
-      .filter((i) => i.category_id === selectedBrandId)
-      .reduce<string[]>((acc, i) => {
-        if (!seen.has(i.model_name)) { seen.add(i.model_name); acc.push(i.model_name) }
-        return acc
-      }, [])
-      .sort()
-  }, [catalogItems, selectedBrandId])
+  const REPAIR_ICONS: Record<string, React.ReactNode> = {
+    'Troca de tela':                    <Smartphone className="w-4 h-4" />,
+    'Troca de bateria':                 <Battery className="w-4 h-4" />,
+    'Reparo de carregador':             <Zap className="w-4 h-4" />,
+    'Reparo de conector de carregador': <Zap className="w-4 h-4" />,
+    'Troca de câmera traseira':         <Camera className="w-4 h-4" />,
+  }
+  const repairIcon = (rt: string) => REPAIR_ICONS[rt] ?? <Wrench className="w-4 h-4" />
 
-  // Service cards for selected brand + model
-  const serviceCards = useMemo(() => {
-    if (!selectedBrandId || !selectedModelPill) return []
-    return catalogItems.filter(
-      (i) => i.category_id === selectedBrandId && i.model_name === selectedModelPill
+  // Items por marca + busca, agrupados por modelo (estilo CatalogoClient)
+  const byModel = useMemo(() => {
+    if (!selectedBrandId) return new Map<string, ServiceCatalogItem[]>()
+    const q = catalogSearch.trim().toLowerCase()
+    const brandItems = catalogItems.filter((i) =>
+      i.category_id === selectedBrandId &&
+      (!q || i.model_name.toLowerCase().includes(q) || i.repair_type.toLowerCase().includes(q))
     )
-  }, [catalogItems, selectedBrandId, selectedModelPill])
+    const map = new Map<string, ServiceCatalogItem[]>()
+    for (const item of brandItems) {
+      const list = map.get(item.model_name) ?? []
+      list.push(item)
+      map.set(item.model_name, list)
+    }
+    return map
+  }, [catalogItems, selectedBrandId, catalogSearch])
 
   // Running total of selected services
   const estimatedTotal = useMemo(
@@ -111,10 +121,20 @@ export default function ServiceRequestForm() {
     [selectedServiceIds, catalogItems]
   )
 
-  const toggleService = (id: string) => {
-    setSelectedServiceIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    )
+  const toggleService = (item: ServiceCatalogItem) => {
+    const isSelected = selectedServiceIds.includes(item.id)
+    const newIds = isSelected
+      ? selectedServiceIds.filter((x) => x !== item.id)
+      : [...selectedServiceIds, item.id]
+    setSelectedServiceIds(newIds)
+    // Keep phone_model synced with the last selected service's model
+    if (newIds.length > 0) {
+      const lastId = newIds[newIds.length - 1]
+      const lastItem = catalogItems.find((i) => i.id === lastId)
+      setValue('phone_model', lastItem?.model_name)
+    } else {
+      setValue('phone_model', undefined)
+    }
   }
 
   const formatPhone = (value: string) => {
@@ -275,7 +295,7 @@ export default function ServiceRequestForm() {
           onClick={() => {
             setSubmitted(false); setStep(1); setImageFile(null); setImagePreview(null)
             setLocation(null); setSubmittedPhone(''); setSelectedServiceIds([])
-            setSelectedBrandId(null); setSelectedModelPill(null); setDiagnosisMode(false)
+            setSelectedBrandId(null); setCatalogSearch(''); setDiagnosisMode(false)
           }}
           className="text-sm text-vr-silver/40 hover:text-vr-silver/70 transition-colors"
         >
@@ -359,7 +379,7 @@ export default function ServiceRequestForm() {
                   setValue('diagnosis_requested', checked)
                   if (checked) {
                     setSelectedBrandId(null)
-                    setSelectedModelPill(null)
+                    setCatalogSearch('')
                     setSelectedServiceIds([])
                     setValue('phone_model', undefined)
                   }
@@ -375,7 +395,7 @@ export default function ServiceRequestForm() {
               </div>
             </label>
 
-            {/* Brand + model + service selector (hidden in diagnosis mode) */}
+            {/* Seletor de marca → modelo → serviços (oculto no modo diagnóstico) */}
             {!diagnosisMode && (
               <>
                 {loadingCatalog ? (
@@ -383,136 +403,140 @@ export default function ServiceRequestForm() {
                     <Loader2 className="w-4 h-4 animate-spin text-vr-red" />
                     Carregando catálogo...
                   </div>
-                ) : (
+                ) : brands.length > 0 ? (
                   <>
-                    {/* Brand pills */}
-                    {brands.length > 0 && (
-                      <div>
-                        <label className={LABEL}>Marca</label>
-                        <div className="flex flex-wrap gap-2">
-                          {brands.map((b) => (
-                            <button
-                              key={b.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedBrandId(b.id)
-                                setSelectedModelPill(null)
-                                setSelectedServiceIds([])
-                                setValue('phone_model', undefined)
-                              }}
-                              className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all
-                                ${selectedBrandId === b.id
-                                  ? 'bg-vr-red text-white border-vr-red'
-                                  : 'bg-vr-black border-white/10 text-vr-silver/70 hover:border-vr-red/40 hover:text-white'
-                                }`}
-                            >
-                              {b.name}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    {/* Tabs de marca — estilo idêntico ao catálogo */}
+                    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                      {brands.map((b) => (
+                        <button
+                          key={b.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedBrandId(b.id)
+                            setSelectedServiceIds([])
+                            setCatalogSearch('')
+                            setValue('phone_model', undefined)
+                          }}
+                          className={`shrink-0 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all
+                            ${selectedBrandId === b.id
+                              ? 'bg-vr-red text-white shadow-lg shadow-vr-red/20'
+                              : 'bg-vr-graphite border border-white/5 text-vr-silver hover:border-vr-red/30'
+                            }`}
+                        >
+                          {b.name}
+                        </button>
+                      ))}
+                    </div>
 
-                    {/* Model pills */}
-                    {selectedBrandId && modelList.length > 0 && (
-                      <div>
-                        <label className={LABEL}>Modelo</label>
-                        <div className="flex flex-wrap gap-2">
-                          {modelList.map((m) => (
-                            <button
-                              key={m}
-                              type="button"
-                              onClick={() => {
-                                setSelectedModelPill(m)
-                                setValue('phone_model', m)
-                                setSelectedServiceIds([])
-                              }}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
-                                ${selectedModelPill === m
-                                  ? 'bg-vr-red text-white border-vr-red'
-                                  : 'bg-vr-black border-white/10 text-vr-silver/60 hover:border-vr-red/40 hover:text-white'
-                                }`}
-                            >
-                              {m}
-                            </button>
-                          ))}
+                    {/* Busca + serviços agrupados por modelo */}
+                    {selectedBrandId && (
+                      <>
+                        <div className="relative">
+                          <Search className="w-4 h-4 text-vr-silver/40 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            value={catalogSearch}
+                            onChange={(e) => setCatalogSearch(e.target.value)}
+                            placeholder="Buscar modelo ou tipo de reparo..."
+                            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-vr-graphite border border-white/5 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red/40 transition-colors"
+                          />
                         </div>
-                      </div>
-                    )}
 
-                    {/* Service cards – horizontal scroll, multi-select */}
-                    {serviceCards.length > 0 && (
-                      <div>
-                        <label className={LABEL}>
-                          Serviços disponíveis
-                          {selectedServiceIds.length > 0 && (
-                            <span className="text-vr-red ml-2 font-normal">
-                              · {selectedServiceIds.length} selecionado{selectedServiceIds.length !== 1 ? 's' : ''}
-                            </span>
-                          )}
-                        </label>
-                        <div className="overflow-x-auto flex gap-3 pb-2 -mx-1 px-1">
-                          {serviceCards.map((s) => {
-                            const sel = selectedServiceIds.includes(s.id)
-                            return (
-                              <button
-                                key={s.id}
-                                type="button"
-                                onClick={() => toggleService(s.id)}
-                                className={`flex-none w-44 rounded-xl p-3.5 text-left border-2 transition-all
-                                  ${sel
-                                    ? 'border-vr-red bg-vr-red/10'
-                                    : 'border-white/10 bg-vr-black hover:border-vr-red/30 hover:bg-vr-red/5'
-                                  }`}
-                              >
-                                <div className="text-sm font-semibold text-white leading-tight">{s.repair_type}</div>
-                                {s.description && (
-                                  <div className="text-xs text-vr-silver/50 mt-1 leading-snug line-clamp-2">{s.description}</div>
-                                )}
-                                <div className="text-vr-red font-bold text-sm mt-2">
-                                  R$ {Number(s.price).toFixed(2).replace('.', ',')}
+                        {byModel.size === 0 ? (
+                          <p className="text-center text-vr-silver/40 text-sm py-4">Nenhum serviço encontrado.</p>
+                        ) : (
+                          <div className="space-y-6 max-h-[420px] overflow-y-auto pr-0.5">
+                            {Array.from(byModel.entries()).map(([modelName, modelItems]) => (
+                              <section key={modelName}>
+                                {/* Cabeçalho do modelo */}
+                                <div className="flex items-center gap-2 mb-3">
+                                  <div className="w-10 h-10 rounded-xl bg-vr-graphite border border-white/10 shrink-0 flex items-center justify-center">
+                                    <Smartphone className="w-5 h-5 text-vr-silver/30" />
+                                  </div>
+                                  <div>
+                                    <h4 className="text-white font-bold text-sm">{modelName}</h4>
+                                    <p className="text-vr-silver/40 text-xs">
+                                      {modelItems.length} serviço{modelItems.length !== 1 ? 's' : ''}
+                                    </p>
+                                  </div>
                                 </div>
-                                {sel && <div className="text-xs text-vr-red mt-1 font-semibold">✓ Selecionado</div>}
-                              </button>
-                            )
-                          })}
-                        </div>
 
+                                {/* Cards de reparo em grade */}
+                                <div className="grid grid-cols-2 gap-2.5">
+                                  {modelItems.map((item) => {
+                                    const sel = selectedServiceIds.includes(item.id)
+                                    return (
+                                      <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => toggleService(item)}
+                                        className={`bg-vr-graphite border rounded-2xl p-3.5 text-left transition-all group
+                                          ${sel
+                                            ? 'border-vr-red'
+                                            : 'border-white/5 hover:border-vr-red/30'
+                                          }`}
+                                      >
+                                        <div className="flex items-start justify-between gap-2 mb-2">
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            <span className="text-vr-red shrink-0">{repairIcon(item.repair_type)}</span>
+                                            <span className="text-xs font-bold text-white leading-tight line-clamp-2">
+                                              {item.repair_type}
+                                            </span>
+                                          </div>
+                                        </div>
+                                        {item.description && (
+                                          <p className="text-[10px] text-vr-silver/55 leading-snug mb-2 line-clamp-2">
+                                            {item.description}
+                                          </p>
+                                        )}
+                                        <div className="flex items-center justify-between mt-auto">
+                                          <span className="text-vr-red font-black text-sm whitespace-nowrap">
+                                            R$ {Number(item.price).toFixed(2).replace('.', ',')}
+                                          </span>
+                                        </div>
+                                        <div className={`w-full flex items-center justify-center gap-1 py-2 rounded-xl text-[11px] font-semibold mt-2 transition-all
+                                          ${sel
+                                            ? 'bg-vr-red text-white'
+                                            : 'bg-vr-black border border-white/10 text-vr-silver hover:border-vr-red/40 hover:text-white'
+                                          }`}
+                                        >
+                                          {sel
+                                            ? <><Check className="w-3.5 h-3.5" /> Selecionado</>
+                                            : 'Selecionar'
+                                          }
+                                        </div>
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              </section>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Total estimado */}
                         {selectedServiceIds.length > 0 && (
-                          <div className="mt-2 p-3 bg-vr-red/10 rounded-xl border border-vr-red/20 flex justify-between items-center">
+                          <div className="p-3 bg-vr-red/10 rounded-xl border border-vr-red/20 flex justify-between items-center">
                             <div>
-                              <div className="text-xs text-vr-silver/60">Total estimado</div>
+                              <div className="text-xs text-vr-silver/60">
+                                {selectedServiceIds.length} serviço{selectedServiceIds.length !== 1 ? 's' : ''} — total estimado
+                              </div>
                               <div className="text-vr-red font-bold">
                                 R$ {estimatedTotal.toFixed(2).replace('.', ',')}
                               </div>
                             </div>
-                            <p className="text-[10px] text-vr-silver/40 text-right max-w-[140px] leading-tight">
+                            <p className="text-[10px] text-vr-silver/40 text-right max-w-35 leading-tight">
                               *pode variar após diagnóstico
                             </p>
                           </div>
                         )}
-                      </div>
-                    )}
 
-                    {/* Manual phone model input */}
-                    <div>
-                      <label className={LABEL}>
-                        {selectedModelPill ? 'Modelo selecionado' : 'Modelo do celular'}
-                      </label>
-                      <input
-                        {...register('phone_model')}
-                        placeholder="Ex: iPhone 14 Pro, Samsung Galaxy A55..."
-                        className={INPUT}
-                        onChange={(e) => {
-                          setValue('phone_model', e.target.value)
-                          // Clear pill if user types manually
-                          if (e.target.value !== selectedModelPill) setSelectedModelPill(null)
-                        }}
-                      />
-                      {errors.phone_model && <p className={ERR}>{errors.phone_model.message}</p>}
-                    </div>
+                        {errors.phone_model && (
+                          <p className={ERR}>{errors.phone_model.message}</p>
+                        )}
+                      </>
+                    )}
                   </>
-                )}
+                ) : null}
               </>
             )}
 
