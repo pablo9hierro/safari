@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 
+// Mesmo formato de redirect de volta pro frontend usado pelo Resolutoo
+// (mercadopago_oauth.rs::frontend_redirect): "?status=success|error|cancelled"
+// em vez do antigo "?mp=connected|error".
+function redirectStatus(origin: string, status: 'success' | 'error' | 'cancelled', reason?: string) {
+  const url = new URL('/dashboard/financeiro', origin)
+  url.searchParams.set('status', status)
+  if (reason) url.searchParams.set('reason', reason)
+  return NextResponse.redirect(url)
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const code = searchParams.get('code')
@@ -8,11 +18,11 @@ export async function GET(req: NextRequest) {
   const error = searchParams.get('error')
 
   if (error) {
-    return NextResponse.redirect(new URL('/dashboard/financeiro?mp=error&reason=' + encodeURIComponent(error), req.nextUrl.origin))
+    return redirectStatus(req.nextUrl.origin, 'cancelled', error)
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(new URL('/dashboard/financeiro?mp=error&reason=missing_params', req.nextUrl.origin))
+    return redirectStatus(req.nextUrl.origin, 'error', 'missing_params')
   }
 
   const supabase = createServiceClient()
@@ -24,19 +34,22 @@ export async function GET(req: NextRequest) {
     .single()
 
   if (!stateRow) {
-    return NextResponse.redirect(new URL('/dashboard/financeiro?mp=error&reason=invalid_state', req.nextUrl.origin))
+    return redirectStatus(req.nextUrl.origin, 'error', 'invalid_state')
   }
 
   // expire after 15 min
   const created = new Date(stateRow.created_at).getTime()
   if (Date.now() - created > 15 * 60 * 1000) {
     await supabase.from('mercadopago_oauth_states').delete().eq('state', state)
-    return NextResponse.redirect(new URL('/dashboard/financeiro?mp=error&reason=state_expired', req.nextUrl.origin))
+    return redirectStatus(req.nextUrl.origin, 'error', 'state_expired')
   }
 
-  const redirectUri = process.env.MP_REDIRECT_URI ?? 'https://vrtech-jp.vercel.app/api/mercadopago/oauth/callback'
-  const clientId = process.env.MP_CLIENT_ID ?? '308128130647506'
-  const clientSecret = process.env.MP_CLIENT_SECRET ?? ''
+  const redirectUri = process.env.MP_REDIRECT_URI
+  const clientId = process.env.MP_CLIENT_ID
+  const clientSecret = process.env.MP_CLIENT_SECRET
+  if (!redirectUri || !clientId || !clientSecret) {
+    return redirectStatus(req.nextUrl.origin, 'error', 'not_configured')
+  }
 
   const tokenRes = await fetch('https://api.mercadopago.com/oauth/token', {
     method: 'POST',
@@ -54,11 +67,13 @@ export async function GET(req: NextRequest) {
   if (!tokenRes.ok) {
     const body = await tokenRes.text()
     console.error('MP token exchange failed:', body)
-    return NextResponse.redirect(new URL('/dashboard/financeiro?mp=error&reason=token_exchange', req.nextUrl.origin))
+    return redirectStatus(req.nextUrl.origin, 'error', 'token_exchange')
   }
 
   const token = await tokenRes.json()
 
+  // connection_status (production/sandbox via live_mode): mesmo dado que o
+  // Resolutoo guarda pro lojista, o vrtech não distinguia até agora.
   await supabase.from('mercadopago_config').upsert({
     id: 'default',
     access_token: token.access_token,
@@ -69,11 +84,12 @@ export async function GET(req: NextRequest) {
       ? new Date(Date.now() + token.expires_in * 1000).toISOString()
       : null,
     connected_at: new Date().toISOString(),
+    connection_status: token.live_mode === false ? 'sandbox' : 'production',
     status: 'connected',
     updated_at: new Date().toISOString(),
   }, { onConflict: 'id' })
 
   await supabase.from('mercadopago_oauth_states').delete().eq('state', state)
 
-  return NextResponse.redirect(new URL('/dashboard/financeiro?mp=connected', req.nextUrl.origin))
+  return redirectStatus(req.nextUrl.origin, 'success')
 }

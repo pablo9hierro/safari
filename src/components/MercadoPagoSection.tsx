@@ -44,7 +44,7 @@ export default function MercadoPagoSection() {
     if (!confirm('Desconectar o Mercado Pago? Pagamentos via PIX vão parar de funcionar.')) return
     setActionLoading(true)
     try {
-      await fetch('/api/mercadopago/disconnect', { method: 'POST' })
+      await fetch('/api/mercadopago/oauth/disconnect', { method: 'POST' })
       await fetchStatus()
     } catch { setError('Erro ao desconectar') }
     finally { setActionLoading(false) }

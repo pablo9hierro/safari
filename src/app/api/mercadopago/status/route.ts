@@ -5,7 +5,7 @@ export async function GET() {
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('mercadopago_config')
-    .select('status, connected_at, mp_user_id, public_key')
+    .select('status, connected_at, mp_user_id, public_key, connection_status')
     .eq('id', 'default')
     .single()
 
