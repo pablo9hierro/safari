@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Logo from '@/components/ui/Logo'
-import { ClipboardList, Truck, Package, ShoppingBag, Wallet, LogOut, UserCog } from 'lucide-react'
+import { ClipboardList, Truck, Package, ShoppingBag, Wallet, LogOut, UserCog, Bot } from 'lucide-react'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Solicitações', icon: ClipboardList },
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/pedidos', label: 'Pedidos', icon: ShoppingBag },
   { href: '/dashboard/frete', label: 'Frete', icon: Truck },
   { href: '/dashboard/financeiro', label: 'Financeiro', icon: Wallet },
+  { href: '/dashboard/assistente-ia', label: 'Assistente IA', icon: Bot },
   { href: '/dashboard/conta', label: 'Conta', icon: UserCog },
 ]
 

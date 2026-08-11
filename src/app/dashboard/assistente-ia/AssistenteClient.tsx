@@ -1,0 +1,297 @@
+'use client'
+
+import { useState } from 'react'
+import { Bot, Save, ChevronDown, ChevronUp, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react'
+import type { AssistantConfig } from '@/lib/assistant/types'
+
+const LABEL = 'block text-xs font-semibold text-vr-silver/60 mb-1.5 uppercase tracking-wider'
+const INPUT = 'w-full px-3.5 py-2.5 rounded-xl bg-vr-black border border-white/8 text-white text-sm placeholder-vr-silver/30 outline-none focus:border-vr-red/50 transition-colors'
+const TEXTAREA = `${INPUT} resize-none leading-relaxed`
+
+const AI_PROVIDERS = [
+  { value: 'openai', label: 'OpenAI (ChatGPT direto)' },
+  { value: 'anthropic', label: 'Anthropic (Claude)' },
+  { value: 'openrouter', label: 'OpenRouter (multi-modelo)' },
+]
+
+export default function AssistenteClient({ initialConfig }: { initialConfig: AssistantConfig }) {
+  const [cfg, setCfg] = useState<AssistantConfig>(initialConfig)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [showKey, setShowKey] = useState(false)
+  const [showLayer1, setShowLayer1] = useState(true)
+  const [showLayer2, setShowLayer2] = useState(true)
+
+  const set = <K extends keyof AssistantConfig>(key: K, value: AssistantConfig[K]) =>
+    setCfg((prev) => ({ ...prev, [key]: value }))
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError(null)
+    setSaved(false)
+    try {
+      const res = await fetch('/api/assistant/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...cfg,
+          start_keywords: Array.isArray(cfg.start_keywords)
+            ? cfg.start_keywords
+            : String(cfg.start_keywords).split(',').map((s) => s.trim()).filter(Boolean),
+          end_keywords: Array.isArray(cfg.end_keywords)
+            ? cfg.end_keywords
+            : String(cfg.end_keywords).split(',').map((s) => s.trim()).filter(Boolean),
+        }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const updated = await res.json()
+      setCfg(updated)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao salvar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const startKwStr = Array.isArray(cfg.start_keywords) ? cfg.start_keywords.join(', ') : String(cfg.start_keywords)
+  const endKwStr = Array.isArray(cfg.end_keywords) ? cfg.end_keywords.join(', ') : String(cfg.end_keywords)
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+      <h1 className="text-lg font-bold text-white flex items-center gap-2">
+        <Bot className="w-5 h-5 text-vr-red" />
+        Assistente IA (BETA)
+      </h1>
+      <p className="text-xs text-vr-silver/50 -mt-4">
+        Responde clientes automaticamente no WhatsApp usando 2 camadas de IA (interpretação de intenção + resposta com dados reais do catálogo). Desativado por padrão até você configurar e testar.
+      </p>
+
+      {/* Toggle ativar */}
+      <div className={`rounded-2xl border p-4 transition-colors ${cfg.enabled ? 'bg-vr-red/8 border-vr-red/25' : 'bg-vr-graphite border-white/5'}`}>
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <div
+            onClick={() => set('enabled', !cfg.enabled)}
+            className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${cfg.enabled ? 'bg-vr-red' : 'bg-white/15'}`}
+          >
+            <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform shadow ${cfg.enabled ? 'translate-x-5' : ''}`} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-white">Ativar Assistente IA</p>
+            <p className="text-xs text-vr-silver/50">
+              {cfg.enabled
+                ? 'Ativo — respondendo clientes no WhatsApp automaticamente.'
+                : 'Quando desativado, mensagens chegam normalmente mas a resposta automática fica suspensa.'}
+            </p>
+          </div>
+        </label>
+      </div>
+
+      {/* Prompt Layer 1 */}
+      <div className="bg-vr-graphite rounded-2xl border border-white/5 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowLayer1((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left"
+        >
+          <span className="text-sm font-semibold text-white">Prompt da 1ª camada (interpretação de intenção)</span>
+          {showLayer1 ? <ChevronUp className="w-4 h-4 text-vr-silver/40" /> : <ChevronDown className="w-4 h-4 text-vr-silver/40" />}
+        </button>
+        {showLayer1 && (
+          <div className="px-4 pb-4">
+            <textarea
+              rows={8}
+              value={cfg.prompt_interpreter}
+              onChange={(e) => set('prompt_interpreter', e.target.value)}
+              className={TEXTAREA}
+              placeholder="Descreva ao modelo como identificar a intenção do cliente..."
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Prompt Layer 2 */}
+      <div className="bg-vr-graphite rounded-2xl border border-white/5 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowLayer2((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left"
+        >
+          <span className="text-sm font-semibold text-white">Prompt da 2ª camada (atendimento, ferramentas e resposta final)</span>
+          {showLayer2 ? <ChevronUp className="w-4 h-4 text-vr-silver/40" /> : <ChevronDown className="w-4 h-4 text-vr-silver/40" />}
+        </button>
+        {showLayer2 && (
+          <div className="px-4 pb-4">
+            <textarea
+              rows={10}
+              value={cfg.prompt_validator}
+              onChange={(e) => set('prompt_validator', e.target.value)}
+              className={TEXTAREA}
+              placeholder="Descreva o tom de voz, contexto do negócio e regras específicas..."
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Keywords + timeout */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className={LABEL}>Gatilhos de início (separados por vírgula)</label>
+          <input
+            value={startKwStr}
+            onChange={(e) => set('start_keywords', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
+            className={INPUT}
+            placeholder="oi, olá, atendimento, quero comprar"
+          />
+        </div>
+        <div>
+          <label className={LABEL}>Gatilhos de encerramento</label>
+          <input
+            value={endKwStr}
+            onChange={(e) => set('end_keywords', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
+            className={INPUT}
+            placeholder="tchau, encerrar"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className={LABEL}>Encerrar janela após quantos minutos sem mensagem</label>
+        <input
+          type="number"
+          min={1}
+          value={cfg.window_timeout_minutes}
+          onChange={(e) => set('window_timeout_minutes', Number(e.target.value))}
+          className={`${INPUT} w-32`}
+        />
+      </div>
+
+      {/* Motor de IA */}
+      <div className="bg-vr-graphite rounded-2xl border border-white/5 p-4 space-y-4">
+        <h2 className="text-sm font-semibold text-white">Motor de IA</h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className={LABEL}>Motor de IA</label>
+            <select
+              value={cfg.ai_provider}
+              onChange={(e) => set('ai_provider', e.target.value)}
+              className={`${INPUT} cursor-pointer`}
+            >
+              {AI_PROVIDERS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={LABEL}>Modelo</label>
+            <input
+              value={cfg.ai_model}
+              onChange={(e) => set('ai_model', e.target.value)}
+              className={INPUT}
+              placeholder="gpt-4o-mini"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className={LABEL}>Chave da API do motor de IA</label>
+          <div className="relative">
+            <input
+              type={showKey ? 'text' : 'password'}
+              value={cfg.api_key ?? ''}
+              onChange={(e) => set('api_key', e.target.value || null)}
+              className={`${INPUT} pr-10`}
+              placeholder="sk-proj-..."
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-vr-silver/40 hover:text-vr-silver/70"
+            >
+              {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          <p className="text-[10px] text-vr-silver/35 mt-1">
+            {cfg.ai_provider === 'openai'
+              ? 'Obrigatório pra usar OpenAI — gere em platform.openai.com/api-keys.'
+              : cfg.ai_provider === 'anthropic'
+              ? 'Gere em console.anthropic.com. Sem chave usa a global da plataforma (se houver).'
+              : 'Obrigatório pra OpenRouter — gere em openrouter.ai.'}
+          </p>
+        </div>
+      </div>
+
+      {/* Tuning de resposta */}
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <label className={LABEL}>Agrupar mensagens em sequência (seg)</label>
+          <input
+            type="number"
+            min={0}
+            value={cfg.message_batch_window_seconds}
+            onChange={(e) => set('message_batch_window_seconds', Number(e.target.value))}
+            className={INPUT}
+          />
+          <p className="text-[10px] text-vr-silver/35 mt-1">Se o cliente mandar várias mensagens seguidas, a IA espera esse tempo antes de responder, junta tudo numa interpretação só.</p>
+        </div>
+        <div>
+          <label className={LABEL}>Tamanho mínimo da resposta (chars)</label>
+          <input
+            type="number"
+            min={20}
+            value={cfg.min_response_chars}
+            onChange={(e) => set('min_response_chars', Number(e.target.value))}
+            className={INPUT}
+          />
+        </div>
+        <div>
+          <label className={LABEL}>Tamanho máximo da resposta (chars)</label>
+          <input
+            type="number"
+            min={40}
+            value={cfg.max_response_chars}
+            onChange={(e) => set('max_response_chars', Number(e.target.value))}
+            className={INPUT}
+          />
+        </div>
+      </div>
+
+      {/* Feedback */}
+      {error && (
+        <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-red-400 text-sm">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {error}
+        </div>
+      )}
+      {saved && (
+        <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-xl p-3 text-green-400 text-sm">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          Configuração salva com sucesso!
+        </div>
+      )}
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-60"
+      >
+        <Save className="w-4 h-4" />
+        {saving ? 'Salvando...' : 'Salvar configuração'}
+      </button>
+
+      {/* RAG placeholder */}
+      <div className="bg-vr-graphite rounded-2xl border border-white/5 p-4 space-y-3">
+        <h2 className="text-sm font-semibold text-white">BASE DE CONHECIMENTO (RAG)</h2>
+        <p className="text-xs text-vr-silver/50">
+          Envie PDFs, TXT, DOCX ou conversas exportadas — o assistente consulta esse material antes de responder.
+        </p>
+        <div className="border border-dashed border-white/10 rounded-xl p-6 text-center text-vr-silver/30 text-sm">
+          Envio de arquivos em breve — ainda vazio
+        </div>
+      </div>
+    </div>
+  )
+}

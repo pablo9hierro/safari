@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { setWhatsAppState as setState } from '@/lib/whatsapp/state'
 
-// Recebe os eventos de webhook configurados na instância da Evolution API
-// (QRCODE_UPDATED e CONNECTION_UPDATE) e mantém a tabela whatsapp_state
-// sincronizada para o painel do dashboard.
+// Recebe os eventos de webhook da Evolution API.
+// Trata: QR code, status de conexão e mensagens de texto (encaminha pro assistente IA).
 export async function POST(req: NextRequest) {
   const secret = process.env.EVOLUTION_WEBHOOK_SECRET
   if (secret && req.headers.get('x-webhook-secret') !== secret) {
@@ -22,11 +21,47 @@ export async function POST(req: NextRequest) {
 
   if (event === 'connection.update' || event === 'connection_update') {
     const state = body?.data?.state ?? body?.data?.connection
-    // 'open' e 'close' limpam o QR explicitamente (não é mais relevante).
-    // 'connecting' NÃO passa qrCode — preserva o QR que o QRCODE_UPDATED já salvou.
     if (state === 'open') await setState('connected', null)
     else if (state === 'connecting') await setState('connecting')
     else if (state === 'close' || state === 'closed') await setState('disconnected', null)
+    return NextResponse.json({ ok: true })
+  }
+
+  // Mensagens de texto recebidas — encaminha pro assistente IA (fire-and-forget)
+  if (event === 'messages.upsert' || event === 'message' || event === 'messages_upsert') {
+    const msgs = body?.data?.messages ?? (body?.data ? [body.data] : [])
+    for (const msg of msgs) {
+      // Ignora mensagens de grupos, saídas e sem texto
+      const remoteJid: string = msg?.key?.remoteJid ?? msg?.remoteJid ?? ''
+      if (remoteJid.endsWith('@g.us')) continue
+      if (msg?.key?.fromMe) continue
+
+      const text: string =
+        msg?.message?.conversation ??
+        msg?.message?.extendedTextMessage?.text ??
+        msg?.message?.imageMessage?.caption ??
+        ''
+      if (!text.trim()) continue
+
+      const phone = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '')
+      const pushName: string = msg?.pushName ?? ''
+
+      // Fire-and-forget: não bloqueia a resposta do webhook
+      const assistantUrl = process.env.NEXT_PUBLIC_APP_URL
+        ? `${process.env.NEXT_PUBLIC_APP_URL}/api/assistant/message`
+        : `${req.nextUrl.origin}/api/assistant/message`
+
+      fetch(assistantUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(process.env.ASSISTANT_WEBHOOK_SECRET
+            ? { 'x-internal-secret': process.env.ASSISTANT_WEBHOOK_SECRET }
+            : {}),
+        },
+        body: JSON.stringify({ phone, text, customerName: pushName || null }),
+      }).catch((e) => console.error('[webhook] forward to assistant failed:', e))
+    }
     return NextResponse.json({ ok: true })
   }
 
