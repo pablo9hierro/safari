@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Bot, Save, ChevronDown, ChevronUp, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { Bot, Save, ChevronDown, ChevronUp, Eye, EyeOff, AlertCircle, CheckCircle2, Upload, FileText, Trash2, Loader2 } from 'lucide-react'
 import type { AssistantConfig } from '@/lib/assistant/types'
 
 const LABEL = 'block text-xs font-semibold text-vr-silver/60 mb-1.5 uppercase tracking-wider'
@@ -282,16 +282,117 @@ export default function AssistenteClient({ initialConfig }: { initialConfig: Ass
         {saving ? 'Salvando...' : 'Salvar configuração'}
       </button>
 
-      {/* RAG placeholder */}
-      <div className="bg-vr-graphite rounded-2xl border border-white/5 p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-white">BASE DE CONHECIMENTO (RAG)</h2>
-        <p className="text-xs text-vr-silver/50">
-          Envie PDFs, TXT, DOCX ou conversas exportadas — o assistente consulta esse material antes de responder.
-        </p>
-        <div className="border border-dashed border-white/10 rounded-xl p-6 text-center text-vr-silver/30 text-sm">
-          Envio de arquivos em breve — ainda vazio
+      <RagSection />
+    </div>
+  )
+}
+
+type RagDoc = { id: string; filename: string; char_count: number; created_at: string }
+
+function RagSection() {
+  const [docs, setDocs] = useState<RagDoc[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const loadDocs = useCallback(async () => {
+    const res = await fetch('/api/assistant/rag')
+    if (res.ok) setDocs(await res.json())
+    setLoaded(true)
+  }, [])
+
+  // load on first render
+  useEffect(() => { loadDocs() }, [loadDocs])
+
+  const upload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setError(null)
+    setUploading(true)
+    const allowed = ['text/plain', 'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/csv', '']
+    for (const file of Array.from(files)) {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/assistant/rag', { method: 'POST', body: form })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        setError(j.error ?? `Erro ao enviar ${file.name}`)
+      }
+    }
+    setUploading(false)
+    loadDocs()
+  }
+
+  const remove = async (id: string) => {
+    await fetch(`/api/assistant/rag?id=${id}`, { method: 'DELETE' })
+    setDocs((d) => d.filter((x) => x.id !== id))
+  }
+
+  return (
+    <div className="bg-vr-graphite rounded-2xl border border-white/5 p-4 space-y-3">
+      <h2 className="text-sm font-semibold text-white">BASE DE CONHECIMENTO (RAG)</h2>
+      <p className="text-xs text-vr-silver/50">
+        Envie PDFs, TXT, DOCX ou exportações de conversa do WhatsApp — o assistente consulta esse material antes de responder.
+      </p>
+
+      {error && (
+        <div className="flex items-center gap-2 text-xs text-red-400 bg-red-500/8 rounded-xl px-3 py-2">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {error}
         </div>
+      )}
+
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); upload(e.dataTransfer.files) }}
+        className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors ${
+          dragOver ? 'border-vr-red/50 bg-vr-red/5' : 'border-white/10 hover:border-white/20'
+        }`}
+      >
+        {uploading ? (
+          <div className="flex items-center justify-center gap-2 text-vr-silver/50 text-xs">
+            <Loader2 className="w-4 h-4 animate-spin" /> Processando arquivo...
+          </div>
+        ) : (
+          <>
+            <Upload className="w-5 h-5 text-vr-silver/30 mx-auto mb-1.5" />
+            <p className="text-xs text-vr-silver/50">Arraste ou clique para enviar</p>
+            <p className="text-[10px] text-vr-silver/30 mt-0.5">TXT, PDF, DOCX — incluindo exportação de conversa WhatsApp</p>
+          </>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept=".txt,.pdf,.docx,.csv"
+          className="hidden"
+          onChange={(e) => upload(e.target.files)}
+        />
       </div>
+
+      {loaded && docs.length > 0 && (
+        <ul className="space-y-1.5">
+          {docs.map((doc) => (
+            <li key={doc.id} className="flex items-center gap-2 bg-vr-black/40 rounded-xl px-3 py-2">
+              <FileText className="w-3.5 h-3.5 text-vr-red shrink-0" />
+              <span className="text-xs text-white truncate flex-1">{doc.filename}</span>
+              <span className="text-[10px] text-vr-silver/40 shrink-0">{(doc.char_count / 1000).toFixed(1)}k chars</span>
+              <button
+                onClick={() => remove(doc.id)}
+                className="text-vr-silver/30 hover:text-red-400 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {loaded && docs.length === 0 && (
+        <p className="text-xs text-vr-silver/30 text-center py-1">Nenhum documento carregado ainda.</p>
+      )}
     </div>
   )
 }

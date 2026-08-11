@@ -2,7 +2,7 @@ name: Supabase Migrations
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'supabase/migrations/**'
       - '.github/workflows/supabase-migrate.yml'

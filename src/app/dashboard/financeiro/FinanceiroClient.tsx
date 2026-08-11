@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { Wallet, Wrench, ShoppingBag, Truck } from 'lucide-react'
+import MercadoPagoSection from '@/components/MercadoPagoSection'
 
 export type ServiceOrderRow = {
   id: string
@@ -195,6 +196,8 @@ export default function FinanceiroClient({
         <Wallet className="w-5 h-5 text-vr-red" />
         Financeiro
       </h1>
+
+      <MercadoPagoSection />
 
       {/* Filtro por tipo */}
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
