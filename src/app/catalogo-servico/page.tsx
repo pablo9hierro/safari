@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { fetchServiceCatalog, type CatalogCategory, type CatalogItem } from '@/lib/resolutoo/catalog'
 import CatalogoClient from './CatalogoClient'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -6,41 +6,12 @@ import { ArrowLeft } from 'lucide-react'
 import { CartProvider } from '@/lib/carrinho/context'
 import CarrinhoFlutuante from '@/components/CarrinhoFlutuante'
 
-export const revalidate = 60
+export const dynamic = 'force-dynamic'
 
-export interface CatalogCategory {
-  id: string
-  name: string
-  slug: string
-  sort_order: number
-  image_url: string | null
-}
-
-export interface CatalogItem {
-  id: string
-  category_id: string
-  model_name: string
-  repair_type: string
-  price: number
-  description: string | null
-  image_url: string | null
-  sort_order: number
-}
+export type { CatalogCategory, CatalogItem }
 
 export default async function CatalogoServicoPage() {
-  const supabase = await createClient()
-
-  const [{ data: categories }, { data: items }] = await Promise.all([
-    supabase
-      .from('service_catalog_categories')
-      .select('id, name, slug, sort_order, image_url')
-      .order('sort_order'),
-    supabase
-      .from('service_catalog_items')
-      .select('id, category_id, model_name, repair_type, price, description, image_url, sort_order')
-      .eq('active', true)
-      .order('sort_order'),
-  ])
+  const { categories, items } = await fetchServiceCatalog()
 
   return (
     <CartProvider>
