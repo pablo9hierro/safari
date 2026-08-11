@@ -1,41 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { sendWhatsAppText } from '@/lib/whatsapp/evolutionClient'
-import { ownerNewStoreOrderMessage, pendingStoreOrderCustomerMessage } from '@/lib/whatsapp/messages'
-import { StoreOrder } from '@/lib/types'
 
 const OWNER_PHONE = process.env.OWNER_PHONE || '5583920021373'
 
-function makeClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { db: { schema: 'vrtech' } }
-  )
+function currency(v: number) {
+  return `R$ ${v.toFixed(2).replace('.', ',')}`
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null)
-  const { orderId } = body ?? {}
-  if (!orderId) {
-    return NextResponse.json({ error: 'orderId required' }, { status: 400 })
+  const { orderId, total, customerName, customerWhatsapp, pickupAtStore, addressLabel } = body ?? {}
+  if (!orderId || !customerName || !customerWhatsapp) {
+    return NextResponse.json({ error: 'orderId/customerName/customerWhatsapp required' }, { status: 400 })
   }
 
-  const supabase = makeClient()
-  const { data: order, error } = await supabase
-    .from('store_orders')
-    .select('*, store_order_items(*)')
-    .eq('id', orderId)
-    .single()
+  const ownerMessage = [
+    '🛒 *Novo pedido da loja!*',
+    '',
+    `👤 *Cliente:* ${customerName}`,
+    `📞 *WhatsApp:* ${customerWhatsapp}`,
+    `💰 *Total:* ${currency(Number(total) || 0)}`,
+    '',
+    pickupAtStore
+      ? '🏠 *Entrega:* cliente vai buscar no local'
+      : `🚚 *Entrega:* ${addressLabel ?? 'endereço combinado no checkout'}`,
+    '',
+    `Pedido #${orderId}`,
+  ].join('\n')
 
-  if (error || !order) {
-    return NextResponse.json({ error: 'Pedido não encontrado' }, { status: 404 })
-  }
+  const customerMessage = [
+    `Olá, *${customerName}*! 👋`,
+    '',
+    'Recebemos seu pedido na loja da VR Tech!',
+    'Em breve nossa equipe continua por aqui mesmo no WhatsApp para fechar os detalhes da compra. 🙏',
+  ].join('\n')
 
   try {
-    const typedOrder = order as StoreOrder
-    await sendWhatsAppText(OWNER_PHONE, ownerNewStoreOrderMessage(typedOrder))
-    await sendWhatsAppText(typedOrder.customer_whatsapp, pendingStoreOrderCustomerMessage(typedOrder))
+    await sendWhatsAppText(OWNER_PHONE, ownerMessage)
+    await sendWhatsAppText(customerWhatsapp, customerMessage)
     return NextResponse.json({ ok: true })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Erro ao enviar WhatsApp'

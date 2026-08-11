@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { useCart } from '@/lib/carrinho/context'
 import dynamic from 'next/dynamic'
 import type { LocationPickerResult } from './LocationPicker'
-import { createClient } from '@/lib/supabase/client'
+import { estimateDelivery, createAssistantOrder } from '@/lib/resolutoo/checkout'
 
 const LocationPicker = dynamic(() => import('./LocationPicker'), { ssr: false })
 
@@ -52,18 +52,16 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
     setAddress(result)
     setShippingErr(null)
     setShippingPrice(null)
-    const supabase = createClient()
-    const { data, error } = await supabase.rpc('estimate_shipping', {
-      client_lat: result.lat,
-      client_lng: result.lng,
-    })
-    if (error || !data) { setShippingErr('Não foi possível calcular o frete.'); return }
-    const est = data as { km: number; price: number; max_km: number | null; within_range: boolean }
-    if (!est.within_range) {
-      setShippingErr(`Endereço fora do raio de entrega${est.max_km ? ` (${est.max_km} km)` : ''}.`)
-      return
+    try {
+      const est = await estimateDelivery(result.lat, result.lng)
+      if (!est.within_range) {
+        setShippingErr('Endereço fora do raio de entrega da loja.')
+        return
+      }
+      setShippingPrice(est.price)
+    } catch (e) {
+      setShippingErr(e instanceof Error ? e.message : 'Não foi possível calcular o frete.')
     }
-    setShippingPrice(est.price)
   }
 
   const handleFinalize = async () => {
@@ -74,46 +72,37 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
     if (!pickupAtStore && shippingErr) { setFormErr(shippingErr); return }
 
     setSubmitting(true)
-    const supabase = createClient()
 
-    const { data: order, error: orderErr } = await supabase
-      .from('store_orders')
-      .insert({
+    let order
+    try {
+      order = await createAssistantOrder({
         customer_name: customerName.trim(),
         customer_whatsapp: whatsapp.trim(),
-        shipping_price: shipping,
-        pickup_at_store: pickupAtStore,
-        address_lat: pickupAtStore ? null : address?.lat,
-        address_lng: pickupAtStore ? null : address?.lng,
-        address_label: pickupAtStore ? null : address?.label,
-        total_value: productTotal,
-        status: 'pendente',
+        items: [
+          ...productItems.map((i) => ({ product_id: i.id, quantity: i.quantity })),
+          ...serviceItems.map((i) => ({ service_id: i.id, quantity: i.quantity })),
+        ],
+        shipping_price: shipping || undefined,
       })
-      .select()
-      .single()
-
-    if (orderErr || !order) {
-      setFormErr('Erro ao criar pedido. Tente novamente.')
+    } catch (e) {
+      setFormErr(e instanceof Error ? e.message : 'Erro ao criar pedido. Tente novamente.')
       setSubmitting(false)
       return
     }
 
-    await supabase.from('store_order_items').insert(
-      productItems.map((i) => ({
-        store_order_id: order.id,
-        product_id: i.id,
-        product_name: i.name,
-        unit_price: i.price,
-        quantity: i.quantity,
-      }))
-    )
-
-    productItems.forEach((i) => remove(i.id))
+    clear()
 
     fetch('/api/whatsapp/notify-store-order', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId: order.id }),
+      body: JSON.stringify({
+        orderId: order.id,
+        total: order.total,
+        customerName: customerName.trim(),
+        customerWhatsapp: whatsapp.trim(),
+        pickupAtStore,
+        addressLabel: pickupAtStore ? null : address?.label,
+      }),
     }).catch(() => {})
 
     setSubmitting(false)
