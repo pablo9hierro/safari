@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createResolutooAuthClient } from '@/lib/supabase/resolutooAuthClient'
 import { useRouter } from 'next/navigation'
 import { Loader2, AlertCircle } from 'lucide-react'
 import Logo from '@/components/ui/Logo'
@@ -17,7 +17,7 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setError(null)
-    const supabase = createClient()
+    const supabase = createResolutooAuthClient()
     const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
     if (authError) {
       setError('E-mail ou senha incorretos')

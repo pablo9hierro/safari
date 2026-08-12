@@ -2,16 +2,31 @@
 
 import { useEffect, useState } from 'react'
 import { CreditCard, RefreshCw, Unlink, ExternalLink, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
+import { createResolutooAuthClient } from '@/lib/supabase/resolutooAuthClient'
 
-type MPStatus = {
-  status: 'connected' | 'disconnected' | 'error'
-  connected_at?: string
-  mp_user_id?: string
-  public_key?: string
+// Mesmo fluxo OAuth que qualquer lojista do Resolutoo usa (ufersin-api) —
+// grava em tenants.plataforma_credenciais, não mais numa tabela própria do
+// vrtech. Autenticação: mesmo JWT da sessão de login único (REQ-009).
+const RESOLUTOO_API_URL = process.env.NEXT_PUBLIC_RESOLUTOO_API_URL ?? 'https://ufersin-api-production.up.railway.app'
+
+type MeStatus = {
+  has_plataforma_credenciais: boolean
+  plataforma_pagamento: string | null
+  plataforma_credenciais_mask?: string | null
+}
+
+async function authFetch(path: string, init?: RequestInit) {
+  const supabase = createResolutooAuthClient()
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Sessão expirada — faça login de novo.')
+  return fetch(`${RESOLUTOO_API_URL}${path}`, {
+    ...init,
+    headers: { ...init?.headers, Authorization: `Bearer ${session.access_token}` },
+  })
 }
 
 export default function MercadoPagoSection() {
-  const [mp, setMp] = useState<MPStatus | null>(null)
+  const [mp, setMp] = useState<MeStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -19,7 +34,8 @@ export default function MercadoPagoSection() {
   const fetchStatus = async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/mercadopago/status')
+      const res = await authFetch('/api/me')
+      if (!res.ok) throw new Error()
       setMp(await res.json())
     } catch { setError('Não foi possível carregar o status do Mercado Pago') }
     finally { setLoading(false) }
@@ -31,7 +47,7 @@ export default function MercadoPagoSection() {
     setActionLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/mercadopago/oauth/start', { method: 'POST' })
+      const res = await authFetch('/api/mercadopago/oauth/start', { method: 'POST' })
       const { authorize_url } = await res.json()
       if (authorize_url) window.location.href = authorize_url
       else throw new Error('URL de autorização não retornada')
@@ -44,13 +60,13 @@ export default function MercadoPagoSection() {
     if (!confirm('Desconectar o Mercado Pago? Pagamentos via PIX vão parar de funcionar.')) return
     setActionLoading(true)
     try {
-      await fetch('/api/mercadopago/oauth/disconnect', { method: 'POST' })
+      await authFetch('/api/mercadopago/oauth/disconnect', { method: 'POST' })
       await fetchStatus()
     } catch { setError('Erro ao desconectar') }
     finally { setActionLoading(false) }
   }
 
-  const connected = mp?.status === 'connected'
+  const connected = Boolean(mp?.has_plataforma_credenciais && mp?.plataforma_pagamento === 'mercado_pago')
 
   return (
     <div className="bg-vr-graphite rounded-2xl border border-white/5 p-4 space-y-3">
@@ -78,11 +94,10 @@ export default function MercadoPagoSection() {
         </div>
       ) : (
         <>
-          {connected && mp?.connected_at && (
+          {connected && mp?.plataforma_credenciais_mask && (
             <div className="flex items-center gap-2 text-xs text-green-400/80 bg-green-500/8 rounded-xl px-3 py-2">
               <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-              Conta conectada em {new Date(mp.connected_at).toLocaleDateString('pt-BR')}
-              {mp.mp_user_id && <span className="text-vr-silver/40 ml-1">· ID {mp.mp_user_id}</span>}
+              Conta conectada · {mp.plataforma_credenciais_mask}
             </div>
           )}
 

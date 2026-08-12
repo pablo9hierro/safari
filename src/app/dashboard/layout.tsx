@@ -1,10 +1,10 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { createResolutooAuthServerClient } from '@/lib/supabase/resolutooAuthServer'
 import DashboardSidebar from '@/components/dashboard/DashboardSidebar'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   try {
-    const supabase = await createClient()
+    const supabase = await createResolutooAuthServerClient()
     const { data: { user }, error } = await supabase.auth.getUser()
     if (error) return <pre className="text-red-400 p-8 text-xs">auth.getUser error: {JSON.stringify(error)}</pre>
     if (!user) redirect('/login')

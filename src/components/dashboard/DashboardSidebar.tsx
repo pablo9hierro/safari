@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { createResolutooAuthClient } from '@/lib/supabase/resolutooAuthClient'
 import Logo from '@/components/ui/Logo'
 import { ClipboardList, Truck, Package, ShoppingBag, Wallet, LogOut, UserCog, Bot } from 'lucide-react'
 
@@ -21,7 +21,7 @@ export default function DashboardSidebar() {
   const router = useRouter()
 
   const handleLogout = async () => {
-    const supabase = createClient()
+    const supabase = createResolutooAuthClient()
     await supabase.auth.signOut()
     router.push('/login')
   }
