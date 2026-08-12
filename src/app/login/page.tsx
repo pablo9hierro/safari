@@ -24,6 +24,28 @@ export default function LoginPage() {
       setLoading(false)
       return
     }
+
+    // Login "sombra" no ecommerce-api (mesma senha, mesmo admin que o
+    // onboarding provisionou) — pega o JWT de AdminUser, necessário pra
+    // ler Pedidos/Financeiro reais (endpoints admin do motor, autenticação
+    // separada da sessão Supabase acima). Best-effort: se falhar, a tela de
+    // Pedidos mostra o erro real, não trava o login em si.
+    try {
+      const ecommerceApiUrl = process.env.NEXT_PUBLIC_ECOMMERCE_API_URL ?? 'https://ecommerce-api-production-d447.up.railway.app'
+      const tenantSlug = process.env.NEXT_PUBLIC_ECOMMERCE_TENANT_SLUG ?? 'vrtech'
+      const res = await fetch(`${ecommerceApiUrl}/api/auth/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, tenant_slug: tenantSlug }),
+      })
+      if (res.ok) {
+        const { token } = await res.json()
+        localStorage.setItem('vrtech_admin_token', token)
+      }
+    } catch {
+      /* best-effort — não bloqueia o login principal */
+    }
+
     router.push('/dashboard')
     router.refresh()
   }

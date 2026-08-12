@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import FinanceiroClient, { ServiceOrderRow, StoreOrderRow } from './FinanceiroClient'
+import FinanceiroClient, { ServiceOrderRow } from './FinanceiroClient'
 
 export default async function FinanceiroPage() {
   try {
@@ -11,21 +11,11 @@ export default async function FinanceiroPage() {
       .not('closed_at', 'is', null)
       .order('closed_at', { ascending: false })
 
-    const { data: storeOrders, error: e2 } = await supabase
-      .from('store_orders')
-      .select('id, customer_name, created_at, shipping_price, store_order_items(*)')
-      .order('created_at', { ascending: false })
-
-    if (e1 || e2) {
-      return <pre className="text-red-400 p-8 text-xs">{JSON.stringify({ e1, e2 }, null, 2)}</pre>
+    if (e1) {
+      return <pre className="text-red-400 p-8 text-xs">{JSON.stringify({ e1 }, null, 2)}</pre>
     }
 
-    return (
-      <FinanceiroClient
-        serviceOrders={(serviceOrders ?? []) as unknown as ServiceOrderRow[]}
-        storeOrders={(storeOrders ?? []) as unknown as StoreOrderRow[]}
-      />
-    )
+    return <FinanceiroClient serviceOrders={(serviceOrders ?? []) as unknown as ServiceOrderRow[]} />
   } catch (err) {
     return <pre className="text-red-400 p-8 text-xs">{String(err)}</pre>
   }

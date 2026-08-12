@@ -1,8 +1,10 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Wallet, Wrench, ShoppingBag, Truck } from 'lucide-react'
 import MercadoPagoSection from '@/components/MercadoPagoSection'
+import { fetchOrders, AdminAuthError, type Order } from '@/lib/resolutoo/adminApi'
 
 export type ServiceOrderRow = {
   id: string
@@ -10,24 +12,6 @@ export type ServiceOrderRow = {
   final_value: number | null
   request_id: string
   service_requests: { customer_name: string; customer_phone: string; phone_model: string; payment_methods: { method: string; value: number }[] | null; shipping_price: number | null } | null
-}
-
-type StoreOrderItemRow = {
-  id: string
-  product_name: string
-  unit_price: number
-  quantity: number
-  status: string
-  discount_percent: number | null
-  payment_methods: { method: string; value: number }[] | null
-}
-
-export type StoreOrderRow = {
-  id: string
-  customer_name: string
-  created_at: string
-  shipping_price: number | null
-  store_order_items: StoreOrderItemRow[] | null
 }
 
 type Transaction = {
@@ -86,13 +70,23 @@ function formatDay(day: string) {
   return `${d}/${m}`
 }
 
-export default function FinanceiroClient({
-  serviceOrders,
-  storeOrders,
-}: {
-  serviceOrders: ServiceOrderRow[]
-  storeOrders: StoreOrderRow[]
-}) {
+export default function FinanceiroClient({ serviceOrders }: { serviceOrders: ServiceOrderRow[] }) {
+  const router = useRouter()
+  const [orders, setOrders] = useState<Order[]>([])
+  const [ordersError, setOrdersError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchOrders()
+      .then(setOrders)
+      .catch((e) => {
+        if (e instanceof AdminAuthError) {
+          router.push('/login')
+          return
+        }
+        setOrdersError(e instanceof Error ? e.message : 'Não foi possível carregar os pedidos.')
+      })
+  }, [router])
+
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [datePreset, setDatePreset] = useState<DatePreset>('30d')
   const [customFrom, setCustomFrom] = useState('')
@@ -114,30 +108,24 @@ export default function FinanceiroClient({
         paymentMethods: (o.service_requests?.payment_methods ?? []).map((p) => p.method),
       }))
 
-    const venda: Transaction[] = storeOrders
-      .map((order): Transaction | null => {
-        const soldItems = (order.store_order_items ?? []).filter((i) => i.status === 'vendido')
-        const value = soldItems.reduce((sum, i) => {
-          const discount = i.discount_percent ?? 0
-          return sum + Number(i.unit_price) * i.quantity * (1 - discount / 100)
-        }, 0)
-        if (value <= 0 && !order.shipping_price) return null
-        return {
-          id: `store-${order.id}`,
-          type: 'venda',
-          date: order.created_at,
-          title: order.customer_name,
-          phone: '',
-          subtitle: soldItems.map((i) => `${i.quantity}x ${i.product_name}`).join(', '),
-          value,
-          freteValue: Number(order.shipping_price ?? 0),
-          paymentMethods: Array.from(new Set(soldItems.flatMap((i) => (i.payment_methods ?? []).map((p) => p.method)))),
-        }
-      })
-      .filter((t): t is Transaction => t !== null)
+    // Pedido real pago (Pix/cartão via Mercado Pago do Resolutoo) — valor
+    // vendido é o total menos o frete (frete entra separado, igual manutenção).
+    const venda: Transaction[] = orders
+      .filter((o) => o.payment_status === 'pago')
+      .map((order) => ({
+        id: `order-${order.id}`,
+        type: 'venda' as const,
+        date: order.created_at,
+        title: order.customer_name,
+        phone: order.customer_whatsapp,
+        subtitle: order.items.map((i) => `${i.quantity}x ${i.product_name}`).join(', '),
+        value: Math.max(0, order.total - order.shipping_price),
+        freteValue: order.shipping_price,
+        paymentMethods: [order.payment_method],
+      }))
 
     return [...manutencao, ...venda].sort((a, b) => b.date.localeCompare(a.date))
-  }, [serviceOrders, storeOrders])
+  }, [serviceOrders, orders])
 
   const rangeStart = useMemo(() => (datePreset !== 'all' ? startOfPreset(datePreset) : null), [datePreset])
 
@@ -196,6 +184,12 @@ export default function FinanceiroClient({
         <Wallet className="w-5 h-5 text-vr-red" />
         Financeiro
       </h1>
+
+      {ordersError && (
+        <div className="flex items-center gap-2 bg-red-500/8 border border-red-500/20 rounded-xl px-3 py-2.5 text-red-400 text-sm">
+          {ordersError}
+        </div>
+      )}
 
       <MercadoPagoSection />
 
