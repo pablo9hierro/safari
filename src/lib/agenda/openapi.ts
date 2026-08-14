@@ -8,6 +8,7 @@
  */
 import { AGENDA_TOOLS } from './tools'
 import { MIN_JUSTIFICATION_LENGTH } from './types'
+import { otherPaths, otherSchemas, otherTags } from './openapiOther'
 
 const appointmentSchema = {
   type: 'object',
@@ -126,36 +127,46 @@ export function buildAgendaOpenApi() {
   return {
     openapi: '3.0.3',
     info: {
-      title: 'VR Tech — Agenda e Assistente IA',
+      title: 'VR Tech — API do serviço',
       version: '1.0.0',
       description: [
-        'Agenda de serviços da loja: **mesma fonte de verdade** usada pelo painel',
-        '`/dashboard/agenda` e pelas ferramentas de tool calling da Assistente IA no WhatsApp.',
+        'API da loja VR Tech (assistência técnica de eletrônicos), rodando dentro da',
+        'infraestrutura do Resolutoo. Cobre agenda de serviços, Assistente IA,',
+        'canal WhatsApp e solicitações de reparo.',
         '',
-        '**Regras de negócio:**',
+        'A **agenda** é a fonte única de verdade usada tanto pelo painel',
+        '`/dashboard/agenda` quanto pelas ferramentas de tool calling da Assistente IA.',
+        '',
+        '**Regras de negócio da agenda:**',
         '- Agendamento existe apenas para SERVIÇO. Produto segue o fluxo de venda/carrinho e nunca entra na agenda.',
         '- Serviço sempre exige agendamento, inclusive quando o cliente pede atendimento "agora".',
         '- Dois agendamentos não podem se sobrepor: a garantia é uma constraint `EXCLUDE` no Postgres, então requisições simultâneas pelo mesmo horário resultam em exatamente uma aceita (`409`).',
         `- Remarcação e cancelamento feitos pelo lojista exigem justificativa de no mínimo ${MIN_JUSTIFICATION_LENGTH} caracteres, validada no servidor.`,
         '- Nada é apagado: cancelar/remarcar são transições de status e geram registro de auditoria.',
         '',
-        'As rotas exigem sessão de lojista (cookie do Supabase Auth do Resolutoo, o mesmo do `/dashboard`).',
+        '**Autenticação (varia por grupo):**',
+        '- `Agenda`: sessão de lojista (cookie do Supabase Auth do Resolutoo, a mesma do `/dashboard`). Sem sessão → `401`.',
+        '- `Assistente IA` (`/message`) e `WhatsApp` (`/webhook`): chamadas internas, protegidas por header secreto (`x-internal-secret` / `x-webhook-secret`).',
+        '- `Solicitações de reparo`: `/api/consultar` é público — o telefone do cliente é a credencial, e ações exigem que ele confira.',
       ].join('\n'),
     },
     servers: [{ url: 'http://localhost:3000', description: 'Desenvolvimento local' }],
     tags: [
-      { name: 'Agenda', description: 'Endpoints REST usados pelo painel administrativo.' },
+      { name: 'Agenda', description: 'Agendamento de serviços. Endpoints REST do painel administrativo.' },
       {
-        name: 'Assistente IA — Tools',
+        name: 'Agenda — Tools da IA',
         description:
-          'Ferramentas de tool calling registradas no pipeline da assistente. Só são oferecidas ao modelo quando `agenda_settings.appointment_ai_enabled = true` (feature flag por loja).',
+          'Ferramentas de tool calling registradas no pipeline da assistente existente. Só são oferecidas ao modelo quando `agenda_settings.appointment_ai_enabled = true` (feature flag por loja). Ver o schema `AgendaTools`.',
       },
+      ...otherTags,
     ],
     paths: {
       '/api/appointments': {
         get: {
           tags: ['Agenda'],
           summary: 'Listar agendamentos',
+          description:
+            'Filtros são combináveis (AND). `date` recorta pelo dia local da loja (America/Sao_Paulo), não pelo dia UTC. Sem nenhum filtro, retorna todos os agendamentos ordenados por horário de início.',
           parameters: [
             { name: 'date', in: 'query', schema: { type: 'string', example: '2026-08-20' }, description: 'Dia local da loja (AAAA-MM-DD).' },
             { name: 'service_id', in: 'query', schema: { type: 'string' } },
@@ -225,6 +236,8 @@ export function buildAgendaOpenApi() {
         get: {
           tags: ['Agenda'],
           summary: 'Detalhe do agendamento com histórico',
+          description:
+            'Retorna o agendamento com `events`: a trilha completa de auditoria (criação, remarcações, cancelamento), do mais recente para o mais antigo, incluindo quem agiu, quando, horários antes/depois e a justificativa registrada.',
           parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
           responses: {
             200: {
@@ -311,6 +324,7 @@ export function buildAgendaOpenApi() {
           },
         },
       },
+      ...otherPaths,
     },
     components: {
       schemas: {
@@ -318,13 +332,15 @@ export function buildAgendaOpenApi() {
         AppointmentEvent: eventSchema,
         Availability: availabilitySchema,
         Error: errorSchema,
+        ...otherSchemas,
         /**
          * Catálogo das tools, derivado da MESMA constante entregue ao modelo —
          * a doc não pode divergir do que a assistente realmente recebe.
          */
-        AssistantTools: {
+        AgendaTools: {
           type: 'object',
-          description: 'Ferramentas de agenda disponíveis para a Assistente IA (tool calling OpenAI).',
+          description:
+            'Ferramentas de agenda disponíveis para a Assistente IA (tool calling da OpenAI, registrado em `src/lib/assistant/aiClient.ts`). Gerado a partir da mesma constante enviada ao modelo, então esta documentação não pode divergir do comportamento real.',
           properties: Object.fromEntries(
             AGENDA_TOOLS.map((tool) => [
               tool.name,
