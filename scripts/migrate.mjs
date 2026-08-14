@@ -6,43 +6,41 @@
  *
  * Serve tanto pra rodar na mão quanto num passo de CI.
  *
- * IMPORTANTE — credencial: isto precisa de uma conexão Postgres de verdade
- * (`SUPABASE_DB_URL`). A `SUPABASE_SERVICE_ROLE_KEY` NÃO serve aqui: ela
- * autentica no PostgREST, que só expõe as tabelas via REST e não executa DDL
- * (CREATE TABLE/CONSTRAINT). Pegue a connection string em:
- *   Supabase Dashboard → Project Settings → Database → Connection string → URI
+ * Duas formas de autenticar (nesta ordem de preferência):
+ *
+ *   1. SUPABASE_ACCESS_TOKEN (`sbp_...`) + SUPABASE_PROJECT_REF
+ *      Management API. É o caminho de CI: token revogável, sem senha de banco
+ *      em lugar nenhum, e não depende de conectividade Postgres direta.
+ *
+ *   2. SUPABASE_DB_URL (`postgresql://...`)
+ *      Conexão Postgres direta.
+ *
+ * A SUPABASE_SERVICE_ROLE_KEY NÃO serve para migration: ela autentica no
+ * PostgREST, que expõe as tabelas via REST e não executa DDL.
  *
  * Uso:
- *   SUPABASE_DB_URL="postgresql://..." node scripts/migrate.mjs
- *   node scripts/migrate.mjs --dry-run    (só lista o que seria aplicado)
+ *   SUPABASE_ACCESS_TOKEN=sbp_... SUPABASE_PROJECT_REF=xxxx npm run migrate
+ *   SUPABASE_DB_URL="postgresql://..." npm run migrate
+ *   npm run migrate:dry     (só lista o que seria aplicado)
+ *
+ *   node scripts/migrate.mjs --baseline-until=<arquivo.sql>
+ *       Marca como aplicadas, SEM executar, todas as migrations até o arquivo
+ *       informado (inclusive). Necessário uma única vez neste projeto: as
+ *       migrations antigas foram rodadas à mão no SQL Editor antes deste
+ *       runner existir, então reexecutá-las (seeds, CREATE POLICY) daria erro
+ *       ou duplicaria dados.
  */
 import { readdir, readFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import postgres from 'postgres'
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'supabase', 'migrations')
 const dryRun = process.argv.includes('--dry-run')
+const baselineUntil = process.argv.find((a) => a.startsWith('--baseline-until='))?.split('=')[1]
 
+const accessToken = process.env.SUPABASE_ACCESS_TOKEN
+const projectRef = process.env.SUPABASE_PROJECT_REF
 const dbUrl = process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL
-if (!dbUrl && !dryRun) {
-  console.error(`
-Falta a connection string do Postgres.
-
-  SUPABASE_DB_URL não está definida.
-
-A SUPABASE_SERVICE_ROLE_KEY não funciona para migrations — ela dá acesso ao
-PostgREST (dados via REST), não ao Postgres (DDL). Pegue a URI em:
-
-  Supabase Dashboard → Project Settings → Database → Connection string → URI
-
-e rode:
-
-  SUPABASE_DB_URL="postgresql://postgres.<ref>:<senha>@<host>:5432/postgres" \\
-    node scripts/migrate.mjs
-`)
-  process.exit(1)
-}
 
 const files = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith('.sql')).sort()
 
@@ -52,44 +50,117 @@ if (dryRun) {
   process.exit(0)
 }
 
-const sql = postgres(dbUrl, { max: 1, onnotice: () => {} })
+/** Executa SQL e devolve as linhas. Implementado por cada backend. */
+let runSql
+let closeConnection = async () => {}
+
+if (accessToken && projectRef) {
+  const endpoint = `https://api.supabase.com/v1/projects/${projectRef}/database/query`
+  runSql = async (query) => {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    })
+    const text = await res.text()
+    if (!res.ok) throw new Error(`Management API ${res.status}: ${text}`)
+    try {
+      return JSON.parse(text)
+    } catch {
+      return []
+    }
+  }
+  console.log(`Aplicando via Management API no projeto ${projectRef}.\n`)
+} else if (dbUrl) {
+  const { default: postgres } = await import('postgres')
+  const sql = postgres(dbUrl, { max: 1, onnotice: () => {} })
+  runSql = (query) => sql.unsafe(query)
+  closeConnection = () => sql.end({ timeout: 5 })
+  console.log('Aplicando via conexão Postgres direta.\n')
+} else {
+  console.error(`
+Falta credencial para aplicar as migrations.
+
+Use uma destas:
+
+  SUPABASE_ACCESS_TOKEN=sbp_... SUPABASE_PROJECT_REF=<ref> npm run migrate
+      Token em supabase.com/dashboard/account/tokens
+
+  SUPABASE_DB_URL="postgresql://..." npm run migrate
+      Connection string no botão "Connect" do topo do dashboard
+
+A SUPABASE_SERVICE_ROLE_KEY não funciona aqui — ela dá acesso ao PostgREST
+(dados via REST), não ao Postgres (DDL).
+`)
+  process.exit(1)
+}
+
+/** Escapa string pra literal SQL (só usado com nomes de migration). */
+const lit = (s) => `'${String(s).replace(/'/g, "''")}'`
 
 try {
-  await sql`CREATE SCHEMA IF NOT EXISTS vrtech`
-  await sql`
+  await runSql('CREATE SCHEMA IF NOT EXISTS vrtech')
+  await runSql(`
     CREATE TABLE IF NOT EXISTS vrtech._migrations (
       name TEXT PRIMARY KEY,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
-  `
+  `)
 
-  const applied = new Set((await sql`SELECT name FROM vrtech._migrations`).map((r) => r.name))
+  const rows = await runSql('SELECT name FROM vrtech._migrations')
+  const applied = new Set((rows ?? []).map((r) => r.name))
+
+  if (baselineUntil) {
+    const cut = files.indexOf(baselineUntil)
+    if (cut === -1) {
+      console.error(`Arquivo não encontrado em supabase/migrations/: ${baselineUntil}`)
+      await closeConnection()
+      process.exit(1)
+    }
+    const toMark = files.slice(0, cut + 1).filter((f) => !applied.has(f))
+    if (toMark.length === 0) {
+      console.log('Baseline já registrado, nada a marcar.')
+    } else {
+      const values = toMark.map((n) => `(${lit(n)})`).join(', ')
+      await runSql(`INSERT INTO vrtech._migrations (name) VALUES ${values} ON CONFLICT (name) DO NOTHING`)
+      console.log(`Marcadas como aplicadas (sem executar) ${toMark.length} migration(s):`)
+      for (const n of toMark) console.log('  -', n)
+    }
+    console.log('\nBaseline concluído. Rode `npm run migrate` para aplicar o que vier depois.')
+    await closeConnection()
+    process.exit(0)
+  }
+
   const pending = files.filter((f) => !applied.has(f))
 
   if (pending.length === 0) {
     console.log(`Nada a aplicar — ${applied.size} migration(s) já registrada(s).`)
+    await closeConnection()
     process.exit(0)
   }
 
   console.log(`${pending.length} migration(s) pendente(s):`)
+  let failed = false
   for (const name of pending) {
     const content = await readFile(join(MIGRATIONS_DIR, name), 'utf8')
     process.stdout.write(`  → ${name} ... `)
     try {
-      // Uma transação por arquivo: se a migration falhar no meio, nada dela
-      // fica aplicado e o registro não é gravado.
-      await sql.begin(async (tx) => {
-        await tx.unsafe(content)
-        await tx`INSERT INTO vrtech._migrations (name) VALUES (${name})`
-      })
+      // Uma transação por arquivo: se falhar no meio, nada dela fica aplicado
+      // e o registro em _migrations não é gravado.
+      await runSql(`BEGIN;\n${content}\nINSERT INTO vrtech._migrations (name) VALUES (${lit(name)});\nCOMMIT;`)
       console.log('ok')
     } catch (e) {
       console.log('FALHOU')
       console.error(`\n${e.message}\n`)
-      process.exit(1)
+      failed = true
+      break
     }
+  }
+  if (failed) {
+    await closeConnection()
+    process.exit(1)
   }
   console.log('\nTodas as migrations pendentes foram aplicadas.')
 } finally {
-  await sql.end({ timeout: 5 })
+  await closeConnection()
 }
