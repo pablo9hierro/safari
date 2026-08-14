@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import type { ToolDef, ToolCallRecord } from './aiClient'
+import { AGENDA_TOOLS, agendaToolsEnabled, executeAgendaTool } from '@/lib/agenda/tools'
 
 export const TOOLS: ToolDef[] = [
   {
@@ -103,11 +104,21 @@ async function consultarPedido(phone: string): Promise<string> {
   }).join('\n')
 }
 
+/**
+ * Lista de tools oferecida ao modelo nesta interação. As de agenda só entram
+ * quando a loja tem a feature ligada (agenda_settings.appointment_ai_enabled).
+ */
+export async function resolveTools(): Promise<ToolDef[]> {
+  return (await agendaToolsEnabled()) ? [...TOOLS, ...AGENDA_TOOLS] : TOOLS
+}
+
 export async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
   try {
     if (name === 'buscar_produtos') return await buscarProdutos(String(input.query ?? ''))
     if (name === 'buscar_servicos') return await buscarServicos(String(input.query ?? ''))
     if (name === 'consultar_pedido') return await consultarPedido(String(input.phone ?? ''))
+    const agenda = await executeAgendaTool(name, input)
+    if (agenda !== null) return agenda
     return `Ferramenta desconhecida: ${name}`
   } catch (e) {
     return `Erro ao executar ${name}: ${e instanceof Error ? e.message : String(e)}`

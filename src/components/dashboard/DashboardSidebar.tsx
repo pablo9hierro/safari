@@ -4,10 +4,11 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createResolutooAuthClient } from '@/lib/supabase/resolutooAuthClient'
 import Logo from '@/components/ui/Logo'
-import { ClipboardList, Truck, Package, ShoppingBag, Wallet, LogOut, UserCog, Bot } from 'lucide-react'
+import { ClipboardList, Truck, Package, ShoppingBag, Wallet, LogOut, UserCog, Bot, CalendarDays } from 'lucide-react'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Solicitações', icon: ClipboardList },
+  { href: '/dashboard/agenda', label: 'Agenda', icon: CalendarDays },
   { href: '/dashboard/produtos', label: 'Produtos/Serviços', icon: Package },
   { href: '/dashboard/pedidos', label: 'Pedidos', icon: ShoppingBag },
   { href: '/dashboard/frete', label: 'Frete', icon: Truck },
