@@ -6,7 +6,7 @@ import { BookOpen, Plus, Trash2, Loader2, Check, ExternalLink } from 'lucide-rea
 import Link from 'next/link'
 
 interface Category { id: string; name: string; slug: string; sort_order: number }
-interface Item { id: string; category_id: string; model_name: string; repair_type: string; price: number; description: string | null; sort_order: number; active: boolean }
+interface Item { id: string; category_id: string; model_name: string; repair_type: string; price: number; duration_minutes: number; description: string | null; sort_order: number; active: boolean }
 
 const INPUT = 'w-full px-3 py-2 rounded-lg border border-white/10 bg-vr-black text-white placeholder-white/25 text-sm outline-none focus:border-vr-red/60 transition-all'
 
@@ -26,6 +26,9 @@ export default function ServicosTab({ initialCategories, initialItems }: Props) 
   const [newModel, setNewModel] = useState('')
   const [newRepair, setNewRepair] = useState('')
   const [newPrice, setNewPrice] = useState('')
+  // Duração cobre o atendimento inteiro: coleta + manutenção + entrega.
+  // É ela que define quanto tempo o agendamento ocupa na agenda.
+  const [newDuration, setNewDuration] = useState('')
   const [newDesc, setNewDesc] = useState('')
   const [savingItem, setSavingItem] = useState(false)
   const [savedItem, setSavedItem] = useState(false)
@@ -59,7 +62,9 @@ export default function ServicosTab({ initialCategories, initialItems }: Props) 
   }
 
   const addItem = async () => {
+    const duration = Number(newDuration)
     if (!activeCatId || !newModel.trim() || !newRepair.trim() || !newPrice) return
+    if (!Number.isFinite(duration) || duration <= 0) return
     setSavingItem(true)
     const supabase = createClient()
     const { data, error } = await supabase
@@ -69,6 +74,7 @@ export default function ServicosTab({ initialCategories, initialItems }: Props) 
         model_name: newModel.trim(),
         repair_type: newRepair.trim(),
         price: parseFloat(newPrice),
+        duration_minutes: duration,
         description: newDesc.trim() || null,
         sort_order: activeItems.length,
       })
@@ -77,7 +83,7 @@ export default function ServicosTab({ initialCategories, initialItems }: Props) 
     setSavingItem(false)
     if (error || !data) return
     setItems((prev) => [...prev, data as Item])
-    setNewModel(''); setNewRepair(''); setNewPrice(''); setNewDesc('')
+    setNewModel(''); setNewRepair(''); setNewPrice(''); setNewDuration(''); setNewDesc('')
     setSavedItem(true); setTimeout(() => setSavedItem(false), 1500)
   }
 
@@ -159,11 +165,28 @@ export default function ServicosTab({ initialCategories, initialItems }: Props) 
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-vr-silver/40 text-xs">R$</span>
                 <input type="number" step="0.01" min="0" value={newPrice} onChange={(e) => setNewPrice(e.target.value)} placeholder="0,00" className={`${INPUT} pl-8`} />
               </div>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="1"
+                  step="5"
+                  value={newDuration}
+                  onChange={(e) => setNewDuration(e.target.value)}
+                  placeholder="Duração *"
+                  className={`${INPUT} pr-12`}
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-vr-silver/40 text-xs">min</span>
+              </div>
               <input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Descrição opcional" className={INPUT} />
             </div>
+            <p className="text-xs text-vr-silver/50 -mt-1">
+              A <strong className="text-vr-silver/70">duração</strong> é obrigatória e conta o atendimento
+              inteiro — coleta do aparelho + manutenção + entrega. É ela que define quanto tempo o
+              horário fica ocupado na agenda.
+            </p>
             <button
               onClick={addItem}
-              disabled={savingItem || !newModel.trim() || !newRepair.trim() || !newPrice}
+              disabled={savingItem || !newModel.trim() || !newRepair.trim() || !newPrice || !(Number(newDuration) > 0)}
               className={`w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all
                 ${savedItem ? 'bg-green-600 text-white' : 'bg-vr-red text-white hover:bg-vr-red/90 disabled:opacity-40'}`}
             >
@@ -181,6 +204,9 @@ export default function ServicosTab({ initialCategories, initialItems }: Props) 
                       <span className="text-sm text-white font-medium">{item.model_name}</span>
                       <span className="text-xs bg-vr-red/15 text-vr-red px-2 py-0.5 rounded-full">{item.repair_type}</span>
                       <span className="text-sm font-bold text-white">R$ {Number(item.price).toFixed(2)}</span>
+                      <span className="text-xs bg-white/5 text-vr-silver/70 px-2 py-0.5 rounded-full">
+                        {item.duration_minutes} min
+                      </span>
                     </div>
                     {item.description && <p className="text-xs text-vr-silver/50 mt-0.5 truncate">{item.description}</p>}
                   </div>

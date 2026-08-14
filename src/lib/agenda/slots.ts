@@ -94,12 +94,41 @@ export function parseStoreDateTime(dateStr: string, timeStr: string): Date {
   return storeTimeToUtc(Number(dm[1]), Number(dm[2]), Number(dm[3]), hour, minute)
 }
 
-/** Formata para exibição/mensagem ao cliente: "20/08 às 14:30". */
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/** Formata para exibição/mensagem ao cliente: "20/08 às 14:30" (24h, padrão BR). */
 export function formatStoreDateTime(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date
   const p = partsInStoreTz(d)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(p.day)}/${pad(p.month)} às ${pad(p.hour)}:${pad(p.minute)}`
+  return `${pad2(p.day)}/${pad2(p.month)} às ${pad2(p.hour)}:${pad2(p.minute)}`
+}
+
+/** Só a hora, 24h: "14:30". */
+export function formatStoreTime(date: Date | string): string {
+  const p = partsInStoreTz(typeof date === 'string' ? new Date(date) : date)
+  return `${pad2(p.hour)}:${pad2(p.minute)}`
+}
+
+/** Data completa no padrão brasileiro: "20/08/2026". */
+export function formatStoreDate(date: Date | string): string {
+  const p = partsInStoreTz(typeof date === 'string' ? new Date(date) : date)
+  return `${pad2(p.day)}/${pad2(p.month)}/${p.year}`
+}
+
+/** "AAAA-MM-DD" → "20/08/2026", sem passar por Date (evita erro de fuso). */
+export function dateKeyToBr(dateKey: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey)
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : dateKey
+}
+
+/** Hoje e amanhã na hora da loja — a janela em que a loja aceita agendamento. */
+export function bookingWindowDays(): { key: string; label: string }[] {
+  const now = new Date()
+  const tomorrow = new Date(now.getTime() + 86_400_000)
+  return [
+    { key: storeDateKey(now), label: `Hoje (${dateKeyToBr(storeDateKey(now))})` },
+    { key: storeDateKey(tomorrow), label: `Amanhã (${dateKeyToBr(storeDateKey(tomorrow))})` },
+  ]
 }
 
 /** "AAAA-MM-DD" da data, na hora da loja. */

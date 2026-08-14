@@ -10,6 +10,7 @@ import { useCart } from '@/lib/carrinho/context'
 import dynamic from 'next/dynamic'
 import type { LocationPickerResult } from './LocationPicker'
 import { estimateDelivery, createAssistantOrder } from '@/lib/resolutoo/checkout'
+import AgendamentoPicker from './AgendamentoPicker'
 
 const LocationPicker = dynamic(() => import('./LocationPicker'), { ssr: false })
 
@@ -38,6 +39,8 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
   const [mapOpen, setMapOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [formErr, setFormErr] = useState<string | null>(null)
+  // Serviço sempre exige agendamento — sem horário escolhido, o checkout não fecha.
+  const [agendamento, setAgendamento] = useState<{ date: string; time: string } | null>(null)
 
   const productItems = items.filter((i) => i.type === 'product')
   const serviceItems = items.filter((i) => i.type === 'service')
@@ -70,6 +73,10 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
     if (whatsapp.replace(/\D/g, '').length < 10) { setFormErr('WhatsApp inválido.'); return }
     if (!pickupAtStore && !address) { setFormErr('Selecione o endereço de entrega no mapa.'); return }
     if (!pickupAtStore && shippingErr) { setFormErr(shippingErr); return }
+    if (hasServices && !agendamento?.time) {
+      setFormErr('Escolha o horário do atendimento do serviço.')
+      return
+    }
 
     setSubmitting(true)
 
@@ -88,6 +95,37 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
       setFormErr(e instanceof Error ? e.message : 'Erro ao criar pedido. Tente novamente.')
       setSubmitting(false)
       return
+    }
+
+    // Serviço só existe com horário reservado. Se a reserva falhar (alguém
+    // pegou o horário nesse meio tempo), avisa em vez de deixar o cliente
+    // achando que ficou marcado.
+    if (hasServices && agendamento?.time) {
+      try {
+        const res = await fetch('/api/agenda/public/appointments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            data: agendamento.date,
+            horario: agendamento.time,
+            customer_name: customerName.trim(),
+            customer_whatsapp: whatsapp.trim(),
+            service_id: serviceItems[0]?.id,
+            service_label: serviceItems[0]?.name,
+            order_id: order.id,
+          }),
+        })
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}))
+          setFormErr(j.error ?? 'Esse horário acabou de ser ocupado. Escolha outro.')
+          setSubmitting(false)
+          return
+        }
+      } catch {
+        setFormErr('Não foi possível reservar o horário. Tente novamente.')
+        setSubmitting(false)
+        return
+      }
     }
 
     clear()
@@ -343,6 +381,21 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
                 {!shippingErr && address && shippingPrice !== null && (
                   <p className="text-xs text-vr-silver/50 mt-1">Frete: {fmt(shippingPrice)}</p>
                 )}
+              </div>
+            )}
+
+            {hasServices && (
+              <div className="border-t border-white/10 pt-3 space-y-3">
+                <AgendamentoPicker
+                  serviceId={serviceItems[0]?.id}
+                  value={agendamento}
+                  onChange={setAgendamento}
+                />
+                <p className="rounded-xl border border-white/10 bg-white/2 px-3 py-2.5 text-xs text-vr-silver/70">
+                  <strong className="text-vr-silver">Serviço é pago só no final.</strong> Agora você
+                  está enviando a solicitação — o pagamento do serviço acontece depois que a
+                  manutenção for concluída e o aparelho entregue.
+                </p>
               </div>
             )}
 

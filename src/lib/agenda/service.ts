@@ -194,7 +194,7 @@ export async function resolveService(
   }
   const { data, error } = await db
     .from('service_catalog_items')
-    .select('id, model_name, repair_type')
+    .select('id, model_name, repair_type, duration_minutes')
     .eq('id', serviceId)
     .maybeSingle()
   if (error) throw new AgendaError(`Falha ao buscar serviço: ${error.message}`, 'validation')
@@ -202,7 +202,9 @@ export async function resolveService(
   return {
     service_id: data.id as string,
     service_label: `${data.model_name} — ${data.repair_type}`,
-    duration_minutes: settings.default_duration_minutes,
+    // A duração do serviço cobre coleta + manutenção + entrega, e é ela que
+    // define quanto tempo o agendamento ocupa a agenda.
+    duration_minutes: (data.duration_minutes as number) || settings.default_duration_minutes,
   }
 }
 
@@ -362,6 +364,86 @@ export async function listAppointments(
   return rows
 }
 
+export type DaySlot = {
+  starts_at: string
+  ends_at: string
+  available: boolean
+  /** Só preenchido quando indisponível. */
+  reason?: 'ocupado' | 'bloqueado' | 'muito_em_cima'
+  /** Nome do cliente/serviço — visível só para o lojista. */
+  label?: string
+}
+
+/**
+ * Grade do dia inteiro: o dia começa 100% disponível e vai sendo ocupado
+ * conforme atendimentos são marcados (pelo cliente ou pelo lojista) e
+ * horários são bloqueados.
+ *
+ * `includePrivate` decide se os rótulos internos (nome do cliente, motivo do
+ * bloqueio) acompanham o resultado — o painel do lojista mostra, o cliente não.
+ */
+export async function getDayAvailability(
+  dateKey: string,
+  durationMinutes: number,
+  db: Db = createServiceClient(),
+  opts: { includePrivate?: boolean } = {},
+): Promise<DaySlot[]> {
+  const settings = await getSettings(db)
+  const hours = await getBusinessHours(db)
+  const slots = slotsForDay(dateKey, hours, settings.slot_minutes, durationMinutes)
+  if (slots.length === 0) return []
+
+  const dayStart = slots[0].start
+  const dayEnd = slots[slots.length - 1].end
+  const [appointments, blocks] = await Promise.all([
+    liveAppointmentsInRange(db, dayStart, dayEnd),
+    listBlocks(dayStart, dayEnd, db),
+  ])
+
+  const earliest = new Date(Date.now() + settings.lead_time_minutes * 60_000)
+
+  return slots.map((slot) => {
+    const appt = appointments.find((a) =>
+      overlaps(slot, { start: new Date(a.starts_at), end: new Date(a.ends_at) }),
+    )
+    if (appt) {
+      return {
+        starts_at: slot.start.toISOString(),
+        ends_at: slot.end.toISOString(),
+        available: false,
+        reason: 'ocupado' as const,
+        ...(opts.includePrivate
+          ? { label: `${appt.customer_name} — ${appt.service_label}` }
+          : {}),
+      }
+    }
+
+    const block = blocks.find((b) =>
+      overlaps(slot, { start: new Date(b.starts_at), end: new Date(b.ends_at) }),
+    )
+    if (block) {
+      return {
+        starts_at: slot.start.toISOString(),
+        ends_at: slot.end.toISOString(),
+        available: false,
+        reason: 'bloqueado' as const,
+        ...(opts.includePrivate ? { label: block.reason ?? 'Bloqueado' } : {}),
+      }
+    }
+
+    if (slot.start < earliest) {
+      return {
+        starts_at: slot.start.toISOString(),
+        ends_at: slot.end.toISOString(),
+        available: false,
+        reason: 'muito_em_cima' as const,
+      }
+    }
+
+    return { starts_at: slot.start.toISOString(), ends_at: slot.end.toISOString(), available: true }
+  })
+}
+
 export type RescheduleResult = {
   appointment: Appointment
   previous: { starts_at: string; ends_at: string }
@@ -468,6 +550,134 @@ export async function cancelAppointment(
     new_ends_at: null,
   })
   return data as Appointment
+}
+
+/**
+ * Conclui o atendimento. Se terminou antes do previsto, o fim é encurtado
+ * para agora — e o tempo que sobrava volta a ficar livre na agenda.
+ *
+ * Ex.: atendimento 09:00–09:40 concluído às 09:20 libera 09:20–09:40 para
+ * outro cliente marcar.
+ */
+export async function completeAppointment(
+  id: string,
+  opts: { actor_type: ActorType; actor_id?: string | null },
+  db: Db = createServiceClient(),
+): Promise<{ appointment: Appointment; freed_minutes: number }> {
+  const current = await getAppointment(id, db)
+  if (!current) throw new AgendaError('Agendamento não encontrado.', 'not_found')
+  if (current.status === 'cancelado') {
+    throw new AgendaError('Não é possível concluir um agendamento cancelado.', 'validation')
+  }
+  if (current.status === 'concluido') return { appointment: current, freed_minutes: 0 }
+
+  const now = new Date()
+  const plannedEnd = new Date(current.ends_at)
+  // Nunca estica o fim: concluir depois do previsto não deve invadir o
+  // horário de quem vem em seguida.
+  const newEnd = now < plannedEnd ? now : plannedEnd
+  // Um atendimento não pode terminar antes de começar (concluído na mesma
+  // hora em que foi criado, por exemplo).
+  const start = new Date(current.starts_at)
+  const effectiveEnd = newEnd > start ? newEnd : plannedEnd
+  const freedMinutes = Math.max(
+    0,
+    Math.round((plannedEnd.getTime() - effectiveEnd.getTime()) / 60_000),
+  )
+
+  const { data, error } = await db
+    .from('appointments')
+    .update({
+      status: 'concluido',
+      ends_at: effectiveEnd.toISOString(),
+      updated_at: now.toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw new AgendaError(`Falha ao concluir: ${error.message}`, 'validation')
+
+  await recordEvent(db, {
+    appointment_id: id,
+    action: 'completed',
+    actor_type: opts.actor_type,
+    actor_id: opts.actor_id ?? null,
+    justification: freedMinutes > 0 ? `Concluído ${freedMinutes} min antes do previsto.` : null,
+    previous_starts_at: current.starts_at,
+    previous_ends_at: current.ends_at,
+    new_starts_at: current.starts_at,
+    new_ends_at: effectiveEnd.toISOString(),
+  })
+
+  return { appointment: data as Appointment, freed_minutes: freedMinutes }
+}
+
+export type AgendaBlock = {
+  id: string
+  starts_at: string
+  ends_at: string
+  reason: string | null
+  created_at: string
+}
+
+export async function listBlocks(
+  from: Date,
+  to: Date,
+  db: Db = createServiceClient(),
+): Promise<AgendaBlock[]> {
+  const { data, error } = await db
+    .from('agenda_blocks')
+    .select('*')
+    .lt('starts_at', to.toISOString())
+    .gt('ends_at', from.toISOString())
+    .order('starts_at')
+  if (error) throw new AgendaError(`Falha ao listar bloqueios: ${error.message}`, 'validation')
+  return (data ?? []) as AgendaBlock[]
+}
+
+/**
+ * Bloqueia um intervalo na agenda. O motivo é interno — o cliente só enxerga
+ * que o horário está indisponível, nunca a justificativa.
+ */
+export async function createBlock(
+  startsAt: Date,
+  endsAt: Date,
+  reason: string,
+  db: Db = createServiceClient(),
+): Promise<AgendaBlock> {
+  if (endsAt <= startsAt) {
+    throw new AgendaError('O fim do bloqueio precisa ser depois do início.', 'validation')
+  }
+
+  // Bloquear por cima de atendimento já marcado deixaria o cliente com um
+  // horário confirmado que a loja não vai honrar.
+  const conflitos = await liveAppointmentsInRange(db, startsAt, endsAt)
+  if (conflitos.length > 0) {
+    const lista = conflitos
+      .map((a) => `${formatStoreDateTime(a.starts_at)} (${a.customer_name})`)
+      .join(', ')
+    throw new AgendaError(
+      `Já existe atendimento marcado nesse intervalo: ${lista}. Remarque ou cancele antes de bloquear.`,
+      'conflict',
+    )
+  }
+
+  const { data, error } = await db
+    .from('agenda_blocks')
+    .insert({
+      starts_at: startsAt.toISOString(),
+      ends_at: endsAt.toISOString(),
+      reason: reason.trim() || null,
+    })
+    .select()
+    .single()
+  if (error) throw new AgendaError(`Falha ao bloquear horário: ${error.message}`, 'validation')
+  return data as AgendaBlock
+}
+
+export async function deleteBlock(id: string, db: Db = createServiceClient()): Promise<void> {
+  const { error } = await db.from('agenda_blocks').delete().eq('id', id)
+  if (error) throw new AgendaError(`Falha ao liberar horário: ${error.message}`, 'validation')
 }
 
 /** Texto curto pro cliente — usado nas mensagens automáticas e nas tools. */

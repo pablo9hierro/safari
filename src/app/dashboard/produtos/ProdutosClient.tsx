@@ -8,7 +8,7 @@ import EstoqueTab from './EstoqueTab'
 import type { Product, ProductCategory, StockItem, StockMovement } from '@/lib/types'
 
 interface CatalogCategory { id: string; name: string; slug: string; sort_order: number }
-interface CatalogItem { id: string; category_id: string; model_name: string; repair_type: string; price: number; description: string | null; sort_order: number; active: boolean }
+interface CatalogItem { id: string; category_id: string; model_name: string; repair_type: string; price: number; duration_minutes: number; description: string | null; sort_order: number; active: boolean }
 
 type Tab = 'produtos' | 'servicos' | 'estoque'
 

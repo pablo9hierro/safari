@@ -3,14 +3,21 @@ import {
   cancelAppointment,
   checkAvailability,
   createAppointment,
-  findAvailableSlots,
   getAppointment,
+  getDayAvailability,
   listAppointments,
   rescheduleAppointment,
   resolveService,
   getSettings,
 } from './service'
-import { formatStoreDateTime, parseStoreDateTime, storeDateKey } from './slots'
+import {
+  bookingWindowDays,
+  dateKeyToBr,
+  formatStoreDateTime,
+  formatStoreTime,
+  parseStoreDateTime,
+  storeDateKey,
+} from './slots'
 import { AgendaError, type Appointment } from './types'
 import { notifyAppointmentCreated } from './notifications'
 
@@ -35,12 +42,12 @@ export const AGENDA_TOOLS: ToolDef[] = [
   {
     name: 'consultar_disponibilidade',
     description:
-      'Verifica se um horário específico está livre para agendamento. OBRIGATÓRIO rodar antes de dizer ao cliente que qualquer horário está disponível. Se estiver indisponível, retorna o motivo (ocupado, bloqueado, fora do horário) e sugere horários alternativos reais. Se o cliente não indicar horário, omita "horario" para receber as próximas vagas livres.',
+      'Verifica horários livres para agendamento. OBRIGATÓRIO rodar antes de dizer ao cliente que qualquer horário está disponível. Omita "horario" para receber a lista de horários livres de HOJE e AMANHÃ — a loja só agenda nesses dois dias, e a lista já respeita a antecedência mínima (o primeiro horário oferecido nunca é "agora"). Ofereça essa lista ao cliente e pergunte se ele prefere hoje ou amanhã e em qual horário. Informe "servico_id" para que a duração considerada seja a do serviço escolhido.',
     parameters: {
       type: 'object',
       properties: {
-        data: { type: 'string', description: 'Dia desejado no formato AAAA-MM-DD' },
-        horario: { type: 'string', description: 'Horário desejado no formato HH:MM (ex: 15:00). Omita para listar as próximas vagas livres.' },
+        data: { type: 'string', description: 'Dia desejado: "hoje", "amanhã" ou dd/mm/aaaa. Omita para ver os dois dias.' },
+        horario: { type: 'string', description: 'Horário desejado em HH:MM, formato 24h (ex: 15:00 para 3 da tarde). Omita para listar as vagas livres.' },
         servico_id: { type: 'string', description: 'ID do serviço vindo de buscar_servicos, quando já souber qual é.' },
       },
       required: [],
@@ -49,16 +56,16 @@ export const AGENDA_TOOLS: ToolDef[] = [
   {
     name: 'criar_agendamento',
     description:
-      'Cria o agendamento do serviço na agenda da loja. Todo serviço de assistência técnica EXIGE agendamento, inclusive quando o cliente quer ser atendido agora. Só chame depois de o cliente confirmar o horário. O backend revalida a disponibilidade e recusa se o horário tiver sido ocupado.',
+      'Cria o agendamento do serviço na agenda da loja. Todo serviço de assistência técnica EXIGE agendamento, inclusive quando o cliente quer ser atendido agora — nesse caso, ofereça o primeiro horário livre. O tempo que o agendamento ocupa vem da duração cadastrada do serviço (coleta + manutenção + entrega). Só chame depois de o cliente confirmar dia e horário. O backend revalida a disponibilidade e recusa se o horário já tiver sido ocupado.',
     parameters: {
       type: 'object',
       properties: {
-        servico_id: { type: 'string', description: 'ID do serviço obtido em buscar_servicos.' },
+        servico_id: { type: 'string', description: 'ID do serviço obtido em buscar_servicos — é ele que define a duração.' },
         servico_nome: { type: 'string', description: 'Nome do serviço, caso não exista no catálogo.' },
         cliente_nome: { type: 'string', description: 'Nome do cliente.' },
         cliente_telefone: { type: 'string', description: 'Telefone/WhatsApp do cliente (só dígitos).' },
-        data: { type: 'string', description: 'Dia no formato AAAA-MM-DD.' },
-        horario: { type: 'string', description: 'Horário no formato HH:MM.' },
+        data: { type: 'string', description: '"hoje" ou "amanhã" (também aceita dd/mm/aaaa). A loja só agenda nesses dois dias.' },
+        horario: { type: 'string', description: 'Horário em HH:MM, formato 24h (ex: 14:00 para 2 da tarde).' },
         observacoes: { type: 'string', description: 'Observações relevantes (defeito relatado, etc).' },
       },
       required: ['cliente_nome', 'cliente_telefone', 'data', 'horario'],
@@ -131,6 +138,20 @@ async function consultarAgenda(data: string): Promise<string> {
   return `Agendamentos em ${data}:\n${live.map(formatAppointment).join('\n')}`
 }
 
+/** Aceita "hoje"/"amanhã" além de AAAA-MM-DD — é assim que o cliente fala. */
+function resolveDateKey(input?: string): string | null {
+  const dias = bookingWindowDays()
+  if (!input) return null
+  const t = input.trim().toLowerCase()
+  if (t === 'hoje') return dias[0].key
+  if (t === 'amanha' || t === 'amanhã') return dias[1].key
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t
+  // dd/mm/aaaa, que é como o cliente costuma escrever.
+  const br = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(t)
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`
+  return null
+}
+
 async function consultarDisponibilidade(input: {
   data?: string
   horario?: string
@@ -138,24 +159,43 @@ async function consultarDisponibilidade(input: {
 }): Promise<string> {
   const service = await resolveService(input.servico_id ?? null, 'consulta', undefined)
   const duration = service.duration_minutes
+  const dias = bookingWindowDays()
 
-  // Sem horário específico → lista as próximas vagas reais.
+  // Sem horário específico → lista as vagas reais de hoje e amanhã. A folga
+  // mínima já está aplicada, então o primeiro horário oferecido nunca é
+  // "agora" — o cliente não chega a ver um horário que não daria tempo.
   if (!input.horario) {
-    const from = input.data
-      ? parseStoreDateTime(input.data, '00:00')
-      : new Date()
-    const slots = await findAvailableSlots(from, duration, 6)
-    if (slots.length === 0) return 'Não há horários livres no período consultado.'
-    return `Horários livres:\n${slots.map((s) => `- ${formatStoreDateTime(s.start)}`).join('\n')}`
+    const alvo = resolveDateKey(input.data)
+    const chaves = alvo ? [alvo] : dias.map((d) => d.key)
+    const blocos: string[] = []
+
+    for (const key of chaves) {
+      const slots = (await getDayAvailability(key, duration)).filter((s) => s.available)
+      const rotulo = dias.find((d) => d.key === key)?.label ?? dateKeyToBr(key)
+      blocos.push(
+        slots.length === 0
+          ? `${rotulo}: sem horários livres.`
+          : `${rotulo}:\n${slots.map((s) => `  - ${formatStoreTime(s.starts_at)}`).join('\n')}`,
+      )
+    }
+    return [
+      `Duração do atendimento: ${duration} min (coleta + manutenção + entrega).`,
+      ...blocos,
+      'Pergunte ao cliente se prefere HOJE ou AMANHÃ e qual desses horários.',
+    ].join('\n')
   }
 
-  if (!input.data) return 'Informe a data (AAAA-MM-DD) junto com o horário.'
+  const dateKey = resolveDateKey(input.data)
+  if (!dateKey) return 'Informe a data como "hoje", "amanhã" ou no formato dd/mm/aaaa.'
+  if (!dias.some((d) => d.key === dateKey)) {
+    return `FORA DA JANELA: a loja só agenda para hoje (${dateKeyToBr(dias[0].key)}) ou amanhã (${dateKeyToBr(dias[1].key)}).`
+  }
 
-  const startsAt = parseStoreDateTime(input.data, input.horario)
+  const startsAt = parseStoreDateTime(dateKey, input.horario)
   const result = await checkAvailability(startsAt, duration)
 
   if (result.available) {
-    return `DISPONÍVEL: ${formatStoreDateTime(result.starts_at)} está livre (duração ${duration} min).`
+    return `DISPONÍVEL: ${formatStoreDateTime(result.starts_at)} está livre — o atendimento ocupa até ${formatStoreTime(result.ends_at)} (${duration} min).`
   }
 
   const alts = result.alternatives.length
@@ -173,7 +213,14 @@ async function criarAgendamento(input: {
   horario: string
   observacoes?: string
 }): Promise<string> {
-  const startsAt = parseStoreDateTime(input.data, input.horario)
+  const dateKey = resolveDateKey(input.data)
+  if (!dateKey) return 'FALHOU (validation): informe a data como "hoje", "amanhã" ou dd/mm/aaaa.'
+  const dias = bookingWindowDays()
+  if (!dias.some((d) => d.key === dateKey)) {
+    return `FALHOU (validation): a loja só agenda para hoje (${dateKeyToBr(dias[0].key)}) ou amanhã (${dateKeyToBr(dias[1].key)}).`
+  }
+
+  const startsAt = parseStoreDateTime(dateKey, input.horario)
   const appointment = await createAppointment({
     service_id: input.servico_id ?? null,
     service_label: input.servico_nome ?? null,
@@ -184,7 +231,7 @@ async function criarAgendamento(input: {
     actor_type: 'assistente',
   })
   await notifyAppointmentCreated(appointment)
-  return `AGENDAMENTO CONFIRMADO: ${appointment.service_label} em ${formatStoreDateTime(appointment.starts_at)} para ${appointment.customer_name}. ID: ${appointment.id}`
+  return `AGENDAMENTO CONFIRMADO: ${appointment.service_label} em ${formatStoreDateTime(appointment.starts_at)} (até ${formatStoreTime(appointment.ends_at)}) para ${appointment.customer_name}. ID: ${appointment.id}`
 }
 
 async function consultarAgendamento(input: {
@@ -216,7 +263,9 @@ async function remarcarAgendamento(input: {
   horario: string
   motivo?: string
 }): Promise<string> {
-  const startsAt = parseStoreDateTime(input.data, input.horario)
+  const dateKey = resolveDateKey(input.data)
+  if (!dateKey) return 'FALHOU (validation): informe a data como "hoje", "amanhã" ou dd/mm/aaaa.'
+  const startsAt = parseStoreDateTime(dateKey, input.horario)
   const { appointment, previous } = await rescheduleAppointment(input.agendamento_id, startsAt, {
     actor_type: 'cliente',
     justification: input.motivo,

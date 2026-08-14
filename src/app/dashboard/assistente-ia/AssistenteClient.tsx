@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Bot, Save, ChevronDown, ChevronUp, Eye, EyeOff, AlertCircle, CheckCircle2, Upload, FileText, Trash2, Loader2 } from 'lucide-react'
 import type { AssistantConfig } from '@/lib/assistant/types'
+import AgendaSettingsCard from './AgendaSettingsCard'
 
 const LABEL = 'block text-xs font-semibold text-vr-silver/60 mb-1.5 uppercase tracking-wider'
 const INPUT = 'w-full px-3.5 py-2.5 rounded-xl bg-vr-black border border-white/8 text-white text-sm placeholder-vr-silver/30 outline-none focus:border-vr-red/50 transition-colors'
@@ -167,6 +168,8 @@ export default function AssistenteClient({ initialConfig }: { initialConfig: Ass
           className={`${INPUT} w-32`}
         />
       </div>
+
+      <AgendaSettingsCard />
 
       {/* Motor de IA */}
       <div className="bg-vr-graphite rounded-2xl border border-white/5 p-4 space-y-4">
