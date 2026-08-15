@@ -513,7 +513,9 @@ export default function ServiceOrderPanel({
 
     const isFirstConclusion = !everCompleted
     const previousFinalValue = order.final_value ?? 0
-    // Frete (ida e volta) é somado apenas na primeira conclusão — na reabertura não duplica.
+    // Frete de coleta é somado apenas na primeira conclusão — na reabertura não duplica.
+    // A perna de volta (entrega/retirada) é decidida e cobrada à parte depois, quando o
+    // cliente escolhe via assistente — ver serviceLifecycle/store.ts::setReturnLeg.
     const shippingCost = isFirstConclusion && !request.self_pickup ? (request.shipping_price ?? 0) : 0
     const finalValue = isFirstConclusion
       ? (checkedItemsNow.length > 0 ? newTotal + shippingCost : (quoteValue ?? 0))

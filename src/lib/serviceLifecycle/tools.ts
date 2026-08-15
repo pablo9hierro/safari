@@ -3,16 +3,20 @@ import {
   approveServiceQuote,
   cancelServiceRequest,
   getActiveServicesForPhone,
+  getPendingReturnLegInfo,
   getRepairStatus,
   getServiceDiagnostic,
   getServiceStatus,
   rejectServiceQuote,
+  setReturnLeg,
 } from './store'
 import { notifyQuoteDecision } from './notifications'
 import { STATUS_DESCRIPTION, REPAIR_DONE_STATUSES, ServiceLifecycleError, type ServiceSummary } from './types'
 import { createAppointment, type DeviceAppointmentType } from '@/lib/agenda/service'
 import { AgendaError } from '@/lib/agenda/types'
 import { bookingWindowDays, dateKeyToBr, formatStoreDateTime, parseStoreDateTime } from '@/lib/agenda/slots'
+import { createServiceClient } from '@/lib/supabase/service'
+import { buscarEnderecos } from '@/lib/mapa/geocodificacao'
 
 /**
  * Tools do ciclo de assistência técnica: diagnóstico → orçamento → aprovação
@@ -38,7 +42,7 @@ export const SERVICE_TOOLS: ToolDef[] = [
   {
     name: 'consultar_status_atendimento',
     description:
-      'Status atual de um atendimento específico. Use sempre que o cliente perguntar "já terminou", "tem novidade", "está pronto" — nunca responda essas perguntas só pelo histórico da conversa.',
+      'Status atual de um atendimento específico. Use sempre que o cliente perguntar "já terminou", "tem novidade", "está pronto" — nunca responda essas perguntas só pelo histórico da conversa. Quando o reparo está concluído e a entrega/retirada ainda não foi combinada, a resposta desta tool traz uma instrução de qual pergunta fazer — sempre siga essa instrução antes de qualquer outra coisa.',
     parameters: {
       type: 'object',
       properties: {
@@ -116,7 +120,7 @@ export const SERVICE_TOOLS: ToolDef[] = [
   },
 ]
 
-function deviceParams(description: string) {
+function deviceParams() {
   return {
     type: 'object' as const,
     properties: {
@@ -125,6 +129,28 @@ function deviceParams(description: string) {
       cliente_telefone: { type: 'string', description: 'Telefone/WhatsApp do cliente.' },
       data: { type: 'string', description: '"hoje" ou "amanhã" (também aceita dd/mm/aaaa).' },
       horario: { type: 'string', description: 'Horário em HH:MM, formato 24h.' },
+    },
+    required: ['atendimento_id', 'cliente_nome', 'cliente_telefone', 'data', 'horario'],
+  }
+}
+
+function entregaParams() {
+  return {
+    type: 'object' as const,
+    properties: {
+      atendimento_id: { type: 'string', description: 'ID do atendimento vinculado ao aparelho.' },
+      cliente_nome: { type: 'string', description: 'Nome do cliente.' },
+      cliente_telefone: { type: 'string', description: 'Telefone/WhatsApp do cliente.' },
+      data: { type: 'string', description: '"hoje" ou "amanhã" (também aceita dd/mm/aaaa).' },
+      horario: { type: 'string', description: 'Horário em HH:MM, formato 24h.' },
+      mesmo_endereco_coleta: {
+        type: 'boolean',
+        description: 'true se a entrega é no mesmo endereço em que o aparelho foi coletado. false se for outro endereço (nesse caso preencha "endereco"). Deixe de fora se não houve coleta.',
+      },
+      endereco: {
+        type: 'string',
+        description: 'Endereço completo de entrega, só quando for diferente do endereço da coleta (ou quando não houve coleta e o cliente escolheu entrega em vez de retirada na loja).',
+      },
     },
     required: ['atendimento_id', 'cliente_nome', 'cliente_telefone', 'data', 'horario'],
   }
@@ -141,19 +167,19 @@ export const DEVICE_TOOLS: ToolDef[] = [
     name: 'agendar_coleta_aparelho',
     description:
       'Agenda a coleta do aparelho no endereço do cliente (a loja vai buscar), na mesma agenda dos atendimentos. Vale enquanto o atendimento estiver ativo (não cancelado/finalizado). Use quando o cliente solicitar o serviço e não puder trazer o aparelho até a loja.',
-    parameters: deviceParams('coleta'),
+    parameters: deviceParams(),
   },
   {
     name: 'agendar_entrega_aparelho',
     description:
-      'Agenda a entrega do aparelho no endereço do cliente (a loja entrega), na mesma agenda dos atendimentos. SÓ funciona quando o reparo já está concluído (confira antes com consultar_status_atendimento) — tentar antes disso é recusado pelo backend.',
-    parameters: deviceParams('entrega'),
+      'Agenda a entrega do aparelho pronto no endereço do cliente (a loja entrega) e registra essa perna de volta no atendimento — SÓ pode ser chamada depois que consultar_status_atendimento (ou consultar_status_reparo) indicar que o reparo terminou E a entrega/retirada ainda não foi combinada. Pergunte antes se é o mesmo endereço da coleta (quando houve coleta) ou peça o endereço (quando não houve coleta ou for um endereço diferente). O valor da entrega é calculado e cobrado automaticamente nesse momento, se a loja cobrar essa perna.',
+    parameters: entregaParams(),
   },
   {
     name: 'agendar_retirada_aparelho',
     description:
-      'Agenda a retirada do aparelho pelo cliente na loja, na mesma agenda dos atendimentos. SÓ funciona quando o reparo já está concluído. Use quando o cliente preferir buscar em vez de receber por entrega.',
-    parameters: deviceParams('retirada'),
+      'Agenda a retirada do aparelho pelo cliente na loja e registra essa perna de volta no atendimento — SÓ pode ser chamada depois que consultar_status_atendimento indicar que o reparo terminou E a entrega/retirada ainda não foi combinada. Retirada na loja nunca tem custo de deslocamento.',
+    parameters: deviceParams(),
   },
 ]
 
@@ -173,7 +199,16 @@ async function consultarMeusAtendimentos(telefone: string): Promise<string> {
 
 async function consultarStatusAtendimento(id: string, telefone: string): Promise<string> {
   const s = await getServiceStatus(id, telefone)
-  return `STATUS: ${STATUS_DESCRIPTION[s.status]}${s.quote_value ? ` (orçamento: R$ ${s.quote_value.toFixed(2)})` : ''}`
+  const base = `STATUS: ${STATUS_DESCRIPTION[s.status]}${s.quote_value ? ` (orçamento: R$ ${s.quote_value.toFixed(2)})` : ''}`
+
+  const pending = await getPendingReturnLegInfo(id, telefone)
+  if (!pending.returnLegPending) return base
+
+  const pergunta = pending.selfPickup
+    ? 'PERGUNTE AO CLIENTE: o reparo está pronto. Ele quer RETIRAR o aparelho na loja, ou prefere que a loja ENTREGUE no endereço dele? Depois de ele responder, chame agendar_retirada_aparelho ou agendar_entrega_aparelho conforme a escolha.'
+    : `PERGUNTE AO CLIENTE: o reparo está pronto. A entrega é no MESMO endereço da coleta${pending.collectionAddressLabel ? ` (${pending.collectionAddressLabel})` : ''}, ele prefere RETIRAR na loja, ou quer entrega em outro endereço? Depois de ele responder, chame agendar_entrega_aparelho (informando mesmo_endereco_coleta e, se for outro endereço, o campo endereco) ou agendar_retirada_aparelho.`
+
+  return `${base}\n\n${pergunta}`
 }
 
 async function consultarDiagnostico(id: string, telefone: string): Promise<string> {
@@ -233,15 +268,89 @@ const DEVICE_ACTION_LABEL: Record<DeviceAppointmentType, string> = {
   device_pickup: 'RETIRADA AGENDADA',
 }
 
+/**
+ * Preço de uma perna de entrega, honrando o toggle `cobrar_entrega` de
+ * `shipping_settings` (a mesma base de cálculo de /dashboard/servicodeslocamento).
+ * `null` de coordenadas = não deu pra calcular (endereço não encontrado) —
+ * cai pra 0 em vez de travar o agendamento.
+ */
+async function calcularPrecoEntrega(lat: number, lng: number): Promise<number> {
+  const db = createServiceClient()
+  const { data: settings } = await db
+    .from('shipping_settings')
+    .select('cobrar_entrega')
+    .eq('id', 1)
+    .maybeSingle()
+  if (settings?.cobrar_entrega === false) return 0
+  const { data: est } = await db.rpc('estimate_shipping', { p_lat: lat, p_lng: lng })
+  if (est && typeof est === 'object' && 'price' in est) return Number((est as { price: number }).price)
+  return 0
+}
+
 async function agendarDispositivo(
   type: DeviceAppointmentType,
-  input: { atendimento_id: string; cliente_nome: string; cliente_telefone: string; data: string; horario: string },
+  input: {
+    atendimento_id: string
+    cliente_nome: string
+    cliente_telefone: string
+    data: string
+    horario: string
+    mesmo_endereco_coleta?: boolean
+    endereco?: string
+  },
 ): Promise<string> {
   const dateKey = resolveDeliveryDateKey(input.data)
   if (!dateKey) return 'FALHOU (validation): informe a data como "hoje", "amanhã" ou dd/mm/aaaa.'
   const dias = bookingWindowDays()
   if (!dias.some((d) => d.key === dateKey)) {
     return `FALHOU (validation): a loja só agenda para hoje (${dateKeyToBr(dias[0].key)}) ou amanhã (${dateKeyToBr(dias[1].key)}).`
+  }
+
+  // Perna de volta (entrega/retirada): calcula o preço e registra ANTES do
+  // agendamento em si, pra não criar um horário na agenda se o preço não
+  // puder ser resolvido (ex: endereço novo não encontrado).
+  let returnLegPrice: number | null = null
+  let returnLegSameAddress: boolean | null = null
+  if (type === 'device_pickup') {
+    returnLegPrice = 0
+  } else if (type === 'device_delivery') {
+    returnLegSameAddress = input.mesmo_endereco_coleta ?? null
+    if (input.mesmo_endereco_coleta) {
+      const db = createServiceClient()
+      const { data: req } = await db
+        .from('service_requests')
+        .select('address_lat, address_lng')
+        .eq('id', input.atendimento_id)
+        .maybeSingle()
+      if (!req?.address_lat || !req?.address_lng) {
+        return 'FALHOU (validation): não encontrei o endereço da coleta salvo neste atendimento — peça o endereço de entrega ao cliente e chame de novo com "endereco" preenchido.'
+      }
+      returnLegPrice = await calcularPrecoEntrega(req.address_lat, req.address_lng)
+    } else {
+      if (!input.endereco?.trim()) {
+        return 'FALHOU (validation): informe o endereço de entrega (campo "endereco") — não é o mesmo da coleta.'
+      }
+      const results = await buscarEnderecos(input.endereco.trim())
+      if (results.length === 0) {
+        return 'FALHOU (validation): não encontrei esse endereço. Peça ao cliente pra ser mais específico (rua, número, bairro, cidade).'
+      }
+      returnLegPrice = await calcularPrecoEntrega(results[0].lat, results[0].lng)
+    }
+  }
+
+  if (type !== 'device_collection') {
+    try {
+      await setReturnLeg(
+        input.atendimento_id,
+        input.cliente_telefone,
+        type === 'device_pickup' ? 'pickup_store' : 'delivery_home',
+        returnLegPrice,
+        returnLegSameAddress,
+      )
+    } catch (e) {
+      if (e instanceof ServiceLifecycleError) return `FALHOU (${e.code}): ${e.message}`
+      throw e
+    }
   }
 
   try {
@@ -253,7 +362,8 @@ async function agendarDispositivo(
       appointment_type: type,
       service_request_id: input.atendimento_id,
     })
-    return `${DEVICE_ACTION_LABEL[type]}: ${appointment.service_label} em ${formatStoreDateTime(appointment.starts_at)}. ID: ${appointment.id}`
+    const preco = returnLegPrice ? ` Valor da entrega: R$ ${returnLegPrice.toFixed(2)} (somado ao total, cobrado na entrega).` : ''
+    return `${DEVICE_ACTION_LABEL[type]}: ${appointment.service_label} em ${formatStoreDateTime(appointment.starts_at)}. ID: ${appointment.id}.${preco}`
   } catch (e) {
     if (e instanceof AgendaError) return `FALHOU (${e.code}): ${e.message}`
     throw e
@@ -301,6 +411,8 @@ export async function executeServiceTool(
           cliente_telefone: String(input.cliente_telefone ?? ''),
           data: String(input.data ?? ''),
           horario: String(input.horario ?? ''),
+          mesmo_endereco_coleta: typeof input.mesmo_endereco_coleta === 'boolean' ? input.mesmo_endereco_coleta : undefined,
+          endereco: typeof input.endereco === 'string' ? input.endereco : undefined,
         })
       default:
         return null

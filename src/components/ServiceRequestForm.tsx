@@ -212,14 +212,25 @@ export default function ServiceRequestForm() {
         image_url = publicUrl.publicUrl
       }
 
+      // Coleta é uma perna independente (ida) — cobrada só se o lojista
+      // não desligou essa perna em /dashboard/servicodeslocamento. A perna
+      // de volta (entrega/retirada) é decidida depois, quando o reparo fica
+      // pronto, e cobrada separadamente ali.
       let shippingPrice: number | null = null
       if (!data.self_pickup && data.address_lat && data.address_lng) {
-        const { data: est } = await supabase.rpc('estimate_shipping', {
-          p_lat: data.address_lat,
-          p_lng: data.address_lng,
-        })
-        if (est && typeof est === 'object' && 'price' in est) {
-          shippingPrice = Number((est as { price: number }).price) * 2
+        const { data: cobrarColeta } = await supabase
+          .from('shipping_settings')
+          .select('cobrar_coleta')
+          .eq('id', 1)
+          .maybeSingle()
+        if (cobrarColeta?.cobrar_coleta !== false) {
+          const { data: est } = await supabase.rpc('estimate_shipping', {
+            p_lat: data.address_lat,
+            p_lng: data.address_lng,
+          })
+          if (est && typeof est === 'object' && 'price' in est) {
+            shippingPrice = Number((est as { price: number }).price)
+          }
         }
       }
 

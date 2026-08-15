@@ -410,7 +410,7 @@ export default function RequestDetailModal({
                 </div>
                 {!request.self_pickup && request.shipping_price && (
                   <p className="text-xs text-amber-600 mt-1.5">
-                    Frete (ida e volta): R$ {Number(request.shipping_price).toFixed(2)} — será somado automaticamente ao total.
+                    Frete (coleta): R$ {Number(request.shipping_price).toFixed(2)} — será somado automaticamente ao total. A entrega/retirada é decidida e cobrada à parte quando o reparo terminar.
                   </p>
                 )}
               </div>
@@ -420,7 +420,7 @@ export default function RequestDetailModal({
                   Valor atual: <span className="font-semibold text-gray-900">R$ {Number(quoteValue || 0).toFixed(2)}</span>
                 </p>
                 {!request.self_pickup && request.shipping_price && (
-                  <p className="text-xs text-gray-400 mt-0.5">Inclui frete ida e volta: R$ {Number(request.shipping_price).toFixed(2)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Inclui frete (coleta): R$ {Number(request.shipping_price).toFixed(2)}</p>
                 )}
               </div>
             )}

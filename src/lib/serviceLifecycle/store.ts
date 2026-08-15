@@ -231,6 +231,92 @@ export async function cancelServiceRequest(
   return data as ServiceSummary
 }
 
+/**
+ * Dados mínimos pra decidir se a assistente precisa perguntar a perna de
+ * volta (entrega/retirada) agora: só quando o reparo já terminou
+ * (`completed`/`em_pagamento`) e ainda não há `return_leg` definido.
+ */
+export async function getPendingReturnLegInfo(
+  requestId: string,
+  phone: string,
+  db: Db = createServiceClient(),
+): Promise<{ status: ServiceStatus; selfPickup: boolean; returnLegPending: boolean; collectionAddressLabel: string | null }> {
+  const req = await loadOwnedRequest(requestId, phone, db)
+  const { data } = await db
+    .from('service_requests')
+    .select('return_leg, address_label')
+    .eq('id', requestId)
+    .single()
+  return {
+    status: req.status,
+    selfPickup: req.self_pickup,
+    returnLegPending: ['completed', 'em_pagamento'].includes(req.status) && !data?.return_leg,
+    collectionAddressLabel: data?.address_label ?? null,
+  }
+}
+
+/**
+ * Registra a perna de volta do aparelho (entrega no endereço vs. retirada na
+ * loja), decidida dinamicamente pelo cliente quando o reparo fica pronto —
+ * independente de ter havido coleta ou não (`self_pickup`/coleta e
+ * entrega/retirada são decisões independentes, como pernas de uma viagem).
+ * Só permitida quando o reparo já terminou e ainda não há perna de volta
+ * definida (idempotente pra não cobrar duas vezes se a IA chamar de novo).
+ * O preço, se houver, é somado ao valor final (`service_orders.final_value`
+ * e `service_requests.quote_value`) só agora — nunca antes da entrega.
+ */
+export async function setReturnLeg(
+  requestId: string,
+  phone: string,
+  leg: 'pickup_store' | 'delivery_home',
+  price: number | null,
+  sameAddress: boolean | null,
+  db: Db = createServiceClient(),
+): Promise<ServiceSummary> {
+  const req = await loadOwnedRequest(requestId, phone, db)
+  if (!['completed', 'em_pagamento'].includes(req.status)) {
+    throw new ServiceLifecycleError(
+      `Só dá pra combinar a entrega/retirada quando o reparo estiver concluído (status atual: ${req.status}).`,
+      'invalid_transition',
+    )
+  }
+  const { data: existing } = await db
+    .from('service_requests')
+    .select('return_leg')
+    .eq('id', requestId)
+    .single()
+  if (existing?.return_leg) {
+    throw new ServiceLifecycleError(
+      'A entrega/retirada deste atendimento já foi combinada antes — não dá pra escolher de novo pela assistente.',
+      'invalid_transition',
+    )
+  }
+
+  const { data, error } = await db
+    .from('service_requests')
+    .update({ return_leg: leg, return_leg_price: price, return_leg_same_address: sameAddress })
+    .eq('id', requestId)
+    .select('id, status, phone_model, problem_description, quote_value, self_pickup, created_at')
+    .single()
+  if (error) throw new ServiceLifecycleError(`Falha ao registrar entrega/retirada: ${error.message}`, 'validation')
+
+  if (price && price > 0) {
+    const { data: order } = await db
+      .from('service_orders')
+      .select('id, final_value')
+      .eq('request_id', requestId)
+      .maybeSingle()
+    if (order) {
+      const newFinal = Number(order.final_value ?? 0) + price
+      await db.from('service_orders').update({ final_value: newFinal }).eq('id', order.id)
+      await db.from('service_requests').update({ quote_value: newFinal }).eq('id', requestId)
+      return { ...(data as ServiceSummary), quote_value: newFinal }
+    }
+  }
+
+  return data as ServiceSummary
+}
+
 async function transition(
   requestId: string,
   phone: string,
