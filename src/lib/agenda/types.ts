@@ -23,8 +23,13 @@ export type BusinessHours = {
   close_time: string
 }
 
-/** `service` = agendar o atendimento em si; `device_delivery` = entrega/retirada do aparelho já pronto. */
-export type AppointmentType = 'service' | 'device_delivery'
+/**
+ * `service` = agendar o atendimento em si (catálogo de serviços/duração).
+ * `device_collection` = loja vai buscar o aparelho com o cliente.
+ * `device_delivery` = loja entrega o aparelho já pronto ao cliente.
+ * `device_pickup` = cliente retira o aparelho já pronto na loja.
+ */
+export type AppointmentType = 'service' | 'device_collection' | 'device_delivery' | 'device_pickup'
 
 export type Appointment = {
   id: string

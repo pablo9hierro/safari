@@ -7,6 +7,7 @@ import type { ServiceRequest, ServiceStatus as MessagesServiceStatus } from '@/l
 const TEMPLATE_KEY: Partial<Record<string, string>> = {
   accepted: 'status_accepted',
   rejected: 'status_rejected',
+  cancelled: 'status_cancelled',
 }
 
 function currency(v: number | null | undefined) {
@@ -14,14 +15,15 @@ function currency(v: number | null | undefined) {
 }
 
 /**
- * Avisa o cliente da aprovação/recusa do orçamento, pelo mesmo template
- * (Template Zap) e fallback já usados quando o LOJISTA faz essa mesma
- * transição no painel — nenhuma mensagem nova foi inventada, é o texto que
- * `status_accepted`/`status_rejected` já cobrem.
+ * Avisa o cliente de uma transição de status (aprovação, recusa ou
+ * cancelamento), pelo mesmo template (Template Zap) e fallback já usados
+ * quando o LOJISTA faz essa mesma transição no painel — nenhuma mensagem
+ * nova foi inventada, é o texto que `status_accepted`/`status_rejected`/
+ * `status_cancelled` já cobrem.
  */
 export async function notifyQuoteDecision(
   requestId: string,
-  status: 'accepted' | 'rejected',
+  status: 'accepted' | 'rejected' | 'cancelled',
 ): Promise<boolean> {
   const db = createServiceClient()
   const { data } = await db.from('service_requests').select('*').eq('id', requestId).single()

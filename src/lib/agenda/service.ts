@@ -229,6 +229,8 @@ async function recordEvent(
   if (error) throw new AgendaError(`Falha ao registrar auditoria: ${error.message}`, 'validation')
 }
 
+export type DeviceAppointmentType = 'device_collection' | 'device_delivery' | 'device_pickup'
+
 export type CreateAppointmentInput = {
   service_id?: string | null
   service_label?: string | null
@@ -239,9 +241,37 @@ export type CreateAppointmentInput = {
   notes?: string | null
   actor_type: ActorType
   actor_id?: string | null
-  appointment_type?: 'service' | 'device_delivery'
-  /** Obrigatório em `device_delivery` — precisa estar com o reparo concluído. */
+  appointment_type?: 'service' | DeviceAppointmentType
+  /** Obrigatório nos tipos `device_*` — precisa estar vinculado ao atendimento. */
   service_request_id?: string | null
+}
+
+const DEVICE_APPOINTMENT_LABEL: Record<DeviceAppointmentType, string> = {
+  device_collection: 'Coleta',
+  device_delivery: 'Entrega',
+  device_pickup: 'Retirada',
+}
+
+/**
+ * Regra de status por subtipo de agendamento de aparelho:
+ * - coleta: o aparelho ainda está com o cliente — vale em qualquer etapa
+ *   ativa do atendimento (antes de cancelado/finalizado/já entregue).
+ * - entrega/retirada: o aparelho só está pronto pra sair da loja depois do
+ *   reparo concluído.
+ */
+function assertDeviceAppointmentAllowed(type: DeviceAppointmentType, status: string): string | null {
+  if (type === 'device_collection') {
+    const blocked = ['cancelled', 'rejected', 'finished', 'delivered']
+    if (blocked.includes(status)) {
+      return `Não dá pra agendar coleta — este atendimento já está com status "${status}".`
+    }
+    return null
+  }
+  if (!(REPAIR_DONE_STATUSES as string[]).includes(status)) {
+    const acao = type === 'device_delivery' ? 'a entrega' : 'a retirada'
+    return `Ainda não dá pra agendar ${acao} — o reparo precisa estar concluído primeiro (status atual: ${status}).`
+  }
+  return null
 }
 
 export async function createAppointment(
@@ -255,14 +285,20 @@ export async function createAppointment(
     throw new AgendaError('Telefone do cliente é obrigatório.', 'validation')
   }
 
-  const isDelivery = input.appointment_type === 'device_delivery'
+  const deviceType =
+    input.appointment_type && input.appointment_type !== 'service'
+      ? (input.appointment_type as DeviceAppointmentType)
+      : null
   let serviceId: string | null = null
   let serviceLabel: string
   let duration: number
 
-  if (isDelivery) {
+  if (deviceType) {
     if (!input.service_request_id) {
-      throw new AgendaError('Entrega do aparelho precisa estar vinculada ao atendimento (service_request_id).', 'validation')
+      throw new AgendaError(
+        `${DEVICE_APPOINTMENT_LABEL[deviceType]} do aparelho precisa estar vinculada ao atendimento (service_request_id).`,
+        'validation',
+      )
     }
     const { data: req, error: reqErr } = await db
       .from('service_requests')
@@ -270,13 +306,11 @@ export async function createAppointment(
       .eq('id', input.service_request_id)
       .maybeSingle()
     if (reqErr || !req) throw new AgendaError('Atendimento não encontrado.', 'not_found')
-    if (!(REPAIR_DONE_STATUSES as string[]).includes(req.status as string)) {
-      throw new AgendaError(
-        `Ainda não dá pra agendar a entrega — o reparo precisa estar concluído primeiro (status atual: ${req.status}).`,
-        'validation',
-      )
-    }
-    serviceLabel = `Entrega — ${req.phone_model ?? 'aparelho'}`
+
+    const blockedReason = assertDeviceAppointmentAllowed(deviceType, req.status as string)
+    if (blockedReason) throw new AgendaError(blockedReason, 'validation')
+
+    serviceLabel = `${DEVICE_APPOINTMENT_LABEL[deviceType]} — ${req.phone_model ?? 'aparelho'}`
     duration = input.duration_minutes ?? 15
   } else {
     const service = await resolveService(input.service_id ?? null, input.service_label ?? null, db)
@@ -306,8 +340,8 @@ export async function createAppointment(
       status: 'agendado',
       notes: input.notes ?? null,
       created_by: input.actor_type === 'admin' ? 'admin' : 'assistente',
-      appointment_type: isDelivery ? 'device_delivery' : 'service',
-      service_request_id: isDelivery ? input.service_request_id : null,
+      appointment_type: deviceType ?? 'service',
+      service_request_id: deviceType ? input.service_request_id : null,
     })
     .select()
     .single()

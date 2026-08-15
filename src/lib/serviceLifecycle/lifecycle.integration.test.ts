@@ -6,6 +6,7 @@ import { describe, it, expect, afterAll } from 'vitest'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
   approveServiceQuote,
+  cancelServiceRequest,
   getActiveServicesForPhone,
   getRepairStatus,
   getServiceDiagnostic,
@@ -162,12 +163,47 @@ describe.skipIf(!live)('ciclo de assistência técnica (banco real)', () => {
     expect(after.status).toBe('diagnostico_enviado')
   })
 
-  it('recusa o orçamento e transiciona pra "rejected"', async () => {
+  it('recusa o orçamento e transiciona pra "cancelled" (mesmo status que o painel usa aqui, não "rejected")', async () => {
     const db = createServiceClient()
     const req = await seedRequest(db, { status: 'diagnostico_enviado', quote_value: 180 })
 
     const result = await rejectServiceQuote(req.id, PHONE_A)
-    expect(result.status).toBe('rejected')
+    expect(result.status).toBe('cancelled')
+  })
+
+  it('cancelar_atendimento funciona em pending/aguardando_diagnostico/diagnostico_enviado', async () => {
+    const db = createServiceClient()
+    for (const status of ['pending', 'aguardando_diagnostico', 'diagnostico_enviado']) {
+      const req = await seedRequest(db, { status })
+      const result = await cancelServiceRequest(req.id, PHONE_A, 'Desisti da manutenção.')
+      expect(result.status).toBe('cancelled')
+    }
+  })
+
+  it('cancelar_atendimento anexa o motivo em owner_notes sem apagar nota anterior', async () => {
+    const db = createServiceClient()
+    const req = await seedRequest(db, { status: 'pending', owner_notes: 'Nota antiga do lojista.' })
+    await cancelServiceRequest(req.id, PHONE_A, 'Comprei outro aparelho.')
+
+    const { data } = await db.from('service_requests').select('owner_notes').eq('id', req.id).single()
+    expect(data?.owner_notes).toContain('Nota antiga do lojista.')
+    expect(data?.owner_notes).toContain('Comprei outro aparelho.')
+  })
+
+  it('cancelar_atendimento é recusado depois de aprovado (accepted)', async () => {
+    const db = createServiceClient()
+    const req = await seedRequest(db, { status: 'accepted' })
+    const err = await cancelServiceRequest(req.id, PHONE_A, 'mudei de ideia').catch((e) => e)
+    expect(err).toBeInstanceOf(ServiceLifecycleError)
+    expect(err.code).toBe('invalid_transition')
+  })
+
+  it('cancelar_atendimento não deixa outro telefone cancelar', async () => {
+    const db = createServiceClient()
+    const req = await seedRequest(db, { status: 'pending' })
+    const err = await cancelServiceRequest(req.id, PHONE_B, undefined).catch((e) => e)
+    expect(err).toBeInstanceOf(ServiceLifecycleError)
+    expect(err.code).toBe('not_found')
   })
 
   it('reparo em andamento não expõe resumo do reparo', async () => {
@@ -248,5 +284,72 @@ describe.skipIf(!live)('ciclo de assistência técnica (banco real)', () => {
     })
     createdAppointmentIds.push(appt.id)
     expect(appt.status).toBe('agendado')
+  })
+
+  it('coleta pode ser agendada logo no início, antes até do diagnóstico', async () => {
+    const db = createServiceClient()
+    const req = await seedRequest(db, { status: 'pending' })
+    const { dateKey, time } = findOpenSlot()
+
+    const appt = await createAppointment({
+      customer_name: 'Cliente Teste Ciclo',
+      customer_phone: PHONE_A,
+      starts_at: parseStoreDateTime(dateKey, time),
+      actor_type: 'assistente',
+      appointment_type: 'device_collection',
+      service_request_id: req.id,
+    })
+    createdAppointmentIds.push(appt.id)
+    expect(appt.appointment_type).toBe('device_collection')
+  })
+
+  it('coleta é recusada quando o atendimento já foi cancelado/finalizado', async () => {
+    const db = createServiceClient()
+    const req = await seedRequest(db, { status: 'cancelled' })
+    const { dateKey, time } = findOpenSlot()
+
+    const err = await createAppointment({
+      customer_name: 'Cliente Teste Ciclo',
+      customer_phone: PHONE_A,
+      starts_at: parseStoreDateTime(dateKey, time),
+      actor_type: 'assistente',
+      appointment_type: 'device_collection',
+      service_request_id: req.id,
+    }).catch((e) => e)
+    expect(err).toBeInstanceOf(AgendaError)
+  })
+
+  it('retirada segue a mesma regra da entrega — só após reparo concluído', async () => {
+    const db = createServiceClient()
+    const req = await seedRequest(db, { status: 'in_progress' })
+    const { dateKey, time } = findOpenSlot()
+
+    const err = await createAppointment({
+      customer_name: 'Cliente Teste Ciclo',
+      customer_phone: PHONE_A,
+      starts_at: parseStoreDateTime(dateKey, time),
+      actor_type: 'assistente',
+      appointment_type: 'device_pickup',
+      service_request_id: req.id,
+    }).catch((e) => e)
+    expect(err).toBeInstanceOf(AgendaError)
+    expect(err.message).toMatch(/retirada/)
+  })
+
+  it('retirada funciona normalmente com o reparo concluído', async () => {
+    const db = createServiceClient()
+    const req = await seedRequest(db, { status: 'completed' })
+    const { dateKey, time } = findOpenSlot()
+
+    const appt = await createAppointment({
+      customer_name: 'Cliente Teste Ciclo',
+      customer_phone: PHONE_A,
+      starts_at: parseStoreDateTime(dateKey, time),
+      actor_type: 'assistente',
+      appointment_type: 'device_pickup',
+      service_request_id: req.id,
+    })
+    createdAppointmentIds.push(appt.id)
+    expect(appt.appointment_type).toBe('device_pickup')
   })
 })

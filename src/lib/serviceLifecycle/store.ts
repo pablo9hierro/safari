@@ -166,6 +166,13 @@ export async function approveServiceQuote(
   return transition(requestId, phone, 'accepted', db)
 }
 
+/**
+ * Recusa o orçamento. O painel usa `cancelled` (não `rejected`) exatamente
+ * nesta transição — "Cliente cancelou" é a opção real ao lado de "aprovou"
+ * em `diagnostico_enviado`. `rejected` é um status diferente, usado só na
+ * recusa de orçamento direto em `pending` (fluxo sem diagnóstico), que esta
+ * tool não cobre.
+ */
 export async function rejectServiceQuote(
   requestId: string,
   phone: string,
@@ -178,7 +185,50 @@ export async function rejectServiceQuote(
       'invalid_transition',
     )
   }
-  return transition(requestId, phone, 'rejected', db)
+  return transition(requestId, phone, 'cancelled', db)
+}
+
+/**
+ * Cancela o atendimento a pedido do cliente, em qualquer etapa anterior à
+ * aprovação do orçamento (pending, aguardando_diagnostico ou
+ * diagnostico_enviado) — depois de aprovado (accepted) o reparo já pode
+ * estar em andamento e o cancelamento deixa de ser self-service, precisa
+ * passar pelo lojista. O motivo é registrado para o lojista ver (nunca é
+ * lido de volta pela assistente).
+ */
+const CANCELABLE_STATUSES: string[] = ['pending', 'aguardando_diagnostico', 'diagnostico_enviado']
+
+export async function cancelServiceRequest(
+  requestId: string,
+  phone: string,
+  reason: string | undefined,
+  db: Db = createServiceClient(),
+): Promise<ServiceSummary> {
+  const req = await loadOwnedRequest(requestId, phone, db)
+  if (!CANCELABLE_STATUSES.includes(req.status)) {
+    throw new ServiceLifecycleError(
+      `Não é possível cancelar agora — o atendimento já passou da etapa em que o cliente pode cancelar sozinho (status atual: ${req.status}). Peça pra falar com a loja.`,
+      'invalid_transition',
+    )
+  }
+
+  const note = reason?.trim()
+    ? `Cancelado pelo cliente via assistente. Motivo informado: ${reason.trim()}`
+    : 'Cancelado pelo cliente via assistente.'
+
+  // Anexa ao que já existir em owner_notes — nunca sobrescreve anotação
+  // anterior do lojista.
+  const { data: current } = await db.from('service_requests').select('owner_notes').eq('id', requestId).single()
+  const mergedNotes = [current?.owner_notes, note].filter(Boolean).join('\n---\n')
+
+  const { data, error } = await db
+    .from('service_requests')
+    .update({ status: 'cancelled', owner_notes: mergedNotes })
+    .eq('id', requestId)
+    .select('id, status, phone_model, problem_description, quote_value, self_pickup, created_at')
+    .single()
+  if (error) throw new ServiceLifecycleError(`Falha ao cancelar: ${error.message}`, 'validation')
+  return data as ServiceSummary
 }
 
 async function transition(

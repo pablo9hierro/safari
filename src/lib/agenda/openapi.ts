@@ -7,7 +7,7 @@
  * e o formato de resposta de cada uma no mesmo lugar que os endpoints REST.
  */
 import { AGENDA_TOOLS } from './tools'
-import { SERVICE_TOOLS, DELIVERY_TOOL } from '@/lib/serviceLifecycle/tools'
+import { SERVICE_TOOLS, DEVICE_TOOLS } from '@/lib/serviceLifecycle/tools'
 import { MIN_JUSTIFICATION_LENGTH } from './types'
 import { otherPaths, otherSchemas, otherTags } from './openapiOther'
 
@@ -368,9 +368,9 @@ export function buildAgendaOpenApi() {
         ServiceLifecycleTools: {
           type: 'object',
           description:
-            'Ferramentas do ciclo de assistência técnica. As 6 primeiras estão sempre disponíveis; agendar_entrega_aparelho só quando a agenda por IA está ligada (mesma flag do AgendaTools) — a entrega usa a mesma agenda de atendimentos.',
+            'Ferramentas do ciclo de assistência técnica. As de consulta/aprovação/cancelamento estão sempre disponíveis; agendar_coleta_aparelho/agendar_entrega_aparelho/agendar_retirada_aparelho só quando a agenda por IA está ligada (mesma flag do AgendaTools) — todas usam a mesma agenda dos atendimentos de serviço.',
           properties: Object.fromEntries(
-            [...SERVICE_TOOLS, DELIVERY_TOOL].map((tool) => [
+            [...SERVICE_TOOLS, ...DEVICE_TOOLS].map((tool) => [
               tool.name,
               {
                 type: 'object',

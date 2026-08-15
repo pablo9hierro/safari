@@ -85,7 +85,7 @@ describe('feature flag por loja', () => {
     const tools = (await resolveTools()).map((t) => t.name)
     expect(tools).toEqual(expect.arrayContaining(AGENDA_TOOL_NAMES))
     expect(tools).toContain('agendar_entrega_aparelho')
-    expect(tools).toHaveLength(TOOLS.length + SERVICE_TOOL_NAMES.length + AGENDA_TOOLS.length + 1)
+    expect(tools).toHaveLength(TOOLS.length + SERVICE_TOOL_NAMES.length + AGENDA_TOOLS.length + 3)
   })
 
   it('esconde as tools de agenda (e a de entrega) quando a flag está desligada', async () => {

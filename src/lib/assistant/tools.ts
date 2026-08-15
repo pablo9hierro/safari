@@ -1,7 +1,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import type { ToolDef, ToolCallRecord } from './aiClient'
 import { AGENDA_TOOLS, agendaToolsEnabled, executeAgendaTool } from '@/lib/agenda/tools'
-import { SERVICE_TOOLS, DELIVERY_TOOL, executeServiceTool } from '@/lib/serviceLifecycle/tools'
+import { SERVICE_TOOLS, DEVICE_TOOLS, executeServiceTool } from '@/lib/serviceLifecycle/tools'
 
 export const TOOLS: ToolDef[] = [
   {
@@ -111,7 +111,7 @@ async function consultarPedido(phone: string): Promise<string> {
  */
 export async function resolveTools(): Promise<ToolDef[]> {
   const base = [...TOOLS, ...SERVICE_TOOLS]
-  return (await agendaToolsEnabled()) ? [...base, ...AGENDA_TOOLS, DELIVERY_TOOL] : base
+  return (await agendaToolsEnabled()) ? [...base, ...AGENDA_TOOLS, ...DEVICE_TOOLS] : base
 }
 
 export async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {

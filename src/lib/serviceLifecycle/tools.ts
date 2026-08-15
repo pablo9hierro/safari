@@ -1,6 +1,7 @@
 import type { ToolDef } from '@/lib/assistant/aiClient'
 import {
   approveServiceQuote,
+  cancelServiceRequest,
   getActiveServicesForPhone,
   getRepairStatus,
   getServiceDiagnostic,
@@ -9,7 +10,7 @@ import {
 } from './store'
 import { notifyQuoteDecision } from './notifications'
 import { STATUS_DESCRIPTION, REPAIR_DONE_STATUSES, ServiceLifecycleError, type ServiceSummary } from './types'
-import { createAppointment } from '@/lib/agenda/service'
+import { createAppointment, type DeviceAppointmentType } from '@/lib/agenda/service'
 import { AgendaError } from '@/lib/agenda/types'
 import { bookingWindowDays, dateKeyToBr, formatStoreDateTime, parseStoreDateTime } from '@/lib/agenda/slots'
 
@@ -87,6 +88,20 @@ export const SERVICE_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'cancelar_atendimento',
+    description:
+      'Cancela o atendimento a pedido do cliente. Só funciona ANTES da aprovação do orçamento (enquanto está pendente, aguardando diagnóstico ou com diagnóstico enviado) — depois de aprovado, o reparo pode já estar em andamento e o cancelamento passa a depender da loja; explique isso ao cliente se a tool recusar. Confirme com o cliente antes de chamar, e pergunte o motivo pra registrar.',
+    parameters: {
+      type: 'object',
+      properties: {
+        atendimento_id: { type: 'string', description: 'ID do atendimento.' },
+        telefone: { type: 'string', description: 'Telefone do cliente.' },
+        motivo: { type: 'string', description: 'Motivo informado pelo cliente, quando houver.' },
+      },
+      required: ['atendimento_id', 'telefone'],
+    },
+  },
+  {
     name: 'consultar_status_reparo',
     description:
       'Detalhes de um reparo já concluído: serviços realizados, garantia e valor final. Só retorna algo quando o reparo terminou. Use quando o cliente perguntar sobre garantia ou o que foi feito no aparelho.',
@@ -101,31 +116,49 @@ export const SERVICE_TOOLS: ToolDef[] = [
   },
 ]
 
-/**
- * Separada de SERVICE_TOOLS de propósito: agendar entrega usa a mesma agenda
- * do atendimento (`agenda_settings.appointment_ai_enabled`), então só deve
- * ser oferecida à IA junto com as demais tools de agenda — nunca quando a
- * loja desligou o agendamento por IA.
- */
-export const DELIVERY_TOOL: ToolDef = {
-  name: 'agendar_entrega_aparelho',
-  description:
-    'Agenda a entrega/retirada do aparelho na mesma agenda dos atendimentos. SÓ funciona quando o reparo já está concluído (confira antes com consultar_status_atendimento) — tentar antes disso é recusado pelo backend. Usa a mesma janela hoje/amanhã e a mesma proteção contra dois agendamentos no mesmo horário.',
-  parameters: {
-    type: 'object',
+function deviceParams(description: string) {
+  return {
+    type: 'object' as const,
     properties: {
-      atendimento_id: { type: 'string', description: 'ID do atendimento cujo aparelho será entregue/retirado.' },
+      atendimento_id: { type: 'string', description: 'ID do atendimento vinculado ao aparelho.' },
       cliente_nome: { type: 'string', description: 'Nome do cliente.' },
       cliente_telefone: { type: 'string', description: 'Telefone/WhatsApp do cliente.' },
       data: { type: 'string', description: '"hoje" ou "amanhã" (também aceita dd/mm/aaaa).' },
       horario: { type: 'string', description: 'Horário em HH:MM, formato 24h.' },
     },
     required: ['atendimento_id', 'cliente_nome', 'cliente_telefone', 'data', 'horario'],
-  },
+  }
 }
 
+/**
+ * Separadas de SERVICE_TOOLS de propósito: agendar aparelho usa a mesma
+ * agenda do atendimento (`agenda_settings.appointment_ai_enabled`), então só
+ * devem ser oferecidas à IA junto com as demais tools de agenda — nunca
+ * quando a loja desligou o agendamento por IA.
+ */
+export const DEVICE_TOOLS: ToolDef[] = [
+  {
+    name: 'agendar_coleta_aparelho',
+    description:
+      'Agenda a coleta do aparelho no endereço do cliente (a loja vai buscar), na mesma agenda dos atendimentos. Vale enquanto o atendimento estiver ativo (não cancelado/finalizado). Use quando o cliente solicitar o serviço e não puder trazer o aparelho até a loja.',
+    parameters: deviceParams('coleta'),
+  },
+  {
+    name: 'agendar_entrega_aparelho',
+    description:
+      'Agenda a entrega do aparelho no endereço do cliente (a loja entrega), na mesma agenda dos atendimentos. SÓ funciona quando o reparo já está concluído (confira antes com consultar_status_atendimento) — tentar antes disso é recusado pelo backend.',
+    parameters: deviceParams('entrega'),
+  },
+  {
+    name: 'agendar_retirada_aparelho',
+    description:
+      'Agenda a retirada do aparelho pelo cliente na loja, na mesma agenda dos atendimentos. SÓ funciona quando o reparo já está concluído. Use quando o cliente preferir buscar em vez de receber por entrega.',
+    parameters: deviceParams('retirada'),
+  },
+]
+
 export const SERVICE_TOOL_NAMES = SERVICE_TOOLS.map((t) => t.name)
-export const DELIVERY_TOOL_NAME = DELIVERY_TOOL.name
+export const DEVICE_TOOL_NAMES = DEVICE_TOOLS.map((t) => t.name)
 
 function describe(s: ServiceSummary): string {
   const aparelho = s.phone_model ? ` (${s.phone_model})` : ''
@@ -162,8 +195,14 @@ async function aprovarOrcamento(id: string, telefone: string): Promise<string> {
 
 async function recusarOrcamento(id: string, telefone: string): Promise<string> {
   const s = await rejectServiceQuote(id, telefone)
-  await notifyQuoteDecision(id, 'rejected')
-  return `ORÇAMENTO RECUSADO: atendimento ${s.id} foi encerrado. Cliente já foi avisado por WhatsApp.`
+  await notifyQuoteDecision(id, 'cancelled')
+  return `ORÇAMENTO RECUSADO: atendimento ${s.id} foi cancelado. Cliente já foi avisado por WhatsApp.`
+}
+
+async function cancelarAtendimento(id: string, telefone: string, motivo?: string): Promise<string> {
+  const s = await cancelServiceRequest(id, telefone, motivo)
+  await notifyQuoteDecision(id, 'cancelled')
+  return `ATENDIMENTO CANCELADO: ${s.id}. Cliente já foi avisado por WhatsApp.`
 }
 
 async function consultarStatusReparo(id: string, telefone: string): Promise<string> {
@@ -188,13 +227,16 @@ function resolveDeliveryDateKey(input?: string): string | null {
   return null
 }
 
-async function agendarEntregaAparelho(input: {
-  atendimento_id: string
-  cliente_nome: string
-  cliente_telefone: string
-  data: string
-  horario: string
-}): Promise<string> {
+const DEVICE_ACTION_LABEL: Record<DeviceAppointmentType, string> = {
+  device_collection: 'COLETA AGENDADA',
+  device_delivery: 'ENTREGA AGENDADA',
+  device_pickup: 'RETIRADA AGENDADA',
+}
+
+async function agendarDispositivo(
+  type: DeviceAppointmentType,
+  input: { atendimento_id: string; cliente_nome: string; cliente_telefone: string; data: string; horario: string },
+): Promise<string> {
   const dateKey = resolveDeliveryDateKey(input.data)
   if (!dateKey) return 'FALHOU (validation): informe a data como "hoje", "amanhã" ou dd/mm/aaaa.'
   const dias = bookingWindowDays()
@@ -208,21 +250,27 @@ async function agendarEntregaAparelho(input: {
       customer_phone: input.cliente_telefone,
       starts_at: parseStoreDateTime(dateKey, input.horario),
       actor_type: 'assistente',
-      appointment_type: 'device_delivery',
+      appointment_type: type,
       service_request_id: input.atendimento_id,
     })
-    return `ENTREGA AGENDADA: ${appointment.service_label} em ${formatStoreDateTime(appointment.starts_at)}. ID: ${appointment.id}`
+    return `${DEVICE_ACTION_LABEL[type]}: ${appointment.service_label} em ${formatStoreDateTime(appointment.starts_at)}. ID: ${appointment.id}`
   } catch (e) {
     if (e instanceof AgendaError) return `FALHOU (${e.code}): ${e.message}`
     throw e
   }
 }
 
+const DEVICE_TOOL_TYPE: Record<string, DeviceAppointmentType> = {
+  agendar_coleta_aparelho: 'device_collection',
+  agendar_entrega_aparelho: 'device_delivery',
+  agendar_retirada_aparelho: 'device_pickup',
+}
+
 export async function executeServiceTool(
   name: string,
   input: Record<string, unknown>,
 ): Promise<string | null> {
-  if (!SERVICE_TOOL_NAMES.includes(name) && name !== DELIVERY_TOOL_NAME) return null
+  if (!SERVICE_TOOL_NAMES.includes(name) && !DEVICE_TOOL_NAMES.includes(name)) return null
 
   try {
     switch (name) {
@@ -236,10 +284,18 @@ export async function executeServiceTool(
         return await aprovarOrcamento(String(input.atendimento_id ?? ''), String(input.telefone ?? ''))
       case 'recusar_orcamento':
         return await recusarOrcamento(String(input.atendimento_id ?? ''), String(input.telefone ?? ''))
+      case 'cancelar_atendimento':
+        return await cancelarAtendimento(
+          String(input.atendimento_id ?? ''),
+          String(input.telefone ?? ''),
+          input.motivo ? String(input.motivo) : undefined,
+        )
       case 'consultar_status_reparo':
         return await consultarStatusReparo(String(input.atendimento_id ?? ''), String(input.telefone ?? ''))
+      case 'agendar_coleta_aparelho':
       case 'agendar_entrega_aparelho':
-        return await agendarEntregaAparelho({
+      case 'agendar_retirada_aparelho':
+        return await agendarDispositivo(DEVICE_TOOL_TYPE[name], {
           atendimento_id: String(input.atendimento_id ?? ''),
           cliente_nome: String(input.cliente_nome ?? ''),
           cliente_telefone: String(input.cliente_telefone ?? ''),

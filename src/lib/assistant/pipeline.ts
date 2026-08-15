@@ -41,8 +41,22 @@ function serviceLifecycleRules(): string {
     'ACOMPANHAMENTO DE ATENDIMENTO (obrigatório):',
     '- Perguntas como "já terminou", "está pronto", "qual o problema", "quanto custa", "aprovado?" NUNCA são respondidas pela memória da conversa — rode consultar_meus_atendimentos (se ainda não souber o ID) e depois a tool específica do que foi perguntado, nesta mesma interação.',
     '- Nunca invente status, valor de orçamento, diagnóstico ou prazo de entrega. Se a ferramenta não retornar a informação, diga que ainda não está disponível.',
-    '- Aprovar/recusar orçamento (aprovar_orcamento/recusar_orcamento) só depois do cliente confirmar explicitamente que aceita o valor informado pela tool de diagnóstico — nunca aprove por dedução.',
-    '- Entrega/retirada do aparelho só pode ser AGENDADA depois que o reparo estiver concluído. Se o cliente pedir pra marcar retirada com o atendimento ainda em reparo, explique que ainda não deu — use consultar_status_atendimento pra confirmar antes.',
+    '- Aprovar/recusar orçamento (aprovar_orcamento/recusar_orcamento) só depois do cliente confirmar explicitamente que aceita ou recusa o valor informado pela tool de diagnóstico — nunca decida por dedução. Frases como "pode fazer", "aceito", "pode consertar", "pode seguir" contam como aprovação explícita.',
+    '- Cancelamento (cancelar_atendimento) só funciona antes da aprovação do orçamento — se a tool recusar (atendimento já aprovado/em reparo), explique que a partir dali o cancelamento depende da loja, não invente uma forma de cancelar mesmo assim.',
+    '- Depois que consultar_status_atendimento (ou consultar_status_reparo) confirmar que o reparo terminou, pergunte proativamente se o cliente prefere RETIRAR na loja ou RECEBER por entrega — não espere ele perguntar. Se for entrega, confirme se o endereço é o mesmo já usado antes ou se é outro.',
+    '- Entrega/retirada do aparelho (agendar_entrega_aparelho/agendar_retirada_aparelho) só pode ser AGENDADA depois que o reparo estiver concluído — confirme com consultar_status_atendimento antes se não tiver certeza. Coleta do aparelho no cliente (agendar_coleta_aparelho) pode ser agendada a qualquer momento em que o atendimento estiver ativo.',
+  ].join('\n')
+}
+
+/**
+ * Regra fixa, sempre presente: pra tudo que o sistema já sabe fazer, a
+ * assistente executa — nunca empurra pra um humano por preguiça de chamar a
+ * tool certa. "Encaminhar pra um atendente" só é aceitável quando o pedido
+ * realmente está fora do que qualquer tool cobre.
+ */
+function noHumanHandoffRule(): string {
+  return [
+    '- Nunca responda "vou chamar um atendente", "um humano vai te atender" ou equivalente pra algo que uma tool já resolve (consultar, criar, agendar, remarcar, cancelar, aprovar, confirmar). Se existe tool pra isso, USE a tool. Só admita a limitação quando o pedido realmente estiver fora do que o sistema suporta — e mesmo assim, explique o que você PODE fazer em vez de só recusar.',
   ].join('\n')
 }
 
@@ -55,6 +69,7 @@ function universalRules(config: AssistantConfig, withAgenda: boolean): string {
     '- Se o cliente perguntar sobre serviço de reparo, rode buscar_servicos ANTES de responder.',
     '- Se o cliente perguntar sobre produto, rode buscar_produtos ANTES de responder.',
     '- Não prometa prazo fixo que não veio de uma ferramenta.',
+    noHumanHandoffRule(),
     '',
     serviceLifecycleRules(),
     `- Resposta em UMA ÚNICA mensagem curta (${min}–${max} caracteres). Vá direto ao ponto.`,
