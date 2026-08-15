@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sendWhatsAppText } from '@/lib/whatsapp/evolutionClient'
+import { renderMessage } from '@/lib/templates/store'
 
 const OWNER_PHONE = process.env.OWNER_PHONE || '5583920021373'
 
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
     `Pedido #${orderId}`,
   ].join('\n')
 
-  const customerMessage = [
+  const customerFallback = [
     `Olá, *${customerName}*! 👋`,
     '',
     'Recebemos seu pedido na loja da VR Tech!',
@@ -37,6 +38,11 @@ export async function POST(req: NextRequest) {
 
   try {
     await sendWhatsAppText(OWNER_PHONE, ownerMessage)
+    const customerMessage = await renderMessage(
+      'store_order_pending',
+      { nome: customerName, pedido: String(orderId).slice(0, 8), valor: currency(Number(total) || 0) },
+      customerFallback,
+    )
     await sendWhatsAppText(customerWhatsapp, customerMessage)
     return NextResponse.json({ ok: true })
   } catch (err: unknown) {

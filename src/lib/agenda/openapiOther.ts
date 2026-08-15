@@ -375,6 +375,41 @@ export const otherPaths = {
     },
   },
 
+  '/api/templates': {
+    get: {
+      tags: ['Template Zap'],
+      summary: 'Listar templates de mensagens automáticas',
+      description: 'Todos os templates de WhatsApp da loja, agrupados por seção (Status do atendimento, Entrega e coleta, Agendamentos, Pagamentos, Pedidos da loja). São as mensagens automáticas disparadas por eventos do sistema — não têm relação com a Assistente IA, que gera respostas dinamicamente.',
+      responses: { 200: { description: 'Lista de templates.' } },
+    },
+  },
+  '/api/templates/{key}': {
+    get: {
+      tags: ['Template Zap'],
+      summary: 'Ler um template',
+      parameters: [{ name: 'key', in: 'path', required: true, schema: { type: 'string' }, description: 'Ex.: status_completed, appointment_created, payment_link.' }],
+      responses: {
+        200: { description: 'Template.' },
+        404: { description: 'Template não encontrado.' },
+      },
+    },
+    put: {
+      tags: ['Template Zap'],
+      summary: 'Salvar o texto de um template',
+      description: 'Duas validações no servidor, independentes do frontend: recusa (403) template marcado como não editável (ex.: a mensagem que carrega o link de pagamento gerado pelo sistema), e recusa (422) se o texto não contiver todas as variáveis obrigatórias do template.',
+      parameters: [{ name: 'key', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: { 'application/json': { schema: { type: 'object', required: ['content'], properties: { content: { type: 'string', description: 'Texto com variáveis no formato /nome.' } } } } },
+      },
+      responses: {
+        200: { description: 'Salvo.' },
+        403: { description: 'Template protegido — não editável.' },
+        404: { description: 'Template não encontrado.' },
+        422: { description: 'Falta variável obrigatória no texto.' },
+      },
+    },
+  },
   '/api/keepalive': {
     get: {
       tags: ['Sistema'],
@@ -391,6 +426,7 @@ export const otherSchemas = {
 }
 
 export const otherTags = [
+  { name: 'Template Zap', description: 'Textos das mensagens automáticas de evento (pedido, status, entrega, agendamento, pagamento). Distinto da Assistente IA: aqui o texto é fixo com variáveis, não gerado por modelo.' },
   { name: 'Assistente IA', description: 'Configuração, pipeline de atendimento e base de conhecimento da secretária IA.' },
   { name: 'Solicitações de reparo', description: 'Abertura pela vitrine e consulta pública pelo cliente.' },
   { name: 'WhatsApp / Evolution', description: 'Canal de comunicação: webhook de entrada, conexão da instância e notificações de saída.' },

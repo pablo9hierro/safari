@@ -1,5 +1,6 @@
 import { sendWhatsAppText } from '@/lib/whatsapp/evolutionClient'
 import { createServiceClient } from '@/lib/supabase/service'
+import { renderMessage } from '@/lib/templates/store'
 import { formatStoreDateTime } from './slots'
 import type { Appointment } from './types'
 
@@ -99,14 +100,38 @@ export async function notifyReschedule(
   previousStartsAt: string,
   justification: string,
 ): Promise<boolean> {
-  return deliver(appointment.customer_phone, buildRescheduleMessage(appointment, previousStartsAt, justification))
+  // A justificativa vai literal, com ou sem template: o renderer só troca as
+  // variáveis do texto, nunca gera conteúdo novo — o motivo do lojista chega
+  // ao cliente exatamente como foi escrito.
+  const text = await renderMessage(
+    'appointment_rescheduled',
+    {
+      nome: appointment.customer_name,
+      servico: appointment.service_label,
+      data_hora: formatStoreDateTime(appointment.starts_at),
+      horario_anterior: formatStoreDateTime(previousStartsAt),
+      motivo: justification.trim(),
+    },
+    buildRescheduleMessage(appointment, previousStartsAt, justification),
+  )
+  return deliver(appointment.customer_phone, text)
 }
 
 export async function notifyCancellation(
   appointment: Appointment,
   justification: string,
 ): Promise<boolean> {
-  return deliver(appointment.customer_phone, buildCancellationMessage(appointment, justification))
+  const text = await renderMessage(
+    'appointment_cancelled',
+    {
+      nome: appointment.customer_name,
+      servico: appointment.service_label,
+      data_hora: formatStoreDateTime(appointment.starts_at),
+      motivo: justification.trim(),
+    },
+    buildCancellationMessage(appointment, justification),
+  )
+  return deliver(appointment.customer_phone, text)
 }
 
 /**
@@ -115,5 +140,14 @@ export async function notifyCancellation(
  */
 export async function notifyAppointmentCreated(appointment: Appointment): Promise<boolean> {
   if (appointment.created_by !== 'admin') return false
-  return deliver(appointment.customer_phone, buildCreatedMessage(appointment))
+  const text = await renderMessage(
+    'appointment_created',
+    {
+      nome: appointment.customer_name,
+      servico: appointment.service_label,
+      data_hora: formatStoreDateTime(appointment.starts_at),
+    },
+    buildCreatedMessage(appointment),
+  )
+  return deliver(appointment.customer_phone, text)
 }
