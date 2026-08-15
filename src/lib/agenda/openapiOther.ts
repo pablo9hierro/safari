@@ -410,6 +410,47 @@ export const otherPaths = {
       },
     },
   },
+  '/api/internal/payment-notify': {
+    post: {
+      tags: ['Template Zap'],
+      summary: 'Renderizar a mensagem 1 do fluxo de pagamento (chamado pelo ecommerce-api)',
+      description: [
+        'Ponte entre o ecommerce-api (Rust, motor multi-tenant) e o Template Zap deste app.',
+        'Chamado automaticamente logo após o ecommerce-api gerar uma cobrança Pix (mensagem 1',
+        'do fluxo de pagamento). Renderiza o template `payment_intro` com as variáveis recebidas',
+        'e devolve o texto pronto — o ecommerce-api manda essa mensagem e, em seguida, a mensagem 2',
+        '(o copia-e-cola real do Pix, que nunca passa por este endpoint nem por template nenhum).',
+        '',
+        'Protegido por `x-internal-key` (variável `VRTECH_INTERNAL_KEY`, compartilhada só com o',
+        'ecommerce-api) — nunca chamado pelo navegador.',
+      ].join('\n'),
+      parameters: [{ name: 'x-internal-key', in: 'header', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['nome'],
+              properties: {
+                nome: { type: 'string', description: 'Nome do cliente.' },
+                pedido: { type: 'string', description: 'ID curto do pedido.' },
+                valor: { type: 'string', description: 'Valor formatado, ex: "R$ 89,90".' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Mensagem renderizada.',
+          content: { 'application/json': { schema: { type: 'object', properties: { message: { type: 'string' } } } } },
+        },
+        400: { description: '`nome` ausente.', content: { 'application/json': { schema: errorSchema } } },
+        401: { description: 'Chave interna ausente ou incorreta.', content: { 'application/json': { schema: errorSchema } } },
+      },
+    },
+  },
   '/api/keepalive': {
     get: {
       tags: ['Sistema'],
