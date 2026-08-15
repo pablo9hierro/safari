@@ -17,6 +17,7 @@ import {
   withinBusinessHours,
   type Interval,
 } from './slots'
+import { REPAIR_DONE_STATUSES } from '@/lib/serviceLifecycle/types'
 
 /** Status que ocupam horário — os demais liberam o slot. */
 const LIVE_STATUSES = ['agendado', 'remarcado'] as const
@@ -238,6 +239,9 @@ export type CreateAppointmentInput = {
   notes?: string | null
   actor_type: ActorType
   actor_id?: string | null
+  appointment_type?: 'service' | 'device_delivery'
+  /** Obrigatório em `device_delivery` — precisa estar com o reparo concluído. */
+  service_request_id?: string | null
 }
 
 export async function createAppointment(
@@ -251,8 +255,35 @@ export async function createAppointment(
     throw new AgendaError('Telefone do cliente é obrigatório.', 'validation')
   }
 
-  const service = await resolveService(input.service_id ?? null, input.service_label ?? null, db)
-  const duration = input.duration_minutes ?? service.duration_minutes
+  const isDelivery = input.appointment_type === 'device_delivery'
+  let serviceId: string | null = null
+  let serviceLabel: string
+  let duration: number
+
+  if (isDelivery) {
+    if (!input.service_request_id) {
+      throw new AgendaError('Entrega do aparelho precisa estar vinculada ao atendimento (service_request_id).', 'validation')
+    }
+    const { data: req, error: reqErr } = await db
+      .from('service_requests')
+      .select('id, status, phone_model')
+      .eq('id', input.service_request_id)
+      .maybeSingle()
+    if (reqErr || !req) throw new AgendaError('Atendimento não encontrado.', 'not_found')
+    if (!(REPAIR_DONE_STATUSES as string[]).includes(req.status as string)) {
+      throw new AgendaError(
+        `Ainda não dá pra agendar a entrega — o reparo precisa estar concluído primeiro (status atual: ${req.status}).`,
+        'validation',
+      )
+    }
+    serviceLabel = `Entrega — ${req.phone_model ?? 'aparelho'}`
+    duration = input.duration_minutes ?? 15
+  } else {
+    const service = await resolveService(input.service_id ?? null, input.service_label ?? null, db)
+    serviceId = service.service_id
+    serviceLabel = service.service_label
+    duration = input.duration_minutes ?? service.duration_minutes
+  }
 
   const availability = await checkAvailability(input.starts_at, duration, db)
   if (!availability.available) {
@@ -266,8 +297,8 @@ export async function createAppointment(
   const { data, error } = await db
     .from('appointments')
     .insert({
-      service_id: service.service_id,
-      service_label: service.service_label,
+      service_id: serviceId,
+      service_label: serviceLabel,
       customer_name: input.customer_name.trim(),
       customer_phone: input.customer_phone.replace(/\D/g, ''),
       starts_at: input.starts_at.toISOString(),
@@ -275,6 +306,8 @@ export async function createAppointment(
       status: 'agendado',
       notes: input.notes ?? null,
       created_by: input.actor_type === 'admin' ? 'admin' : 'assistente',
+      appointment_type: isDelivery ? 'device_delivery' : 'service',
+      service_request_id: isDelivery ? input.service_request_id : null,
     })
     .select()
     .single()

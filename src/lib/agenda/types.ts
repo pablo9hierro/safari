@@ -23,6 +23,9 @@ export type BusinessHours = {
   close_time: string
 }
 
+/** `service` = agendar o atendimento em si; `device_delivery` = entrega/retirada do aparelho já pronto. */
+export type AppointmentType = 'service' | 'device_delivery'
+
 export type Appointment = {
   id: string
   service_id: string | null
@@ -34,6 +37,9 @@ export type Appointment = {
   status: AppointmentStatus
   notes: string | null
   created_by: 'assistente' | 'admin'
+  appointment_type: AppointmentType
+  /** Preenchido em `device_delivery` — a solicitação cujo aparelho está sendo entregue. */
+  service_request_id: string | null
   created_at: string
   updated_at: string
 }

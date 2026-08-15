@@ -7,6 +7,7 @@
  * e o formato de resposta de cada uma no mesmo lugar que os endpoints REST.
  */
 import { AGENDA_TOOLS } from './tools'
+import { SERVICE_TOOLS, DELIVERY_TOOL } from '@/lib/serviceLifecycle/tools'
 import { MIN_JUSTIFICATION_LENGTH } from './types'
 import { otherPaths, otherSchemas, otherTags } from './openapiOther'
 
@@ -353,6 +354,33 @@ export function buildAgendaOpenApi() {
                     type: 'string',
                     description:
                       'Texto devolvido ao modelo. Prefixos convencionados: "DISPONÍVEL", "INDISPONÍVEL (motivo)", "AGENDAMENTO CONFIRMADO", "CANCELADO", "REMARCADO" ou "FALHOU (código)". Com "FALHOU", a assistente não pode confirmar nada ao cliente.',
+                  },
+                },
+              },
+            ]),
+          ),
+        },
+        /**
+         * Ciclo de assistência técnica (diagnóstico → orçamento → aprovação →
+         * reparo → entrega). Mesma ideia do AgendaTools: gerado a partir da
+         * constante real entregue ao modelo.
+         */
+        ServiceLifecycleTools: {
+          type: 'object',
+          description:
+            'Ferramentas do ciclo de assistência técnica. As 6 primeiras estão sempre disponíveis; agendar_entrega_aparelho só quando a agenda por IA está ligada (mesma flag do AgendaTools) — a entrega usa a mesma agenda de atendimentos.',
+          properties: Object.fromEntries(
+            [...SERVICE_TOOLS, DELIVERY_TOOL].map((tool) => [
+              tool.name,
+              {
+                type: 'object',
+                description: tool.description,
+                properties: {
+                  input: tool.parameters,
+                  output: {
+                    type: 'string',
+                    description:
+                      'Texto devolvido ao modelo. Nunca inclui dados internos do lojista (owner_notes, checklist, used_parts) — só o que é seguro mostrar ao cliente. Prefixo "FALHOU (código)" indica que nada foi alterado.',
                   },
                 },
               },

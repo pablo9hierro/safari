@@ -14,6 +14,8 @@ const appointment: Appointment = {
   status: 'remarcado',
   notes: null,
   created_by: 'admin',
+  appointment_type: 'service',
+  service_request_id: null,
   created_at: '2026-08-19T12:00:00.000Z',
   updated_at: '2026-08-19T12:00:00.000Z',
 }

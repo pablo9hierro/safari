@@ -31,6 +31,21 @@ function agendaRules(): string {
   ].join('\n')
 }
 
+/**
+ * Regras do ciclo de assistência técnica: diagnóstico → orçamento → aprovação
+ * → reparo → entrega. Sempre disponível (não depende de flag) — as tools de
+ * consulta já existem em qualquer conversa.
+ */
+function serviceLifecycleRules(): string {
+  return [
+    'ACOMPANHAMENTO DE ATENDIMENTO (obrigatório):',
+    '- Perguntas como "já terminou", "está pronto", "qual o problema", "quanto custa", "aprovado?" NUNCA são respondidas pela memória da conversa — rode consultar_meus_atendimentos (se ainda não souber o ID) e depois a tool específica do que foi perguntado, nesta mesma interação.',
+    '- Nunca invente status, valor de orçamento, diagnóstico ou prazo de entrega. Se a ferramenta não retornar a informação, diga que ainda não está disponível.',
+    '- Aprovar/recusar orçamento (aprovar_orcamento/recusar_orcamento) só depois do cliente confirmar explicitamente que aceita o valor informado pela tool de diagnóstico — nunca aprove por dedução.',
+    '- Entrega/retirada do aparelho só pode ser AGENDADA depois que o reparo estiver concluído. Se o cliente pedir pra marcar retirada com o atendimento ainda em reparo, explique que ainda não deu — use consultar_status_atendimento pra confirmar antes.',
+  ].join('\n')
+}
+
 function universalRules(config: AssistantConfig, withAgenda: boolean): string {
   const min = config.min_response_chars || 40
   const max = config.max_response_chars || 300
@@ -40,6 +55,8 @@ function universalRules(config: AssistantConfig, withAgenda: boolean): string {
     '- Se o cliente perguntar sobre serviço de reparo, rode buscar_servicos ANTES de responder.',
     '- Se o cliente perguntar sobre produto, rode buscar_produtos ANTES de responder.',
     '- Não prometa prazo fixo que não veio de uma ferramenta.',
+    '',
+    serviceLifecycleRules(),
     `- Resposta em UMA ÚNICA mensagem curta (${min}–${max} caracteres). Vá direto ao ponto.`,
     ...(withAgenda ? ['', agendaRules()] : []),
   ].join('\n')

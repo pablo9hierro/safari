@@ -15,6 +15,7 @@ vi.mock('@/lib/supabase/service', () => ({
 
 const { AGENDA_TOOLS, AGENDA_TOOL_NAMES, agendaToolsEnabled } = await import('./tools')
 const { TOOLS, resolveTools } = await import('@/lib/assistant/tools')
+const { SERVICE_TOOL_NAMES } = await import('@/lib/serviceLifecycle/tools')
 
 describe('contrato das tools de agenda', () => {
   it('expõe exatamente as seis operações de agenda', () => {
@@ -78,23 +79,25 @@ describe('feature flag por loja', () => {
     settingsResult.value = { data: null, error: null }
   })
 
-  it('oferece as tools de agenda quando a flag está ligada', async () => {
+  it('oferece as tools de agenda (+ entrega) quando a flag está ligada', async () => {
     settingsResult.value = { data: { appointment_ai_enabled: true }, error: null }
     expect(await agendaToolsEnabled()).toBe(true)
     const tools = (await resolveTools()).map((t) => t.name)
     expect(tools).toEqual(expect.arrayContaining(AGENDA_TOOL_NAMES))
-    expect(tools).toHaveLength(TOOLS.length + AGENDA_TOOLS.length)
+    expect(tools).toContain('agendar_entrega_aparelho')
+    expect(tools).toHaveLength(TOOLS.length + SERVICE_TOOL_NAMES.length + AGENDA_TOOLS.length + 1)
   })
 
-  it('esconde as tools de agenda quando a flag está desligada', async () => {
+  it('esconde as tools de agenda (e a de entrega) quando a flag está desligada', async () => {
     settingsResult.value = { data: { appointment_ai_enabled: false }, error: null }
     expect(await agendaToolsEnabled()).toBe(false)
     const tools = (await resolveTools()).map((t) => t.name)
     for (const name of AGENDA_TOOL_NAMES) expect(tools).not.toContain(name)
-    expect(tools).toHaveLength(TOOLS.length)
+    expect(tools).not.toContain('agendar_entrega_aparelho')
+    expect(tools).toHaveLength(TOOLS.length + SERVICE_TOOL_NAMES.length)
   })
 
-  it('sem a tabela no banco, a assistente continua com as tools de sempre', async () => {
+  it('sem a tabela no banco, a assistente continua com produto/serviço/pedido + ciclo de atendimento', async () => {
     // Estado real antes da migration ser aplicada: a leitura falha. A
     // assistente NÃO pode quebrar por causa de uma feature ainda não migrada.
     settingsResult.value = {
@@ -103,7 +106,9 @@ describe('feature flag por loja', () => {
     }
     expect(await agendaToolsEnabled()).toBe(false)
     const tools = (await resolveTools()).map((t) => t.name)
-    expect(tools).toEqual(['buscar_produtos', 'buscar_servicos', 'consultar_pedido'])
+    expect(tools).toEqual([
+      'buscar_produtos', 'buscar_servicos', 'consultar_pedido', ...SERVICE_TOOL_NAMES,
+    ])
   })
 })
 
