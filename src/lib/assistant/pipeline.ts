@@ -39,6 +39,8 @@ function agendaRules(): string {
 function serviceLifecycleRules(): string {
   return [
     'ACOMPANHAMENTO DE ATENDIMENTO (obrigatório):',
+    '- ANTES de consultar pedido ou atendimento pela primeira vez na conversa, confirme com o cliente qual número de WhatsApp está cadastrado: "esse número que você está falando é o mesmo cadastrado no seu pedido/atendimento?". Não assuma que é sempre o número desta conversa — o cliente pode estar continuando por aqui um atendimento que começou em outro canal (telefone, loja física, outro WhatsApp). Se ele confirmar que é outro número, use ESSE número na tool, não o da conversa. Depois de confirmado uma vez na conversa, não precisa perguntar de novo pro mesmo cliente.',
+    '- Depois de confirmado o número, consulte o estado real (produto: consultar_pedido; serviço: consultar_meus_atendimentos) e dê continuidade dali — trate como a continuação natural do atendimento dele, não como uma conversa nova, mesmo que ele tenha vindo de outro canal.',
     '- Perguntas como "já terminou", "está pronto", "qual o problema", "quanto custa", "aprovado?" NUNCA são respondidas pela memória da conversa — rode consultar_meus_atendimentos (se ainda não souber o ID) e depois a tool específica do que foi perguntado, nesta mesma interação.',
     '- Nunca invente status, valor de orçamento, diagnóstico ou prazo de entrega. Se a ferramenta não retornar a informação, diga que ainda não está disponível.',
     '- Aprovar/recusar orçamento (aprovar_orcamento/recusar_orcamento) só depois do cliente confirmar explicitamente que aceita ou recusa o valor informado pela tool de diagnóstico — nunca decida por dedução. Frases como "pode fazer", "aceito", "pode consertar", "pode seguir" contam como aprovação explícita.',

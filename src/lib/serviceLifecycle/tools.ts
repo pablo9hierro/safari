@@ -28,10 +28,10 @@ export const SERVICE_TOOLS: ToolDef[] = [
   {
     name: 'consultar_meus_atendimentos',
     description:
-      'Lista os atendimentos (solicitações de reparo) do cliente pelo telefone dele, com status atual de cada um. Rode isto ANTES de qualquer outra tool de atendimento, pra descobrir o request_id — nunca invente ou reaproveite um ID de conversa anterior sem confirmar aqui primeiro.',
+      'Lista os atendimentos (solicitações de reparo) do cliente pelo telefone dele, com status atual de cada um. Rode isto ANTES de qualquer outra tool de atendimento, pra descobrir o request_id — nunca invente ou reaproveite um ID de conversa anterior sem confirmar aqui primeiro. Confirme com o cliente qual número está cadastrado no atendimento antes de chamar: normalmente é o da conversa, mas pode ser outro — ele pode estar continuando aqui um atendimento que começou por outro canal (telefone, loja física).',
     parameters: {
       type: 'object',
-      properties: { telefone: { type: 'string', description: 'Telefone/WhatsApp do cliente (só dígitos).' } },
+      properties: { telefone: { type: 'string', description: 'Telefone cadastrado no atendimento (confirmado com o cliente), só dígitos.' } },
       required: ['telefone'],
     },
   },

@@ -24,10 +24,10 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'consultar_pedido',
-    description: 'Consulta pedidos recentes do cliente pelo número de telefone da conversa. Retorna status e itens.',
+    description: 'Consulta pedidos de produto do cliente por telefone. Confirme com o cliente qual número está cadastrado no pedido antes de chamar — normalmente é o da conversa, mas pode ser outro (ex: pedido feito com outro número, ou atendimento que começou em outro canal). Retorna status e itens.',
     parameters: {
       type: 'object',
-      properties: { phone: { type: 'string', description: 'Número de telefone do cliente (apenas dígitos)' } },
+      properties: { phone: { type: 'string', description: 'Telefone cadastrado no pedido (confirmado com o cliente), apenas dígitos.' } },
       required: ['phone'],
     },
   },
