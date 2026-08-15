@@ -11,7 +11,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/agenda', label: 'Agenda', icon: CalendarDays },
   { href: '/dashboard/produtos', label: 'Produtos/Serviços', icon: Package },
   { href: '/dashboard/pedidos', label: 'Pedidos', icon: ShoppingBag },
-  { href: '/dashboard/frete', label: 'Frete', icon: Truck },
+  { href: '/dashboard/servicodeslocamento', label: 'Serviço de deslocamento', icon: Truck },
   { href: '/dashboard/financeiro', label: 'Financeiro', icon: Wallet },
   { href: '/dashboard/assistente-ia', label: 'Assistente IA', icon: Bot },
   { href: '/dashboard/template-zap', label: 'Template Zap', icon: MessageSquare },

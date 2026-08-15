@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { buscarEnderecos } from '@/lib/mapa/geocodificacao'
-import { Truck, Loader2, Check, MapPin, Navigation } from 'lucide-react'
+import { Truck, Loader2, Check, MapPin, Navigation, PackageCheck, PackagePlus } from 'lucide-react'
 
 interface ShippingSettings {
   price_per_km: number
@@ -11,11 +11,13 @@ interface ShippingSettings {
   store_lng: number
   max_km: number | null
   store_address: string
+  cobrar_coleta: boolean
+  cobrar_entrega: boolean
 }
 
 const INPUT = 'w-full px-4 py-3 rounded-xl border border-white/10 bg-vr-black text-white placeholder-white/25 focus:border-vr-red/60 outline-none transition-all'
 
-export default function FreteClient({ initial }: { initial: ShippingSettings }) {
+export default function ServicoDeslocamentoClient({ initial }: { initial: ShippingSettings }) {
   const [settings, setSettings] = useState<ShippingSettings>(initial)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -58,6 +60,8 @@ export default function FreteClient({ initial }: { initial: ShippingSettings }) 
           store_address: settings.store_address.trim(),
           store_lat: lat,
           store_lng: lng,
+          cobrar_coleta: settings.cobrar_coleta,
+          cobrar_entrega: settings.cobrar_entrega,
         },
         { onConflict: 'id' }
       )
@@ -74,16 +78,20 @@ export default function FreteClient({ initial }: { initial: ShippingSettings }) 
     <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
       <h1 className="text-lg font-bold text-white flex items-center gap-2">
         <Truck className="w-5 h-5 text-vr-red" />
-        Configuração de frete
+        Serviço de deslocamento
       </h1>
       <p className="text-sm text-vr-silver/50">
-        O frete é calculado pela distância em linha reta entre a loja e o endereço do cliente (fórmula de Haversine).
+        Coleta e entrega do aparelho são pernas independentes — o cliente pode escolher só coleta, só entrega,
+        as duas ou nenhuma (leva e busca na loja), como passagens separadas. O preço por km abaixo é cobrado
+        por PERNA escolhida, calculado pela distância em linha reta até o endereço do cliente (fórmula de
+        Haversine) — nunca em dobro caso o cliente escolha só uma perna. Para atendimentos de serviço, essa
+        cobrança só é feita na entrega do aparelho reparado, nunca antes.
       </p>
 
       <div className="bg-vr-graphite border border-white/5 rounded-2xl p-5 space-y-5">
         <div>
           <label className="block text-sm font-semibold text-vr-silver/80 mb-1.5">
-            Preço por km <span className="text-vr-silver/40 font-normal">(R$/km, ida + volta)</span>
+            Preço por km <span className="text-vr-silver/40 font-normal">(R$/km, por perna)</span>
           </label>
           <div className="relative">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-vr-silver/50 text-sm font-medium">R$</span>
@@ -99,7 +107,34 @@ export default function FreteClient({ initial }: { initial: ShippingSettings }) 
             />
           </div>
           <p className="text-xs text-vr-silver/40 mt-1.5">
-            Ex: 5 km × R$ {settings.price_per_km.toFixed(2)}/km = frete R$ {(5 * settings.price_per_km).toFixed(2)} por trecho
+            Ex: cliente pede só entrega, 5 km → R$ {(5 * settings.price_per_km).toFixed(2)}. Se pedir coleta + entrega, 5 km cada → R$ {(10 * settings.price_per_km).toFixed(2)} no total.
+          </p>
+        </div>
+
+        <div className="border-t border-white/5 pt-4 space-y-3">
+          <p className="text-sm font-semibold text-vr-silver/80">Pernas cobradas</p>
+          <label className="flex items-center gap-3 px-4 py-3 rounded-xl border border-white/10 bg-vr-black cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.cobrar_coleta}
+              onChange={(e) => setSettings((s) => ({ ...s, cobrar_coleta: e.target.checked }))}
+              className="w-4 h-4 accent-vr-red"
+            />
+            <PackagePlus className="w-4 h-4 text-vr-red shrink-0" />
+            <span className="text-sm text-vr-silver/80">Cobrar coleta do aparelho na casa do cliente</span>
+          </label>
+          <label className="flex items-center gap-3 px-4 py-3 rounded-xl border border-white/10 bg-vr-black cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.cobrar_entrega}
+              onChange={(e) => setSettings((s) => ({ ...s, cobrar_entrega: e.target.checked }))}
+              className="w-4 h-4 accent-vr-red"
+            />
+            <PackageCheck className="w-4 h-4 text-vr-red shrink-0" />
+            <span className="text-sm text-vr-silver/80">Cobrar entrega do aparelho pronto na casa do cliente</span>
+          </label>
+          <p className="text-xs text-vr-silver/40">
+            Desmarcada, aquela perna fica cortesia (grátis) mesmo com km rodado. Retirada na loja pelo cliente nunca é cobrada.
           </p>
         </div>
 
@@ -127,7 +162,7 @@ export default function FreteClient({ initial }: { initial: ShippingSettings }) 
         <div className="border-t border-white/5 pt-4 space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-vr-silver/80">
             <MapPin className="w-4 h-4 text-vr-red" />
-            Endereço da loja (ponto de partida do frete)
+            Endereço da loja (ponto de partida do deslocamento)
           </div>
           <div>
             <input
