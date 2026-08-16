@@ -2,18 +2,20 @@
 
 import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { BookOpen, Plus, Trash2, Loader2, Check, ExternalLink, Search, X, Wrench, Pencil } from 'lucide-react'
+import { BookOpen, Plus, Trash2, Loader2, Check, ExternalLink, Search, X, Wrench, Pencil, DollarSign } from 'lucide-react'
 import Link from 'next/link'
 import type { StockItem } from '@/lib/types'
 import Dialog from '@/components/ui/Dialog'
 
 interface Category { id: string; name: string; slug: string; sort_order: number }
 interface ItemPart { id: string; quantity: number; stock_item_id: string; stock_items: { name: string; unit: string } | null }
+interface ItemExtraCost { id: string; name: string; value: number }
 interface Item {
   id: string; category_id: string; model_name: string; repair_type: string
   price: number; cost_price: number; duration_minutes: number
   description: string | null; sort_order: number; active: boolean
   service_catalog_item_parts?: ItemPart[]
+  service_catalog_item_extra_costs?: ItemExtraCost[]
 }
 
 const INPUT = 'w-full px-3 py-2 rounded-lg border border-white/10 bg-vr-black text-white placeholder-white/25 text-sm outline-none focus:border-vr-red/60 transition-all'
@@ -25,6 +27,7 @@ interface Props {
 }
 
 type SelectedPart = { stock_item_id: string; name: string; unit: string; price: number; quantity: number }
+type ExtraCost = { name: string; value: number }
 
 export default function ServicosTab({ initialCategories, initialItems, stockItems }: Props) {
   const [categories, setCategories] = useState<Category[]>(initialCategories)
@@ -49,6 +52,15 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
   const [partsQuery, setPartsQuery] = useState('')
   const [selectedParts, setSelectedParts] = useState<SelectedPart[]>([])
 
+  // Custo avulso — não é peça de estoque nem produto (ex: mão de obra
+  // externa, taxa de terceiro). Nome livre + valor, soma no custo total.
+  // Um dialog só, compartilhado entre o form de criar e o de editar,
+  // controlado por qual dos dois está "alvo" no momento.
+  const [extraCosts, setExtraCosts] = useState<ExtraCost[]>([])
+  const [extraCostTarget, setExtraCostTarget] = useState<'new' | 'edit' | null>(null)
+  const [extraCostName, setExtraCostName] = useState('')
+  const [extraCostValue, setExtraCostValue] = useState('')
+
   const activeItems = items.filter((i) => i.category_id === activeCatId)
 
   const partMatches = useMemo(() => {
@@ -59,7 +71,22 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
       .slice(0, 6)
   }, [partsQuery, stockItems, selectedParts])
 
-  const costPrice = selectedParts.reduce((sum, p) => sum + p.price * p.quantity, 0)
+  const costPrice =
+    selectedParts.reduce((sum, p) => sum + p.price * p.quantity, 0) +
+    extraCosts.reduce((sum, c) => sum + c.value, 0)
+
+  const addExtraCost = () => {
+    const value = Number(extraCostValue)
+    if (!extraCostName.trim() || !Number.isFinite(value) || value < 0) return
+    const cost = { name: extraCostName.trim(), value }
+    if (extraCostTarget === 'edit') setEditExtraCosts((prev) => [...prev, cost])
+    else setExtraCosts((prev) => [...prev, cost])
+    setExtraCostName(''); setExtraCostValue(''); setExtraCostTarget(null)
+  }
+
+  const removeExtraCost = (index: number) => {
+    setExtraCosts((prev) => prev.filter((_, i) => i !== index))
+  }
 
   const addPart = (s: StockItem) => {
     setSelectedParts((prev) => [...prev, { stock_item_id: s.id, name: s.name, unit: s.unit, price: s.price ?? 0, quantity: 1 }])
@@ -84,6 +111,7 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
   const [editDesc, setEditDesc] = useState('')
   const [editPartsQuery, setEditPartsQuery] = useState('')
   const [editSelectedParts, setEditSelectedParts] = useState<SelectedPart[]>([])
+  const [editExtraCosts, setEditExtraCosts] = useState<ExtraCost[]>([])
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
@@ -95,7 +123,13 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
       .slice(0, 6)
   }, [editPartsQuery, stockItems, editSelectedParts])
 
-  const editCostPrice = editSelectedParts.reduce((sum, p) => sum + p.price * p.quantity, 0)
+  const editCostPrice =
+    editSelectedParts.reduce((sum, p) => sum + p.price * p.quantity, 0) +
+    editExtraCosts.reduce((sum, c) => sum + c.value, 0)
+
+  const removeEditExtraCost = (index: number) => {
+    setEditExtraCosts((prev) => prev.filter((_, i) => i !== index))
+  }
 
   const openEditItem = (item: Item) => {
     setEditingItem(item)
@@ -113,6 +147,7 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
         quantity: Number(p.quantity),
       }))
     )
+    setEditExtraCosts((item.service_catalog_item_extra_costs ?? []).map((c) => ({ name: c.name, value: Number(c.value) })))
     setEditError(null)
   }
 
@@ -157,7 +192,17 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
       parts = (partRows as unknown as ItemPart[]) ?? []
     }
 
-    setItems((prev) => prev.map((i) => (i.id === editingItem.id ? { ...(updated as Item), service_catalog_item_parts: parts } : i)))
+    await supabase.from('service_catalog_item_extra_costs').delete().eq('service_catalog_item_id', editingItem.id)
+    let extras: ItemExtraCost[] = []
+    if (editExtraCosts.length > 0) {
+      const { data: extraRows } = await supabase
+        .from('service_catalog_item_extra_costs')
+        .insert(editExtraCosts.map((c) => ({ service_catalog_item_id: editingItem.id, name: c.name, value: c.value })))
+        .select('id, name, value')
+      extras = (extraRows as unknown as ItemExtraCost[]) ?? []
+    }
+
+    setItems((prev) => prev.map((i) => (i.id === editingItem.id ? { ...(updated as Item), service_catalog_item_parts: parts, service_catalog_item_extra_costs: extras } : i)))
     setSavingEdit(false)
     setEditingItem(null)
   }
@@ -219,10 +264,19 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
       parts = (partRows as unknown as ItemPart[]) ?? []
     }
 
+    let extras: ItemExtraCost[] = []
+    if (extraCosts.length > 0) {
+      const { data: extraRows } = await supabase
+        .from('service_catalog_item_extra_costs')
+        .insert(extraCosts.map((c) => ({ service_catalog_item_id: data.id, name: c.name, value: c.value })))
+        .select('id, name, value')
+      extras = (extraRows as unknown as ItemExtraCost[]) ?? []
+    }
+
     setSavingItem(false)
-    setItems((prev) => [...prev, { ...(data as Item), service_catalog_item_parts: parts }])
+    setItems((prev) => [...prev, { ...(data as Item), service_catalog_item_parts: parts, service_catalog_item_extra_costs: extras }])
     setNewModel(''); setNewRepair(''); setNewPrice(''); setNewDuration(''); setNewDesc('')
-    setSelectedParts([])
+    setSelectedParts([]); setExtraCosts([])
     setSavedItem(true); setTimeout(() => setSavedItem(false), 1500)
   }
 
@@ -377,9 +431,39 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Custos avulsos — não é peça de estoque nem produto */}
+            <div className="border-t border-white/10 pt-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-semibold text-vr-silver/70">
+                  <DollarSign className="w-3.5 h-3.5 text-vr-red" />
+                  Custos do serviço (avulso, externo)
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setExtraCostTarget('new')}
+                  className="flex items-center gap-1 text-xs font-semibold bg-vr-black border border-white/10 text-white px-2.5 py-1.5 rounded-lg hover:border-vr-red/40 transition-colors"
+                >
+                  <Plus className="w-3 h-3" /> Custo
+                </button>
+              </div>
+              {extraCosts.length > 0 && (
+                <div className="space-y-1.5">
+                  {extraCosts.map((c, i) => (
+                    <div key={i} className="flex items-center gap-2 bg-vr-black border border-white/8 rounded-lg px-3 py-1.5">
+                      <span className="text-sm text-white flex-1 truncate">{c.name}</span>
+                      <span className="text-xs text-vr-silver/60 w-20 text-right">R$ {c.value.toFixed(2)}</span>
+                      <button onClick={() => removeExtraCost(i)} className="text-vr-silver/30 hover:text-red-400">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="flex items-center justify-between text-sm pt-1">
-                <span className="text-vr-silver/60">Custo do serviço (soma das peças)</span>
+                <span className="text-vr-silver/60">Custo do serviço (peças + avulsos)</span>
                 <span className="font-bold text-white">R$ {costPrice.toFixed(2)}</span>
               </div>
               {newPrice && Number(newPrice) > 0 && (
@@ -523,9 +607,38 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="border-t border-white/10 pt-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-semibold text-vr-silver/70">
+                <DollarSign className="w-3.5 h-3.5 text-vr-red" />
+                Custos do serviço (avulso, externo)
+              </div>
+              <button
+                type="button"
+                onClick={() => setExtraCostTarget('edit')}
+                className="flex items-center gap-1 text-xs font-semibold bg-vr-black border border-white/10 text-white px-2.5 py-1.5 rounded-lg hover:border-vr-red/40 transition-colors"
+              >
+                <Plus className="w-3 h-3" /> Custo
+              </button>
+            </div>
+            {editExtraCosts.length > 0 && (
+              <div className="space-y-1.5">
+                {editExtraCosts.map((c, i) => (
+                  <div key={i} className="flex items-center gap-2 bg-vr-black border border-white/8 rounded-lg px-3 py-1.5">
+                    <span className="text-sm text-white flex-1 truncate">{c.name}</span>
+                    <span className="text-xs text-vr-silver/60 w-20 text-right">R$ {c.value.toFixed(2)}</span>
+                    <button onClick={() => removeEditExtraCost(i)} className="text-vr-silver/30 hover:text-red-400">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="flex items-center justify-between text-sm pt-1">
-              <span className="text-vr-silver/60">Custo do serviço (soma das peças)</span>
+              <span className="text-vr-silver/60">Custo do serviço (peças + avulsos)</span>
               <span className="font-bold text-white">R$ {editCostPrice.toFixed(2)}</span>
             </div>
             {editPrice && Number(editPrice) > 0 && (
@@ -547,6 +660,40 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
           >
             {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
             {savingEdit ? 'Salvando…' : 'Salvar alterações'}
+          </button>
+        </div>
+      </Dialog>
+
+      <Dialog open={extraCostTarget !== null} onClose={() => setExtraCostTarget(null)} title="Novo custo avulso">
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Nome do custo</label>
+            <input
+              value={extraCostName}
+              onChange={(e) => setExtraCostName(e.target.value)}
+              placeholder="Ex: mão de obra terceirizada"
+              className={`${INPUT} mt-1`}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Valor (R$)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={extraCostValue}
+              onChange={(e) => setExtraCostValue(e.target.value)}
+              placeholder="0,00"
+              className={`${INPUT} mt-1`}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={addExtraCost}
+            disabled={!extraCostName.trim() || !extraCostValue}
+            className="w-full bg-vr-red text-white font-semibold py-2.5 rounded-xl hover:bg-vr-red/90 transition-colors text-sm disabled:opacity-40 flex items-center justify-center gap-2"
+          >
+            <Plus className="w-4 h-4" /> Adicionar custo
           </button>
         </div>
       </Dialog>
