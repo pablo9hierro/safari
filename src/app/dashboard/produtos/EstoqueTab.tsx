@@ -1,18 +1,19 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { StockItem, StockMovement, StockUnit } from '@/lib/types'
 import { Boxes, ArrowDownCircle, ArrowUpCircle, Loader2, Search, X, Pencil, Trash2 } from 'lucide-react'
 
 export default function EstoqueTab({
-  initialItems,
+  items,
+  setItems,
   initialMovements,
 }: {
-  initialItems: StockItem[]
+  items: StockItem[]
+  setItems: Dispatch<SetStateAction<StockItem[]>>
   initialMovements: StockMovement[]
 }) {
-  const [items, setItems] = useState<StockItem[]>(initialItems)
   const [movements, setMovements] = useState<StockMovement[]>(initialMovements)
 
   const [newName, setNewName] = useState('')

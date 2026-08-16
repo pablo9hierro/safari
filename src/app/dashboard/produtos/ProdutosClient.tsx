@@ -35,6 +35,10 @@ interface Props {
 
 export default function ProdutosClient(props: Props) {
   const [tab, setTab] = useState<Tab>('produtos')
+  // Elevado até aqui (em vez de local em EstoqueTab) pra ServicosTab também
+  // enxergar item de estoque cadastrado na mesma sessão, sem precisar
+  // recarregar a página — as duas abas compartilham a mesma lista viva.
+  const [stockItems, setStockItems] = useState<StockItem[]>(props.initialStockItems)
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
@@ -62,12 +66,13 @@ export default function ProdutosClient(props: Props) {
         <ServicosTab
           initialCategories={props.initialCatalogCategories}
           initialItems={props.initialCatalogItems}
-          stockItems={props.initialStockItems}
+          stockItems={stockItems}
         />
       )}
       {tab === 'estoque' && (
         <EstoqueTab
-          initialItems={props.initialStockItems}
+          items={stockItems}
+          setItems={setStockItems}
           initialMovements={props.initialStockMovements}
         />
       )}
