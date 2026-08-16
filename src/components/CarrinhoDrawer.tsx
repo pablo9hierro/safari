@@ -1,15 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   X, ShoppingBag, Trash2, Wrench, Package, ChevronRight,
-  ChevronLeft, Minus, Plus, MapPin, Loader2, CheckCircle2, Home,
+  ChevronLeft, Minus, Plus, MapPin, Loader2, CheckCircle2, Home, Wallet,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useCart } from '@/lib/carrinho/context'
 import dynamic from 'next/dynamic'
 import type { LocationPickerResult } from './LocationPicker'
-import { estimateDelivery, createAssistantOrder } from '@/lib/resolutoo/checkout'
+import { estimateDelivery, createAssistantOrder, fetchPaymentOnDeliveryEnabled } from '@/lib/resolutoo/checkout'
 import AgendamentoPicker from './AgendamentoPicker'
 
 const LocationPicker = dynamic(() => import('./LocationPicker'), { ssr: false })
@@ -41,6 +41,13 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
   const [formErr, setFormErr] = useState<string | null>(null)
   // Serviço sempre exige agendamento — sem horário escolhido, o checkout não fecha.
   const [agendamento, setAgendamento] = useState<{ date: string; time: string } | null>(null)
+  const [paymentOnDeliveryAllowed, setPaymentOnDeliveryAllowed] = useState(false)
+  const [paymentOnDelivery, setPaymentOnDelivery] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    fetchPaymentOnDeliveryEnabled().then(setPaymentOnDeliveryAllowed)
+  }, [open])
 
   const productItems = items.filter((i) => i.type === 'product')
   const serviceItems = items.filter((i) => i.type === 'service')
@@ -90,6 +97,7 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
           ...serviceItems.map((i) => ({ service_id: i.id, quantity: i.quantity })),
         ],
         shipping_price: shipping || undefined,
+        payment_on_delivery: paymentOnDeliveryAllowed && paymentOnDelivery ? true : undefined,
       })
     } catch (e) {
       setFormErr(e instanceof Error ? e.message : 'Erro ao criar pedido. Tente novamente.')
@@ -156,6 +164,7 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
     setShippingPrice(null)
     setShippingErr(null)
     setFormErr(null)
+    setPaymentOnDelivery(false)
     onClose()
   }
 
@@ -397,6 +406,19 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
                   manutenção for concluída e o aparelho entregue.
                 </p>
               </div>
+            )}
+
+            {paymentOnDeliveryAllowed && hasProducts && (
+              <label className="flex items-center gap-2 text-sm text-vr-silver/70 cursor-pointer border-t border-white/10 pt-3">
+                <input
+                  type="checkbox"
+                  checked={paymentOnDelivery}
+                  onChange={(e) => setPaymentOnDelivery(e.target.checked)}
+                  className="w-4 h-4 accent-vr-red"
+                />
+                <Wallet className="w-3.5 h-3.5 text-vr-red" />
+                Pagar no ato da entrega, em vez de agora
+              </label>
             )}
 
             <div className="border-t border-white/10 pt-3 space-y-1 text-sm">

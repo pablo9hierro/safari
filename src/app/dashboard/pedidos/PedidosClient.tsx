@@ -118,6 +118,11 @@ export default function PedidosClient() {
                       </div>
                       <span className="text-sm font-bold text-white">Total: R$ {order.total.toFixed(2)}</span>
                     </div>
+                    {order.payment_on_delivery && (
+                      <p className="text-xs font-semibold text-amber-400">
+                        Cliente vai pagar no ato da entrega — não cobrado ainda.
+                      </p>
+                    )}
                   </div>
                 </div>
               )

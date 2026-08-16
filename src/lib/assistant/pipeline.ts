@@ -1,6 +1,7 @@
 import { completeSimple, completeWithTools } from './aiClient'
 import { resolveTools, executeTool } from './tools'
 import { AGENDA_TOOL_NAMES } from '@/lib/agenda/tools'
+import { fetchPaymentOnDeliveryEnabledServer } from '@/lib/resolutoo/platformConfig'
 import type { AssistantConfig } from './types'
 import type { ToolCallRecord } from './aiClient'
 
@@ -90,6 +91,16 @@ async function runInterpreter(config: AssistantConfig, userMessage: string): Pro
   return safeParseJson<InterpreterOutput>(text, { intent: 'outro', params: {} })
 }
 
+/**
+ * Preferência configurada em /meu-plano (plataforma) — quando ligada, o
+ * cliente pode escolher pagar produto (+ entrega) no ato da entrega, em vez
+ * de no checkout. A assistente não cria o pedido (isso acontece no checkout
+ * da vitrine), mas precisa saber oferecer/confirmar a opção quando perguntada.
+ */
+function paymentOnDeliveryRule(): string {
+  return '- O cliente pode escolher pagar o produto (+ entrega) no ato da entrega, em vez de pagar agora no checkout — existe um checkbox pra isso no checkout da vitrine. Se ele perguntar sobre formas de pagamento ou preferir não pagar agora, informe essa opção normalmente.'
+}
+
 async function runResponder(
   config: AssistantConfig,
   history: { role: 'user' | 'assistant'; content: string }[],
@@ -98,9 +109,11 @@ async function runResponder(
 ): Promise<{ reply: string; toolCalls: ToolCallRecord[] }> {
   const tools = await resolveTools()
   const withAgenda = tools.some((t) => AGENDA_TOOL_NAMES.includes(t.name))
+  const paymentOnDeliveryEnabled = await fetchPaymentOnDeliveryEnabledServer()
 
   const system = [
     universalRules(config, withAgenda),
+    paymentOnDeliveryEnabled ? paymentOnDeliveryRule() : null,
     config.prompt_validator || 'Você é o atendimento via WhatsApp. Seja direto, simpático e técnico quando necessário.',
     `Intenção detectada: ${JSON.stringify(interpreterOutput)}`,
     `Data e hora de agora: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (use como referência para "hoje", "amanhã", "agora").`,

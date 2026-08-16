@@ -42,6 +42,8 @@ export type Order = {
   total: number
   discount_amount: number
   created_at: string
+  /** Cliente escolheu pagar produto (+ entrega) no ato da entrega. */
+  payment_on_delivery: boolean
   items: OrderItem[]
 }
 
