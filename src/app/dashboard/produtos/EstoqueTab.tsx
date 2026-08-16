@@ -18,6 +18,7 @@ export default function EstoqueTab({
   const [newName, setNewName] = useState('')
   const [newQuantity, setNewQuantity] = useState('')
   const [newUnit, setNewUnit] = useState<StockUnit>('unidade')
+  const [newUnitsPerBox, setNewUnitsPerBox] = useState('')
   const [newPrice, setNewPrice] = useState('')
   const [newWarrantyDays, setNewWarrantyDays] = useState('')
   const [creating, setCreating] = useState(false)
@@ -33,6 +34,7 @@ export default function EstoqueTab({
   const [editName, setEditName] = useState('')
   const [editQuantity, setEditQuantity] = useState('')
   const [editUnit, setEditUnit] = useState<StockUnit>('unidade')
+  const [editUnitsPerBox, setEditUnitsPerBox] = useState('')
   const [editPrice, setEditPrice] = useState('')
   const [editWarrantyDays, setEditWarrantyDays] = useState('')
   const [editError, setEditError] = useState<string | null>(null)
@@ -57,7 +59,12 @@ export default function EstoqueTab({
     const priceNum = parseFloat(newPrice)
     if (!trimmedName) { setCreateError('Informe o nome do item.'); return }
     if (!newQuantity || isNaN(qty) || qty < 0) { setCreateError('Informe uma quantidade válida.'); return }
-    if (!newPrice || isNaN(priceNum) || priceNum < 0) { setCreateError('Informe o valor do reparo.'); return }
+    if (!newPrice || isNaN(priceNum) || priceNum < 0) { setCreateError('Informe o custo do item.'); return }
+    const unitsPerBoxNum = newUnit === 'caixa' ? parseFloat(newUnitsPerBox) : null
+    if (newUnit === 'caixa' && (!newUnitsPerBox || isNaN(unitsPerBoxNum!) || unitsPerBoxNum! <= 0)) {
+      setCreateError('Informe quantas unidades tem em cada caixa.')
+      return
+    }
 
     setCreating(true)
     const supabase = createClient()
@@ -67,6 +74,7 @@ export default function EstoqueTab({
         name: trimmedName,
         quantity: qty,
         unit: newUnit,
+        units_per_box: unitsPerBoxNum,
         price: priceNum,
         warranty_days: newWarrantyDays.trim() ? parseInt(newWarrantyDays, 10) : null,
       })
@@ -80,7 +88,7 @@ export default function EstoqueTab({
     }
 
     setItems((prev) => [...prev, created as StockItem].sort((a, b) => a.name.localeCompare(b.name)))
-    setNewName(''); setNewQuantity(''); setNewUnit('unidade'); setNewPrice(''); setNewWarrantyDays('')
+    setNewName(''); setNewQuantity(''); setNewUnit('unidade'); setNewUnitsPerBox(''); setNewPrice(''); setNewWarrantyDays('')
     setCreating(false)
   }
 
@@ -92,6 +100,7 @@ export default function EstoqueTab({
     setEditName(item.name)
     setEditQuantity(String(Number(item.quantity)))
     setEditUnit(item.unit)
+    setEditUnitsPerBox(item.units_per_box != null ? String(item.units_per_box) : '')
     setEditPrice(item.price != null ? String(item.price) : '')
     setEditWarrantyDays(item.warranty_days != null ? String(item.warranty_days) : '')
     setEditError(null)
@@ -106,7 +115,12 @@ export default function EstoqueTab({
     const priceNum = parseFloat(editPrice)
     if (!trimmedName) { setEditError('Informe o nome do item.'); return }
     if (!editQuantity || isNaN(qty) || qty < 0) { setEditError('Informe uma quantidade válida.'); return }
-    if (!editPrice || isNaN(priceNum) || priceNum < 0) { setEditError('Informe o valor do reparo.'); return }
+    if (!editPrice || isNaN(priceNum) || priceNum < 0) { setEditError('Informe o custo do item.'); return }
+    const editUnitsPerBoxNum = editUnit === 'caixa' ? parseFloat(editUnitsPerBox) : null
+    if (editUnit === 'caixa' && (!editUnitsPerBox || isNaN(editUnitsPerBoxNum!) || editUnitsPerBoxNum! <= 0)) {
+      setEditError('Informe quantas unidades tem em cada caixa.')
+      return
+    }
 
     setSavingEdit(true)
     const supabase = createClient()
@@ -116,6 +130,7 @@ export default function EstoqueTab({
         name: trimmedName,
         quantity: qty,
         unit: editUnit,
+        units_per_box: editUnitsPerBoxNum,
         price: priceNum,
         warranty_days: editWarrantyDays.trim() ? parseInt(editWarrantyDays, 10) : null,
         updated_at: new Date().toISOString(),
@@ -210,9 +225,16 @@ export default function EstoqueTab({
             </select>
           </div>
         </div>
+        {newUnit === 'caixa' && (
+          <div>
+            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Unidades por caixa *</label>
+            <input type="number" step="1" min="1" value={newUnitsPerBox} onChange={(e) => setNewUnitsPerBox(e.target.value)} placeholder="Ex: 12"
+              className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red" />
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Valor do reparo (R$) *</label>
+            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Custo do item (R$) *</label>
             <input type="number" step="0.01" min="0" value={newPrice} onChange={(e) => setNewPrice(e.target.value)} placeholder="0,00"
               className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red" />
           </div>
@@ -352,9 +374,16 @@ export default function EstoqueTab({
                 </select>
               </div>
             </div>
+            {editUnit === 'caixa' && (
+              <div>
+                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Unidades por caixa *</label>
+                <input type="number" step="1" min="1" value={editUnitsPerBox} onChange={(e) => setEditUnitsPerBox(e.target.value)} placeholder="Ex: 12"
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red" />
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Valor reparo (R$) *</label>
+                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Custo do item (R$) *</label>
                 <input type="number" step="0.01" min="0" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} placeholder="0,00"
                   className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red" />
               </div>

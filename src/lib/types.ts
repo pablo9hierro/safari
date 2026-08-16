@@ -148,6 +148,8 @@ export interface StockItem {
   quantity: number
   price?: number | null
   warranty_days?: number | null
+  /** Só quando unit = 'caixa': quantas unidades vêm dentro de uma caixa. */
+  units_per_box?: number | null
   created_at: string
   updated_at: string
 }
