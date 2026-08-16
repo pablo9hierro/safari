@@ -1,26 +1,20 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Bot, Save, ChevronDown, ChevronUp, Eye, EyeOff, AlertCircle, CheckCircle2, Upload, FileText, Trash2, Loader2 } from 'lucide-react'
+import { Bot, Save, ChevronDown, ChevronUp, AlertCircle, CheckCircle2, Upload, FileText, Trash2, Loader2 } from 'lucide-react'
 import type { AssistantConfig } from '@/lib/assistant/types'
 import AgendaSettingsCard from './AgendaSettingsCard'
+import AiModelsCard from './AiModelsCard'
 
 const LABEL = 'block text-xs font-semibold text-vr-silver/60 mb-1.5 uppercase tracking-wider'
 const INPUT = 'w-full px-3.5 py-2.5 rounded-xl bg-vr-black border border-white/8 text-white text-sm placeholder-vr-silver/30 outline-none focus:border-vr-red/50 transition-colors'
 const TEXTAREA = `${INPUT} resize-none leading-relaxed`
-
-const AI_PROVIDERS = [
-  { value: 'openai', label: 'OpenAI (ChatGPT direto)' },
-  { value: 'anthropic', label: 'Anthropic (Claude)' },
-  { value: 'openrouter', label: 'OpenRouter (multi-modelo)' },
-]
 
 export default function AssistenteClient({ initialConfig }: { initialConfig: AssistantConfig }) {
   const [cfg, setCfg] = useState<AssistantConfig>(initialConfig)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showKey, setShowKey] = useState(false)
   const [showLayer1, setShowLayer1] = useState(true)
   const [showLayer2, setShowLayer2] = useState(true)
 
@@ -171,61 +165,7 @@ export default function AssistenteClient({ initialConfig }: { initialConfig: Ass
 
       <AgendaSettingsCard />
 
-      {/* Motor de IA */}
-      <div className="bg-vr-graphite rounded-2xl border border-white/5 p-4 space-y-4">
-        <h2 className="text-sm font-semibold text-white">Motor de IA</h2>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className={LABEL}>Motor de IA</label>
-            <select
-              value={cfg.ai_provider}
-              onChange={(e) => set('ai_provider', e.target.value)}
-              className={`${INPUT} cursor-pointer`}
-            >
-              {AI_PROVIDERS.map((p) => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={LABEL}>Modelo</label>
-            <input
-              value={cfg.ai_model}
-              onChange={(e) => set('ai_model', e.target.value)}
-              className={INPUT}
-              placeholder="gpt-4o-mini"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className={LABEL}>Chave da API do motor de IA</label>
-          <div className="relative">
-            <input
-              type={showKey ? 'text' : 'password'}
-              value={cfg.api_key ?? ''}
-              onChange={(e) => set('api_key', e.target.value || null)}
-              className={`${INPUT} pr-10`}
-              placeholder="sk-proj-..."
-            />
-            <button
-              type="button"
-              onClick={() => setShowKey((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-vr-silver/40 hover:text-vr-silver/70"
-            >
-              {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-          <p className="text-[10px] text-vr-silver/35 mt-1">
-            {cfg.ai_provider === 'openai'
-              ? 'Obrigatório pra usar OpenAI — gere em platform.openai.com/api-keys.'
-              : cfg.ai_provider === 'anthropic'
-              ? 'Gere em console.anthropic.com. Sem chave usa a global da plataforma (se houver).'
-              : 'Obrigatório pra OpenRouter — gere em openrouter.ai.'}
-          </p>
-        </div>
-      </div>
+      <AiModelsCard />
 
       {/* Tuning de resposta */}
       <div className="grid grid-cols-3 gap-4">
