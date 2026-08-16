@@ -1,21 +1,31 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { BookOpen, Plus, Trash2, Loader2, Check, ExternalLink } from 'lucide-react'
+import { BookOpen, Plus, Trash2, Loader2, Check, ExternalLink, Search, X, Wrench } from 'lucide-react'
 import Link from 'next/link'
+import type { StockItem } from '@/lib/types'
 
 interface Category { id: string; name: string; slug: string; sort_order: number }
-interface Item { id: string; category_id: string; model_name: string; repair_type: string; price: number; duration_minutes: number; description: string | null; sort_order: number; active: boolean }
+interface ItemPart { id: string; quantity: number; stock_item_id: string; stock_items: { name: string; unit: string } | null }
+interface Item {
+  id: string; category_id: string; model_name: string; repair_type: string
+  price: number; cost_price: number; duration_minutes: number
+  description: string | null; sort_order: number; active: boolean
+  service_catalog_item_parts?: ItemPart[]
+}
 
 const INPUT = 'w-full px-3 py-2 rounded-lg border border-white/10 bg-vr-black text-white placeholder-white/25 text-sm outline-none focus:border-vr-red/60 transition-all'
 
 interface Props {
   initialCategories: Category[]
   initialItems: Item[]
+  stockItems: StockItem[]
 }
 
-export default function ServicosTab({ initialCategories, initialItems }: Props) {
+type SelectedPart = { stock_item_id: string; name: string; unit: string; price: number; quantity: number }
+
+export default function ServicosTab({ initialCategories, initialItems, stockItems }: Props) {
   const [categories, setCategories] = useState<Category[]>(initialCategories)
   const [items, setItems] = useState<Item[]>(initialItems)
   const [activeCatId, setActiveCatId] = useState<string | null>(initialCategories[0]?.id ?? null)
@@ -33,7 +43,35 @@ export default function ServicosTab({ initialCategories, initialItems }: Props) 
   const [savingItem, setSavingItem] = useState(false)
   const [savedItem, setSavedItem] = useState(false)
 
+  // Peças de estoque usadas como dependência do serviço — o custo do
+  // serviço é calculado automaticamente a partir delas (soma de preço × qtd).
+  const [partsQuery, setPartsQuery] = useState('')
+  const [selectedParts, setSelectedParts] = useState<SelectedPart[]>([])
+
   const activeItems = items.filter((i) => i.category_id === activeCatId)
+
+  const partMatches = useMemo(() => {
+    const q = partsQuery.trim().toLowerCase()
+    if (!q) return []
+    return stockItems
+      .filter((s) => s.name.toLowerCase().includes(q) && !selectedParts.some((p) => p.stock_item_id === s.id))
+      .slice(0, 6)
+  }, [partsQuery, stockItems, selectedParts])
+
+  const costPrice = selectedParts.reduce((sum, p) => sum + p.price * p.quantity, 0)
+
+  const addPart = (s: StockItem) => {
+    setSelectedParts((prev) => [...prev, { stock_item_id: s.id, name: s.name, unit: s.unit, price: s.price ?? 0, quantity: 1 }])
+    setPartsQuery('')
+  }
+
+  const removePart = (stockItemId: string) => {
+    setSelectedParts((prev) => prev.filter((p) => p.stock_item_id !== stockItemId))
+  }
+
+  const setPartQty = (stockItemId: string, qty: number) => {
+    setSelectedParts((prev) => prev.map((p) => (p.stock_item_id === stockItemId ? { ...p, quantity: qty } : p)))
+  }
 
   const addCategory = async () => {
     const name = newCatName.trim()
@@ -74,16 +112,28 @@ export default function ServicosTab({ initialCategories, initialItems }: Props) 
         model_name: newModel.trim(),
         repair_type: newRepair.trim(),
         price: parseFloat(newPrice),
+        cost_price: costPrice,
         duration_minutes: duration,
         description: newDesc.trim() || null,
         sort_order: activeItems.length,
       })
       .select()
       .single()
+    if (error || !data) { setSavingItem(false); return }
+
+    let parts: ItemPart[] = []
+    if (selectedParts.length > 0) {
+      const { data: partRows } = await supabase
+        .from('service_catalog_item_parts')
+        .insert(selectedParts.map((p) => ({ service_catalog_item_id: data.id, stock_item_id: p.stock_item_id, quantity: p.quantity })))
+        .select('id, quantity, stock_item_id, stock_items(name, unit)')
+      parts = (partRows as unknown as ItemPart[]) ?? []
+    }
+
     setSavingItem(false)
-    if (error || !data) return
-    setItems((prev) => [...prev, data as Item])
+    setItems((prev) => [...prev, { ...(data as Item), service_catalog_item_parts: parts }])
     setNewModel(''); setNewRepair(''); setNewPrice(''); setNewDuration(''); setNewDesc('')
+    setSelectedParts([])
     setSavedItem(true); setTimeout(() => setSavedItem(false), 1500)
   }
 
@@ -163,7 +213,7 @@ export default function ServicosTab({ initialCategories, initialItems }: Props) 
               <input value={newRepair} onChange={(e) => setNewRepair(e.target.value)} placeholder="Tipo de reparo (ex: Troca de tela)" className={INPUT} />
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-vr-silver/40 text-xs">R$</span>
-                <input type="number" step="0.01" min="0" value={newPrice} onChange={(e) => setNewPrice(e.target.value)} placeholder="0,00" className={`${INPUT} pl-8`} />
+                <input type="number" step="0.01" min="0" value={newPrice} onChange={(e) => setNewPrice(e.target.value)} placeholder="Preço final 0,00" className={`${INPUT} pl-8`} />
               </div>
               <div className="relative">
                 <input
@@ -177,13 +227,82 @@ export default function ServicosTab({ initialCategories, initialItems }: Props) 
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-vr-silver/40 text-xs">min</span>
               </div>
-              <input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Descrição opcional" className={INPUT} />
+              <input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Descrição opcional" className={`${INPUT} col-span-2`} />
             </div>
             <p className="text-xs text-vr-silver/50 -mt-1">
               A <strong className="text-vr-silver/70">duração</strong> é obrigatória e conta o atendimento
               inteiro — coleta do aparelho + manutenção + entrega. É ela que define quanto tempo o
               horário fica ocupado na agenda.
             </p>
+
+            {/* Peças de estoque (dependência do serviço) */}
+            <div className="border-t border-white/10 pt-3 space-y-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-vr-silver/70">
+                <Wrench className="w-3.5 h-3.5 text-vr-red" />
+                Peças usadas (item de estoque como dependência do serviço)
+              </div>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-vr-silver/40 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  value={partsQuery}
+                  onChange={(e) => setPartsQuery(e.target.value)}
+                  placeholder="Buscar peça no estoque (ex: tela, bateria)..."
+                  className={`${INPUT} pl-8`}
+                />
+                {partMatches.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full bg-vr-black border border-white/10 rounded-lg overflow-hidden shadow-lg">
+                    {partMatches.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => addPart(s)}
+                        className="w-full text-left px-3 py-2 text-sm text-white hover:bg-vr-red/15 transition-colors flex items-center justify-between"
+                      >
+                        <span>{s.name}</span>
+                        <span className="text-vr-silver/40 text-xs">R$ {Number(s.price ?? 0).toFixed(2)} · estoque {s.quantity}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {selectedParts.length > 0 && (
+                <div className="space-y-1.5">
+                  {selectedParts.map((p) => (
+                    <div key={p.stock_item_id} className="flex items-center gap-2 bg-vr-black border border-white/8 rounded-lg px-3 py-1.5">
+                      <span className="text-sm text-white flex-1 truncate">{p.name}</span>
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={p.quantity}
+                        onChange={(e) => setPartQty(p.stock_item_id, Number(e.target.value) || 1)}
+                        className="w-16 px-2 py-1 rounded bg-vr-graphite border border-white/10 text-white text-xs text-center outline-none focus:border-vr-red/50"
+                      />
+                      <span className="text-xs text-vr-silver/40 w-8">{p.unit}</span>
+                      <span className="text-xs text-vr-silver/60 w-20 text-right">R$ {(p.price * p.quantity).toFixed(2)}</span>
+                      <button onClick={() => removePart(p.stock_item_id)} className="text-vr-silver/30 hover:text-red-400">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between text-sm pt-1">
+                <span className="text-vr-silver/60">Custo do serviço (soma das peças)</span>
+                <span className="font-bold text-white">R$ {costPrice.toFixed(2)}</span>
+              </div>
+              {newPrice && Number(newPrice) > 0 && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-vr-silver/40">Margem (preço final − custo)</span>
+                  <span className={Number(newPrice) - costPrice >= 0 ? 'text-green-400' : 'text-red-400'}>
+                    R$ {(Number(newPrice) - costPrice).toFixed(2)}
+                  </span>
+                </div>
+              )}
+            </div>
+
             <button
               onClick={addItem}
               disabled={savingItem || !newModel.trim() || !newRepair.trim() || !newPrice || !(Number(newDuration) > 0)}
@@ -204,11 +323,19 @@ export default function ServicosTab({ initialCategories, initialItems }: Props) 
                       <span className="text-sm text-white font-medium">{item.model_name}</span>
                       <span className="text-xs bg-vr-red/15 text-vr-red px-2 py-0.5 rounded-full">{item.repair_type}</span>
                       <span className="text-sm font-bold text-white">R$ {Number(item.price).toFixed(2)}</span>
+                      {item.cost_price > 0 && (
+                        <span className="text-xs bg-white/5 text-vr-silver/50 px-2 py-0.5 rounded-full">custo R$ {Number(item.cost_price).toFixed(2)}</span>
+                      )}
                       <span className="text-xs bg-white/5 text-vr-silver/70 px-2 py-0.5 rounded-full">
                         {item.duration_minutes} min
                       </span>
                     </div>
                     {item.description && <p className="text-xs text-vr-silver/50 mt-0.5 truncate">{item.description}</p>}
+                    {item.service_catalog_item_parts && item.service_catalog_item_parts.length > 0 && (
+                      <p className="text-xs text-vr-silver/40 mt-0.5 truncate">
+                        Peças: {item.service_catalog_item_parts.map((p) => `${p.quantity}x ${p.stock_items?.name ?? '?'}`).join(', ')}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button

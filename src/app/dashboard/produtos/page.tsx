@@ -17,7 +17,10 @@ export default async function ProdutosPage() {
     supabase.from('stock_items').select('*').order('name'),
     supabase.from('stock_movements').select('*, stock_items(name, unit)').order('moved_at', { ascending: false }).limit(50),
     supabase.from('service_catalog_categories').select('*').order('sort_order'),
-    supabase.from('service_catalog_items').select('*').order('sort_order'),
+    supabase
+      .from('service_catalog_items')
+      .select('*, service_catalog_item_parts(id, quantity, stock_item_id, stock_items(name, unit))')
+      .order('sort_order'),
   ])
 
   return (

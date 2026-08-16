@@ -8,7 +8,13 @@ import EstoqueTab from './EstoqueTab'
 import type { Product, ProductCategory, StockItem, StockMovement } from '@/lib/types'
 
 interface CatalogCategory { id: string; name: string; slug: string; sort_order: number }
-interface CatalogItem { id: string; category_id: string; model_name: string; repair_type: string; price: number; duration_minutes: number; description: string | null; sort_order: number; active: boolean }
+interface CatalogItemPart { id: string; quantity: number; stock_item_id: string; stock_items: { name: string; unit: string } | null }
+interface CatalogItem {
+  id: string; category_id: string; model_name: string; repair_type: string
+  price: number; cost_price: number; duration_minutes: number
+  description: string | null; sort_order: number; active: boolean
+  service_catalog_item_parts?: CatalogItemPart[]
+}
 
 type Tab = 'produtos' | 'servicos' | 'estoque'
 
@@ -56,6 +62,7 @@ export default function ProdutosClient(props: Props) {
         <ServicosTab
           initialCategories={props.initialCatalogCategories}
           initialItems={props.initialCatalogItems}
+          stockItems={props.initialStockItems}
         />
       )}
       {tab === 'estoque' && (
