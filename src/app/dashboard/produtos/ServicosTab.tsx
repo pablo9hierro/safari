@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { BookOpen, Plus, Trash2, Loader2, Check, ExternalLink, Search, X, Wrench } from 'lucide-react'
+import { BookOpen, Plus, Trash2, Loader2, Check, ExternalLink, Search, X, Wrench, Pencil } from 'lucide-react'
 import Link from 'next/link'
 import type { StockItem } from '@/lib/types'
+import Dialog from '@/components/ui/Dialog'
 
 interface Category { id: string; name: string; slug: string; sort_order: number }
 interface ItemPart { id: string; quantity: number; stock_item_id: string; stock_items: { name: string; unit: string } | null }
@@ -71,6 +72,94 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
 
   const setPartQty = (stockItemId: string, qty: number) => {
     setSelectedParts((prev) => prev.map((p) => (p.stock_item_id === stockItemId ? { ...p, quantity: qty } : p)))
+  }
+
+  // Editar serviço já cadastrado — mesmas regras de custo/preço final do
+  // cadastro: custo sempre recalculado pela soma das peças selecionadas.
+  const [editingItem, setEditingItem] = useState<Item | null>(null)
+  const [editModel, setEditModel] = useState('')
+  const [editRepair, setEditRepair] = useState('')
+  const [editPrice, setEditPrice] = useState('')
+  const [editDuration, setEditDuration] = useState('')
+  const [editDesc, setEditDesc] = useState('')
+  const [editPartsQuery, setEditPartsQuery] = useState('')
+  const [editSelectedParts, setEditSelectedParts] = useState<SelectedPart[]>([])
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+
+  const editPartMatches = useMemo(() => {
+    const q = editPartsQuery.trim().toLowerCase()
+    if (!q) return []
+    return stockItems
+      .filter((s) => s.name.toLowerCase().includes(q) && !editSelectedParts.some((p) => p.stock_item_id === s.id))
+      .slice(0, 6)
+  }, [editPartsQuery, stockItems, editSelectedParts])
+
+  const editCostPrice = editSelectedParts.reduce((sum, p) => sum + p.price * p.quantity, 0)
+
+  const openEditItem = (item: Item) => {
+    setEditingItem(item)
+    setEditModel(item.model_name)
+    setEditRepair(item.repair_type)
+    setEditPrice(String(item.price))
+    setEditDuration(String(item.duration_minutes))
+    setEditDesc(item.description ?? '')
+    setEditSelectedParts(
+      (item.service_catalog_item_parts ?? []).map((p) => ({
+        stock_item_id: p.stock_item_id,
+        name: p.stock_items?.name ?? '?',
+        unit: p.stock_items?.unit ?? 'unidade',
+        price: stockItems.find((s) => s.id === p.stock_item_id)?.price ?? 0,
+        quantity: Number(p.quantity),
+      }))
+    )
+    setEditError(null)
+  }
+
+  const saveEditItem = async () => {
+    if (!editingItem) return
+    const duration = Number(editDuration)
+    if (!editModel.trim() || !editRepair.trim() || !editPrice || !(duration > 0)) {
+      setEditError('Preencha modelo, tipo de reparo, preço final e duração.')
+      return
+    }
+    setSavingEdit(true)
+    setEditError(null)
+    const supabase = createClient()
+
+    const { data: updated, error } = await supabase
+      .from('service_catalog_items')
+      .update({
+        model_name: editModel.trim(),
+        repair_type: editRepair.trim(),
+        price: parseFloat(editPrice),
+        cost_price: editCostPrice,
+        duration_minutes: duration,
+        description: editDesc.trim() || null,
+      })
+      .eq('id', editingItem.id)
+      .select()
+      .single()
+
+    if (error || !updated) {
+      setEditError('Não foi possível salvar as alterações.')
+      setSavingEdit(false)
+      return
+    }
+
+    await supabase.from('service_catalog_item_parts').delete().eq('service_catalog_item_id', editingItem.id)
+    let parts: ItemPart[] = []
+    if (editSelectedParts.length > 0) {
+      const { data: partRows } = await supabase
+        .from('service_catalog_item_parts')
+        .insert(editSelectedParts.map((p) => ({ service_catalog_item_id: editingItem.id, stock_item_id: p.stock_item_id, quantity: p.quantity })))
+        .select('id, quantity, stock_item_id, stock_items(name, unit)')
+      parts = (partRows as unknown as ItemPart[]) ?? []
+    }
+
+    setItems((prev) => prev.map((i) => (i.id === editingItem.id ? { ...(updated as Item), service_catalog_item_parts: parts } : i)))
+    setSavingEdit(false)
+    setEditingItem(null)
   }
 
   const addCategory = async () => {
@@ -345,6 +434,9 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
                     >
                       {item.active ? 'ativo' : 'oculto'}
                     </button>
+                    <button onClick={() => openEditItem(item)} className="text-vr-silver/30 hover:text-vr-red transition-colors">
+                      <Pencil className="w-4 h-4" />
+                    </button>
                     <button onClick={() => deleteItem(item.id)} className="text-vr-silver/30 hover:text-red-400 transition-colors">
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -359,6 +451,105 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
           )}
         </>
       )}
+
+      <Dialog open={!!editingItem} onClose={() => setEditingItem(null)} title="Editar serviço">
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <input value={editModel} onChange={(e) => setEditModel(e.target.value)} placeholder="Modelo" className={INPUT} />
+            <input value={editRepair} onChange={(e) => setEditRepair(e.target.value)} placeholder="Tipo de reparo" className={INPUT} />
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-vr-silver/40 text-xs">R$</span>
+              <input type="number" step="0.01" min="0" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} placeholder="Preço final 0,00" className={`${INPUT} pl-8`} />
+            </div>
+            <div className="relative">
+              <input type="number" min="1" step="5" value={editDuration} onChange={(e) => setEditDuration(e.target.value)} placeholder="Duração *" className={`${INPUT} pr-12`} />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-vr-silver/40 text-xs">min</span>
+            </div>
+            <input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="Descrição opcional" className={`${INPUT} col-span-2`} />
+          </div>
+
+          <div className="border-t border-white/10 pt-3 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-vr-silver/70">
+              <Wrench className="w-3.5 h-3.5 text-vr-red" />
+              Peças usadas
+            </div>
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-vr-silver/40 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                value={editPartsQuery}
+                onChange={(e) => setEditPartsQuery(e.target.value)}
+                placeholder="Buscar peça no estoque..."
+                className={`${INPUT} pl-8`}
+              />
+              {editPartMatches.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full bg-vr-black border border-white/10 rounded-lg overflow-hidden shadow-lg">
+                  {editPartMatches.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        setEditSelectedParts((prev) => [...prev, { stock_item_id: s.id, name: s.name, unit: s.unit, price: s.price ?? 0, quantity: 1 }])
+                        setEditPartsQuery('')
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm text-white hover:bg-vr-red/15 transition-colors flex items-center justify-between"
+                    >
+                      <span>{s.name}</span>
+                      <span className="text-vr-silver/40 text-xs">R$ {Number(s.price ?? 0).toFixed(2)} · estoque {s.quantity}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {editSelectedParts.length > 0 && (
+              <div className="space-y-1.5">
+                {editSelectedParts.map((p) => (
+                  <div key={p.stock_item_id} className="flex items-center gap-2 bg-vr-black border border-white/8 rounded-lg px-3 py-1.5">
+                    <span className="text-sm text-white flex-1 truncate">{p.name}</span>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={p.quantity}
+                      onChange={(e) => setEditSelectedParts((prev) => prev.map((x) => (x.stock_item_id === p.stock_item_id ? { ...x, quantity: Number(e.target.value) || 1 } : x)))}
+                      className="w-16 px-2 py-1 rounded bg-vr-graphite border border-white/10 text-white text-xs text-center outline-none focus:border-vr-red/50"
+                    />
+                    <span className="text-xs text-vr-silver/40 w-8">{p.unit}</span>
+                    <span className="text-xs text-vr-silver/60 w-20 text-right">R$ {(p.price * p.quantity).toFixed(2)}</span>
+                    <button onClick={() => setEditSelectedParts((prev) => prev.filter((x) => x.stock_item_id !== p.stock_item_id))} className="text-vr-silver/30 hover:text-red-400">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between text-sm pt-1">
+              <span className="text-vr-silver/60">Custo do serviço (soma das peças)</span>
+              <span className="font-bold text-white">R$ {editCostPrice.toFixed(2)}</span>
+            </div>
+            {editPrice && Number(editPrice) > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-vr-silver/40">Margem (preço final − custo)</span>
+                <span className={Number(editPrice) - editCostPrice >= 0 ? 'text-green-400' : 'text-red-400'}>
+                  R$ {(Number(editPrice) - editCostPrice).toFixed(2)}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {editError && <p className="text-xs text-red-400">{editError}</p>}
+
+          <button
+            onClick={saveEditItem}
+            disabled={savingEdit}
+            className="w-full bg-vr-red text-white font-semibold py-2.5 rounded-xl hover:bg-vr-red/90 transition-colors text-sm disabled:opacity-60 flex items-center justify-center gap-2"
+          >
+            {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            {savingEdit ? 'Salvando…' : 'Salvar alterações'}
+          </button>
+        </div>
+      </Dialog>
     </div>
   )
 }
