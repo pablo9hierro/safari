@@ -9,6 +9,7 @@ import { MIN_JUSTIFICATION_LENGTH } from '@/lib/agenda/types'
 import DateDropdown from '@/components/dashboard/DateDropdown'
 import {adminAwareHref, apiPath } from '@/lib/storeProxyLink'
 import { createClient } from '@/lib/supabase/client'
+import AgendaSettingsCard from './AgendaSettingsCard'
 
 type Appointment = {
   id: string
@@ -258,6 +259,8 @@ export default function AgendaClient() {
           Novo
         </button>
       </div>
+
+      <AgendaSettingsCard />
 
       {/* Dia */}
       <div className="flex flex-wrap items-center gap-2">
