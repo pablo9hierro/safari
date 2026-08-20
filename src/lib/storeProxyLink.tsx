@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import type { ComponentProps } from 'react'
+import { useRouter } from 'next/navigation'
+import type { AnchorHTMLAttributes } from 'react'
 
 /**
  * resolutoo.com faz proxy reverso (Vercel rewrite) deste app sob
@@ -29,19 +29,43 @@ function resolveHref(prefix: string, href: string): string {
   return href
 }
 
+function currentPrefix(): string {
+  if (typeof window === 'undefined') return ''
+  return window.location.pathname.startsWith('/loja/eletronica-loja') ? '/loja/eletronica-loja' : ''
+}
+
+/** Só pra exibição condicional (ex.: esconder algo fora do proxy) — nunca
+ * usar o valor pra computar um href, que corre risco de ficar defasado
+ * entre o mount e o clique. Ver StoreLink. */
 export function useStoreProxyPrefix(): string {
   const [prefix, setPrefix] = useState('')
-  useEffect(() => {
-    if (window.location.pathname.startsWith('/loja/eletronica-loja')) {
-      setPrefix('/loja/eletronica-loja')
-    }
-  }, [])
+  useEffect(() => setPrefix(currentPrefix()), [])
   return prefix
 }
 
-/** Link ciente do proxy — usar em vez de next/link pra qualquer rota interna do app. */
-export function StoreLink({ href, ...rest }: ComponentProps<typeof Link>) {
-  const prefix = useStoreProxyPrefix()
-  const resolvedHref = typeof href === 'string' ? resolveHref(prefix, href) : href
-  return <Link href={resolvedHref} {...rest} />
+/**
+ * Link ciente do proxy — usar em vez de next/link pra qualquer rota interna
+ * do app. Resolve o prefixo NO MOMENTO DO CLIQUE (não no render): calcular
+ * cedo via useEffect deixava uma janela de corrida entre o mount e um
+ * clique rápido, onde o href ainda apontava pro path cru e escapava do
+ * proxy pro domínio errado (achado real, via teste automatizado).
+ */
+export function StoreLink({
+  href,
+  onClick,
+  ...rest
+}: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
+  const router = useRouter()
+  return (
+    <a
+      href={href}
+      onClick={(e) => {
+        onClick?.(e)
+        if (e.defaultPrevented) return
+        e.preventDefault()
+        router.push(resolveHref(currentPrefix(), href))
+      }}
+      {...rest}
+    />
+  )
 }
