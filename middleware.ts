@@ -37,6 +37,27 @@ export async function middleware(request: NextRequest) {
     }
   )
 
+  // Bridge de sessão vindo do hub da plataforma (resolutoo.com/meu-plano):
+  // o login do lojista lá é uma SPA Vite com sessão só em localStorage
+  // (nunca cookie), então o cookie que este middleware normalmente valida
+  // nunca existe quando o usuário chega aqui via proxy pela primeira vez —
+  // o hub manda o access/refresh token na querystring (?b=) só nesse
+  // primeiro request, setSession() grava o cookie de verdade, e a URL é
+  // limpa antes de renderizar (o token não fica visível/persistido na
+  // barra de endereço).
+  const bridge = request.nextUrl.searchParams.get('b')
+  if (bridge) {
+    try {
+      const { at, rt } = JSON.parse(Buffer.from(bridge, 'base64url').toString('utf8'))
+      if (at && rt) await supabase.auth.setSession({ access_token: at, refresh_token: rt })
+    } catch {}
+    const cleanUrl = request.nextUrl.clone()
+    cleanUrl.searchParams.delete('b')
+    const redirectResponse = NextResponse.redirect(cleanUrl)
+    response.cookies.getAll().forEach((c) => redirectResponse.cookies.set(c))
+    return redirectResponse
+  }
+
   // getUser() (não getSession()) força a validação/refresh real do token.
   await supabase.auth.getUser()
 
