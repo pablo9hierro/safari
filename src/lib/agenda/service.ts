@@ -386,6 +386,47 @@ function assertDeviceAppointmentAllowed(type: DeviceAppointmentType, status: str
   return null
 }
 
+export type ServiceRequestSource = 'storefront_form' | 'storefront_booking' | 'whatsapp_ai' | 'admin_manual' | 'pdv'
+
+/**
+ * Cria a `service_requests` que todo agendamento de serviço precisa ter por
+ * trás, independente da origem (vitrine, WhatsApp, PDV, admin) -- é o que faz
+ * o agendamento aparecer na mesma fila de "Solicitações" do painel, como se
+ * o lojista tivesse cadastrado manualmente. Sempre cria uma linha nova (não
+ * tenta casar com uma já existente) -- cada agendamento é seu próprio
+ * atendimento.
+ */
+export async function ensureServiceRequestForAppointment(
+  input: {
+    customer_name: string
+    customer_phone: string
+    customer_email?: string | null
+    problem_description?: string | null
+    service_label: string
+    source: ServiceRequestSource
+  },
+  db: Db = createServiceClient(),
+): Promise<string> {
+  const { data, error } = await db
+    .from('service_requests')
+    .insert({
+      customer_name: input.customer_name.trim(),
+      customer_phone: input.customer_phone.replace(/\D/g, ''),
+      customer_email: input.customer_email?.trim() || null,
+      problem_description: input.problem_description?.trim() || `Agendamento: ${input.service_label}`,
+      selected_service_ids: [],
+      diagnosis_requested: false,
+      self_pickup: false,
+      payment_methods: [],
+      status: 'pending',
+      source: input.source,
+    })
+    .select('id')
+    .single()
+  if (error) throw new AgendaError(`Falha ao criar solicitação: ${error.message}`, 'validation')
+  return data.id as string
+}
+
 export async function createAppointment(
   input: CreateAppointmentInput,
   db: Db = createServiceClient(),
@@ -453,7 +494,10 @@ export async function createAppointment(
       notes: input.notes ?? null,
       created_by: input.actor_type === 'admin' ? 'admin' : 'assistente',
       appointment_type: deviceType ?? 'service',
-      service_request_id: deviceType ? input.service_request_id : null,
+      // Vínculo é obrigatório pra device_* (validado acima) e agora também
+      // aceito (opcional) pra 'service' -- é o que permite o auto-release da
+      // agenda quando o atendimento vinculado é marcado como concluído.
+      service_request_id: input.service_request_id ?? null,
     })
     .select()
     .single()

@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
     status:               'pending',
     quote_value:          null,
     owner_notes:          null,
+    source:               'storefront_form',
   }
 
   const supabase = makeClient()

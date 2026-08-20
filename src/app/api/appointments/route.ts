@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/agenda/auth'
-import { createAppointment, listAppointments } from '@/lib/agenda/service'
+import { createAppointment, ensureServiceRequestForAppointment, listAppointments, resolveService } from '@/lib/agenda/service'
 import { notifyAppointmentCreated } from '@/lib/agenda/notifications'
 import { parseStoreDateTime } from '@/lib/agenda/slots'
 import { errorResponse } from '@/lib/agenda/http'
@@ -36,16 +36,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Informe data e horário.' }, { status: 400 })
     }
 
+    const customerName = String(body.customer_name ?? '')
+    const customerPhone = String(body.customer_phone ?? '')
+    const service = await resolveService(body.service_id ?? null, body.service_label ?? null)
+    const serviceRequestId = await ensureServiceRequestForAppointment({
+      customer_name: customerName,
+      customer_phone: customerPhone,
+      problem_description: body.notes ?? null,
+      service_label: service.service_label,
+      source: 'admin_manual',
+    })
+
     const appointment = await createAppointment({
       service_id: body.service_id ?? null,
       service_label: body.service_label ?? null,
-      customer_name: String(body.customer_name ?? ''),
-      customer_phone: String(body.customer_phone ?? ''),
+      customer_name: customerName,
+      customer_phone: customerPhone,
       starts_at: parseStoreDateTime(String(body.data), String(body.horario)),
       duration_minutes: body.duration_minutes ? Number(body.duration_minutes) : undefined,
       notes: body.notes ?? null,
       actor_type: 'admin',
       actor_id: auth.actor.email ?? auth.actor.id,
+      service_request_id: serviceRequestId,
     })
 
     const notified = await notifyAppointmentCreated(appointment)

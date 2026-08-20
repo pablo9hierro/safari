@@ -3,6 +3,7 @@ import {
   cancelAppointment,
   checkAvailability,
   createAppointment,
+  ensureServiceRequestForAppointment,
   getAppointment,
   getFreeRangesForDay,
   listAppointments,
@@ -223,6 +224,14 @@ async function criarAgendamento(input: {
   }
 
   const startsAt = parseStoreDateTime(dateKey, input.horario)
+  const service = await resolveService(input.servico_id ?? null, input.servico_nome ?? null, undefined)
+  const serviceRequestId = await ensureServiceRequestForAppointment({
+    customer_name: input.cliente_nome,
+    customer_phone: input.cliente_telefone,
+    problem_description: input.observacoes ?? null,
+    service_label: service.service_label,
+    source: 'whatsapp_ai',
+  })
   const appointment = await createAppointment({
     service_id: input.servico_id ?? null,
     service_label: input.servico_nome ?? null,
@@ -231,6 +240,7 @@ async function criarAgendamento(input: {
     starts_at: startsAt,
     notes: input.observacoes ?? null,
     actor_type: 'assistente',
+    service_request_id: serviceRequestId,
   })
   await notifyAppointmentCreated(appointment)
   return `AGENDAMENTO CONFIRMADO: ${appointment.service_label} em ${formatStoreDateTime(appointment.starts_at)} (até ${formatStoreTime(appointment.ends_at)}) para ${appointment.customer_name}. ID: ${appointment.id}`

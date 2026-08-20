@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
   // Run AI pipeline
   let reply: string
   try {
-    const result = await runPipeline(config, history, text)
+    const result = await runPipeline(config, history, text, cleanPhone)
     reply = result.reply
   } catch (e) {
     console.error('[assistant] pipeline error:', e)

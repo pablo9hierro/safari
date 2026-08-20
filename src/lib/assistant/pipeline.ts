@@ -1,5 +1,5 @@
 import { completeSimple, completeWithTools } from './aiClient'
-import { resolveTools, executeTool } from './tools'
+import { resolveTools, executeTool, consultarAtendimentoEmAndamento } from './tools'
 import { AGENDA_TOOL_NAMES } from '@/lib/agenda/tools'
 import { fetchPaymentOnDeliveryEnabledServer } from '@/lib/resolutoo/platformConfig'
 import type { AssistantConfig } from './types'
@@ -101,19 +101,43 @@ function paymentOnDeliveryRule(): string {
   return '- O cliente pode escolher pagar o produto (+ entrega) no ato da entrega, em vez de pagar agora no checkout — existe um checkbox pra isso no checkout da vitrine. Se ele perguntar sobre formas de pagamento ou preferir não pagar agora, informe essa opção normalmente.'
 }
 
+/**
+ * Pré-carrega o que já está em andamento pro telefone da conversa -- só na
+ * PRIMEIRA mensagem (history vazio). Evita a IA fazer triagem do zero
+ * quando o cliente já tem solicitação/agendamento/pedido ativo; ela ainda
+ * pode consultar outro número explicitamente via consultar_atendimento_em_andamento
+ * se o cliente disser que o atendimento dele está em outro telefone.
+ */
+async function hydrateOngoingContext(
+  history: { role: 'user' | 'assistant'; content: string }[],
+  phone?: string,
+): Promise<string | null> {
+  if (history.length > 0 || !phone) return null
+  try {
+    const summary = await consultarAtendimentoEmAndamento(phone)
+    if (summary.startsWith('Nada em andamento')) return null
+    return `Contexto pré-carregado (telefone desta conversa já tem algo em andamento -- NÃO faça triagem do zero, dê continuidade com base nisto):\n${summary}`
+  } catch {
+    return null
+  }
+}
+
 async function runResponder(
   config: AssistantConfig,
   history: { role: 'user' | 'assistant'; content: string }[],
   userMessage: string,
   interpreterOutput: InterpreterOutput,
+  conversationPhone?: string,
 ): Promise<{ reply: string; toolCalls: ToolCallRecord[] }> {
   const tools = await resolveTools()
   const withAgenda = tools.some((t) => AGENDA_TOOL_NAMES.includes(t.name))
   const paymentOnDeliveryEnabled = await fetchPaymentOnDeliveryEnabledServer()
+  const ongoingContext = await hydrateOngoingContext(history, conversationPhone)
 
   const system = [
     universalRules(config, withAgenda),
     paymentOnDeliveryEnabled ? paymentOnDeliveryRule() : null,
+    ongoingContext,
     // Único prompt editável pelo lojista (mesmo padrão do a-vrtek-gente):
     // contexto de negócio/tom de voz, repassado tanto pro classificador de
     // intenção (IA1) quanto pra esta camada de resposta (IA2) -- não existe
@@ -155,9 +179,10 @@ export async function runPipeline(
   config: AssistantConfig,
   history: { role: 'user' | 'assistant'; content: string }[],
   userMessage: string,
+  conversationPhone?: string,
 ): Promise<PipelineResult> {
   const interpreterOutput = await runInterpreter(config, userMessage)
-  const { reply, toolCalls } = await runResponder(config, history, userMessage, interpreterOutput)
+  const { reply, toolCalls } = await runResponder(config, history, userMessage, interpreterOutput, conversationPhone)
   return {
     reply: enforcePaymentSplit(reply || 'Desculpe, não consegui processar sua mensagem agora.', toolCalls),
     interpreterOutput,
