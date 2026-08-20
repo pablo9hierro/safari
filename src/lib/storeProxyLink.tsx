@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import type { AnchorHTMLAttributes } from 'react'
 
 /**
@@ -45,25 +44,31 @@ export function useStoreProxyPrefix(): string {
 
 /**
  * Link ciente do proxy — usar em vez de next/link pra qualquer rota interna
- * do app. Resolve o prefixo NO MOMENTO DO CLIQUE (não no render): calcular
- * cedo via useEffect deixava uma janela de corrida entre o mount e um
- * clique rápido, onde o href ainda apontava pro path cru e escapava do
- * proxy pro domínio errado (achado real, via teste automatizado).
+ * do app. Duas coisas de propósito, as duas confirmadas por teste real:
+ * 1) Resolve o prefixo NO MOMENTO DO CLIQUE, não no render — calcular cedo
+ *    via useEffect deixava uma janela de corrida com um clique rápido.
+ * 2) window.location.href, NUNCA o router do Next — um path tipo
+ *    /loja/eletronica-loja/servicos só existe pro REWRITE do projeto
+ *    "ufersin" por fora; o router deste app não tem essa rota na própria
+ *    tabela (só conhece "/", "/loja", "/catalogo-servico", "/consultar"),
+ *    então router.push() nessa URL sempre falhava — precisa de navegação
+ *    de página inteira, que passa pelo proxy de novo.
  */
 export function StoreLink({
   href,
   onClick,
   ...rest
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
-  const router = useRouter()
   return (
     <a
       href={href}
       onClick={(e) => {
         onClick?.(e)
         if (e.defaultPrevented) return
+        const prefix = currentPrefix()
+        if (!prefix) return
         e.preventDefault()
-        router.push(resolveHref(currentPrefix(), href))
+        window.location.href = resolveHref(prefix, href)
       }}
       {...rest}
     />
