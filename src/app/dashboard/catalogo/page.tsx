@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
+import { adminRedirectTarget } from '@/lib/serverProxy'
 
-export default function CatalogoPage() {
-  redirect('/dashboard/produtos')
+export default async function CatalogoPage() {
+  redirect(await adminRedirectTarget('/dashboard/produtos'))
 }

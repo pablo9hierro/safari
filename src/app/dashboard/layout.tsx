@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createResolutooAuthServerClient } from '@/lib/supabase/resolutooAuthServer'
 import DashboardSidebar from '@/components/dashboard/DashboardSidebar'
+import { adminRedirectTarget } from '@/lib/serverProxy'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   // redirect() precisa ficar FORA do try/catch: ele funciona lançando um
@@ -20,7 +21,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
     return <pre className="text-red-400 p-8 text-xs">DashboardLayout crash: {String(err)}</pre>
   }
 
-  if (!user) redirect('/login')
+  // Path certo mesmo sob o proxy (achado real: redirect('/login') cru
+  // escapava pro /login da PLATAFORMA — o usuário via isso como "sessão
+  // caiu"/"fui deslogado" mesmo em casos que eram só esse redirect errado,
+  // não uma sessão de verdade expirada).
+  if (!user) redirect(await adminRedirectTarget('/login'))
 
   return (
     <div className="min-h-screen bg-vr-black md:flex">
