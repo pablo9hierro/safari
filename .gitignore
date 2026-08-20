@@ -42,3 +42,12 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+
+# arquivos pessoais/scratch soltos na raiz, nunca fazem parte do app
+ticket-card/
+dev-local.log
+*.pdf
+curriculo_en.*
+coupon-slot-element.html
+fire-element.html
+smoke-element.html
