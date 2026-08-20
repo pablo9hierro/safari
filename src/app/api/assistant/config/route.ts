@@ -12,7 +12,7 @@ export async function GET() {
   if (error || !data) {
     return NextResponse.json({
       id: 'default', enabled: false,
-      prompt_interpreter: '', prompt_validator: '',
+      prompt_interpreter: '',
       start_keywords: ['oi', 'olá', 'atendimento'],
       end_keywords: ['encerrar'],
       window_timeout_minutes: 30,
@@ -25,14 +25,25 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
+  // A UI de edição mora em /meu-plano/assistente-ia (a-vrtek-gente), fora
+  // do vrtech. Essa rota só existe hoje pra receber o write-through que o
+  // a-vrtek-gente dispara depois de salvar lá -- por isso exige o segredo
+  // compartilhado em vez de depender de sessão de dashboard.
+  const secret = req.headers.get('x-sync-secret')
+  if (!secret || secret !== process.env.ASSISTANT_SYNC_SECRET) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
   const body = await req.json().catch(() => ({}))
   const supabase = createServiceClient()
 
+  // prompt_validator nunca é lido/escrito daqui — saiu do controle do
+  // lojista, virou parte fixa de universalRules (ver pipeline.ts). Coluna
+  // continua existindo no banco (não é destrutivo), só não é mais tocada.
   const payload = {
     id: 'default',
     enabled: body.enabled ?? false,
     prompt_interpreter: body.prompt_interpreter ?? '',
-    prompt_validator: body.prompt_validator ?? '',
     start_keywords: Array.isArray(body.start_keywords)
       ? body.start_keywords
       : (body.start_keywords ?? '').split(',').map((s: string) => s.trim()).filter(Boolean),

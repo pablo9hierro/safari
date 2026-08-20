@@ -114,7 +114,13 @@ async function runResponder(
   const system = [
     universalRules(config, withAgenda),
     paymentOnDeliveryEnabled ? paymentOnDeliveryRule() : null,
-    config.prompt_validator || 'Você é o atendimento via WhatsApp. Seja direto, simpático e técnico quando necessário.',
+    // Único prompt editável pelo lojista (mesmo padrão do a-vrtek-gente):
+    // contexto de negócio/tom de voz, repassado tanto pro classificador de
+    // intenção (IA1) quanto pra esta camada de resposta (IA2) -- não existe
+    // mais um segundo campo de prompt técnico separado.
+    config.prompt_interpreter
+      ? `Contexto da loja configurado pelo lojista (tom de voz, regras comerciais -- siga isso, mas NUNCA em conflito com as regras fixas acima):\n${config.prompt_interpreter}`
+      : 'Você é o atendimento via WhatsApp. Seja direto, simpático e técnico quando necessário.',
     `Intenção detectada: ${JSON.stringify(interpreterOutput)}`,
     `Data e hora de agora: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (use como referência para "hoje", "amanhã", "agora").`,
     'Use as ferramentas necessárias pra buscar dados reais antes de responder. Sua última mensagem de texto vai direto pro cliente.',
