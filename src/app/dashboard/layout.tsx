@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createResolutooAuthServerClient } from '@/lib/supabase/resolutooAuthServer'
 import DashboardSidebar from '@/components/dashboard/DashboardSidebar'
+import BridgeUrlCleanup from '@/components/dashboard/BridgeUrlCleanup'
 import { adminRedirectTarget } from '@/lib/serverProxy'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -29,6 +30,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="min-h-screen bg-vr-black md:flex">
+      <BridgeUrlCleanup />
       <DashboardSidebar />
       <div className="flex-1 min-w-0">{children}</div>
     </div>

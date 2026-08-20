@@ -1,0 +1,287 @@
+# Registro de bugs -- app vrtech (ramo "eletronica" do Resolutoo)
+#
+# Escopo: SOMENTE este repo (caralho / vrtech-jp.vercel.app), o app Next.js
+# separado que serve o tenant "eletronica" por tras de resolutoo.com via
+# rewrites em C:\Users\pablo\Documents\ufersin\frontend\vercel.json.
+# NAO confundir com C:\Users\pablo\Documents\ufersin\docs\bugs\registry.yaml,
+# que e do ramo "ecommerce" (Rust/Vite, monorepo ufersin) -- stack e infra de
+# teste (run.mjs / check-bug-coverage.mjs) completamente diferentes e nao
+# aplicaveis aqui. Este arquivo e independente, sem exigencia de
+# regression_test_id automatizado (nao existe suite E2E propria neste repo
+# ainda) -- use manual_verification para todo item.
+#
+# Campos: id, title, area, service, severity, status, reported_at, fixed_at,
+# symptom, root_cause, proposed_fix (quando status=open), fix_commit,
+# fix_files, manual_verification.
+# severity: critical | high | medium | low
+# status:   fixed | open | wont-fix | monitoring
+
+- id: VRTECH-BUG-001
+  title: "middleware.ts na raiz do repo nunca era compilado pelo Next"
+  area: [frontend, vercel]
+  service: vrtech (caralho)
+  severity: critical
+  status: fixed
+  reported_at: "2026-08-19"
+  fixed_at: "2026-08-19"
+  symptom: >
+    Nenhum efeito do middleware (refresh de sessao, bridge de login) surtia
+    efeito algum em producao.
+  root_cause: >
+    Quando o app usa o layout src/app/, o Next so reconhece
+    src/middleware.ts -- um middleware.ts na raiz do repo e ignorado
+    silenciosamente, sem erro de build.
+  fix_commit: "nao commitado nesta sessao de auditoria -- ver working tree"
+  fix_files: ["src/middleware.ts"]
+  manual_verification: >
+    Checar o manifest de build (middleware-manifest.json) e confirmar que o
+    middleware aparece registrado; ou checar cookies setados numa request real.
+
+- id: VRTECH-BUG-002
+  title: "Links/redirects internos com path absoluto escapavam do proxy resolutoo.com"
+  area: [frontend]
+  service: vrtech (caralho)
+  severity: critical
+  status: fixed
+  reported_at: "2026-08-19"
+  fixed_at: "2026-08-19"
+  symptom: >
+    Cliques em links internos (menu lateral do dashboard, Catalogo, Inicio,
+    logout, redirecionamentos pos-401) levavam pra resolutoo.com/dashboard/...
+    ou resolutoo.com/loja, rotas que nao existem no app da plataforma --
+    tela preta ou 404.
+  root_cause: >
+    next/link e window.location.href com paths absolutos (ex.:
+    "/dashboard/agenda", "/login", "/loja") nao sabem que o app esta sendo
+    servido sob um prefixo de rewrite (/loja/eletronica-admin ou
+    /loja/eletronica-loja) quando acessado via resolutoo.com. usePathname()
+    do Next tambem nao revela esse prefixo (o rewrite reescreve o path antes
+    de chegar no app). router.push() adicionalmente falha para paths que nao
+    existem na tabela de rotas do proprio app.
+  fix_commit: "nao commitado nesta sessao de auditoria -- ver working tree"
+  fix_files:
+    - "src/lib/storeProxyLink.tsx (StoreLink, AdminLink, AdminToStoreLink, adminAwareHref)"
+    - "src/components/dashboard/DashboardSidebar.tsx"
+    - "src/app/login/page.tsx"
+    - "src/app/dashboard/pedidos/PedidosClient.tsx"
+    - "src/app/dashboard/financeiro/FinanceiroClient.tsx"
+    - "src/app/dashboard/template-zap/TemplateZapClient.tsx"
+    - "src/app/dashboard/agenda/AgendaClient.tsx"
+    - "src/app/catalogo-servico (paginas)"
+    - "src/app/consultar/page.tsx"
+    - "src/app/loja/[id] (paginas)"
+    - "src/components/CarrinhoDrawer.tsx"
+    - "src/app/dashboard/produtos/ServicosTab.tsx"
+    - "src/app/dashboard/catalogo/CatalogoDashboardClient.tsx"
+  manual_verification: >
+    Navegar em https://resolutoo.com/loja/eletronica-admin (sessao valida) e
+    clicar em cada item do menu lateral e no botao Sair; confirmar que a URL
+    permanece sob /loja/eletronica-admin/... e nunca cai em
+    resolutoo.com/dashboard bare. Repetir para a vitrine em
+    /loja/eletronica-loja.
+
+- id: VRTECH-BUG-003
+  title: "Sessao do lojista (plataforma) nunca chegava ao dashboard vrtech"
+  area: [frontend, supabase]
+  service: vrtech (caralho) + ufersin/frontend (hub MeuPlano.tsx)
+  severity: critical
+  status: fixed
+  reported_at: "2026-08-19"
+  fixed_at: "2026-08-19"
+  symptom: >
+    Clicar em "Painel da loja" a partir de resolutoo.com/meu-plano sempre
+    caia na tela de /login do vrtech, mesmo com o lojista autenticado no hub.
+  root_cause: >
+    O hub da plataforma (SPA Vite, MeuPlano.tsx) guarda a sessao do Supabase
+    da plataforma somente em localStorage -- nunca em cookie. O dashboard do
+    vrtech valida sessao via cookie. Nao havia mecanismo de transferencia de
+    sessao entre os dois apps.
+  fix_commit: "nao commitado nesta sessao de auditoria -- ver working tree"
+  fix_files:
+    - "src/middleware.ts (bridge ?b= -> supabase.auth.setSession())"
+    - "ufersin/frontend MeuPlano.tsx (fora deste repo)"
+  manual_verification: >
+    Login real no hub -> clicar Painel da loja -> confirmar que o dashboard
+    carrega direto (Pedidos/Agenda/Financeiro visiveis) sem passar pela tela
+    de login.
+
+- id: VRTECH-BUG-004
+  title: "Pedidos e Financeiro retornam 401 quando a sessao chega via bridge (sem vrtech_admin_token)"
+  area: [frontend, api, backend]
+  service: vrtech (caralho) + ecommerce-api (Rust, Railway)
+  severity: critical
+  status: fixed
+  reported_at: "2026-08-19"
+  fixed_at: "2026-08-20"
+  symptom: >
+    Lojista entra no dashboard via bridge de sessao (fluxo normal a partir de
+    resolutoo.com/meu-plano) e as paginas de Pedidos (hoje aba dentro de
+    /dashboard) e /dashboard/financeiro mostravam erro de sessao/401, mesmo
+    com o resto do dashboard funcionando.
+  root_cause: >
+    Pedidos/Financeiro usam autenticacao SEPARADA da sessao Supabase da
+    plataforma: um JWT de AdminUser do ecommerce-api (Rust), obtido via POST
+    /api/auth/admin/login (email+senha) e guardado em
+    localStorage["vrtech_admin_token"]. Esse login sombra so acontecia dentro
+    do submit do formulario em src/app/login/page.tsx -- quem entrava via
+    bridge (sem preencher o formulario) nunca tinha esse token setado.
+    Achado adicional durante o fix: o tenant "vrtech" tinha sido apagado da
+    tabela tenants do ecommerce-api numa limpeza anterior da mesma sessao de
+    trabalho e nunca foi re-seedado -- sem ele, nem a correcao abaixo
+    funcionava (endpoint devolvia "tenant not found").
+  fix_commit: "commits nesta sessao em caralho (dev->main) e ufersin (main), ver git log"
+  fix_files:
+    - "ecommerce/backend/src/routes/internal.rs (novo endpoint mint_admin_token)"
+    - "ecommerce/backend/src/main.rs (registro da rota /internal/mint-admin-token)"
+    - "src/middleware.ts (chama o endpoint apos setSession, grava cookie vrtech_admin_bridge)"
+    - "src/lib/resolutoo/adminApi.ts (resolveAdminToken() promove o cookie pra localStorage)"
+  manual_verification: >
+    Repetido o fluxo do bridge (login no hub -> Painel da loja) via
+    Playwright real, sem nunca passar pelo formulario de /login do vrtech --
+    Pedidos e Financeiro carregam normalmente (sem redirect pra login).
+
+- id: VRTECH-BUG-005
+  title: "fetch relativo a /api/* dentro do app quebra quando acessado via proxy resolutoo.com"
+  area: [frontend, vercel, api]
+  service: vrtech (caralho) + ufersin/frontend (rewrites)
+  severity: critical
+  status: fixed
+  reported_at: "2026-08-19"
+  fixed_at: "2026-08-20"
+  symptom: >
+    Qualquer acao que dispara fetch relativo pra /api/... (Agenda: carregar
+    dia, criar/cancelar/remarcar agendamento, criar bloqueio; Template Zap:
+    listar/editar templates; Assistente IA: config, RAG, AI models, horarios
+    de agendamento; formulario de orcamento ServiceRequestForm, consulta de
+    pedido em /consultar, carrinho/checkout CarrinhoDrawer, notificacoes
+    WhatsApp) falha silenciosamente ou trava em "carregando" quando a pagina
+    e acessada atraves de resolutoo.com/loja/eletronica-admin/... ou
+    resolutoo.com/loja/eletronica-loja/....
+  root_cause: >
+    vercel.json do projeto ufersin/frontend so reescreve ROTAS DE PAGINA
+    (ex.: /loja/eletronica-admin/:path* -> vrtech /dashboard/:path*) -- nao
+    existe nenhuma regra pra /api/*. Um fetch para "/api/agenda/day" feito
+    no browser e um path absoluto (raiz do dominio), entao resolve para
+    https://resolutoo.com/api/agenda/day, nao para o path interno do vrtech.
+    Como nao ha regra pra /api/*, esse request cai no rewrite catch-all
+    "/(.*) -> /index.html" do hub, e a API retorna HTML 200 em vez de JSON.
+    Confirmado ao vivo nesta auditoria: uma requisicao de teste para
+    https://resolutoo.com/api/agenda/day devolveu status 200 com
+    content-type text/html (deveria ser JSON). Mesma classe de bug do
+    VRTECH-BUG-002 (paths absolutos escapando do proxy), so que para
+    chamadas fetch em vez de navegacao -- ainda nao corrigida porque
+    storeProxyLink.tsx so cobre elementos <a> e navegacao, nao fetch().
+    NAO afeta: chamadas que ja usam URL absoluta pra outro host
+    (Pedidos/Financeiro -> ecommerce-api direto; MercadoPagoSection ->
+    ufersin-api direto) nem escritas via cliente Supabase (.from()), que
+    nao passam pelas API routes do Next.
+  fix_commit: "commits nesta sessao em caralho (dev->main) e ufersin (main), ver git log"
+  fix_notes: >
+    Implementado exatamente como o proposed_fix descrevia: rewrites
+    dedicados /loja/eletronica-{admin,loja}/api/:path* em
+    ufersin/frontend/vercel.json, e apiPath(path) em storeProxyLink.tsx
+    (mesmo padrao de StoreLink/AdminLink) aplicado nos 35 call sites
+    listados abaixo. Confirmado ao vivo: requisicao de teste pra
+    resolutoo.com/loja/eletronica-admin/api/agenda/day devolve JSON real
+    (nao mais 200 text/html do catch-all do hub).
+  fix_files:
+    - "src/app/dashboard/agenda/AgendaClient.tsx"
+    - "src/app/dashboard/template-zap/TemplateZapClient.tsx"
+    - "src/app/dashboard/assistente-ia/AssistenteClient.tsx"
+    - "src/app/dashboard/assistente-ia/AiModelsCard.tsx"
+    - "src/app/dashboard/assistente-ia/AgendaSettingsCard.tsx"
+    - "src/app/consultar/page.tsx"
+    - "src/components/CarrinhoDrawer.tsx"
+    - "src/components/WhatsAppPanel.tsx"
+    - "src/components/AgendamentoPicker.tsx"
+    - "src/components/DiagnosticSection.tsx"
+    - "src/components/ServiceRequestForm.tsx"
+    - "src/components/RequestDetailModal.tsx"
+    - "src/components/ServiceOrderPanel.tsx"
+  manual_verification: >
+    Fazer uma request de teste para
+    https://resolutoo.com/api/agenda/day?date=YYYY-MM-DD e conferir status e
+    content-type -- hoje devolve 200 text/html (deveria ser JSON). Repetir
+    apos o fix e confirmar JSON. Testar tambem pela UI: abrir Agenda via
+    resolutoo.com/loja/eletronica-admin/dashboard/agenda numa sessao valida
+    e ver se os agendamentos do dia carregam (hoje nao carregam nesse
+    caminho).
+
+- id: VRTECH-BUG-006
+  title: "Query string ?b= (tokens de sessao) fica visivel na URL apos o bridge"
+  area: [frontend, supabase]
+  service: vrtech (caralho)
+  severity: medium
+  status: fixed
+  reported_at: "2026-08-19"
+  fixed_at: "2026-08-20"
+  symptom: >
+    Depois do primeiro load via bridge, a barra de enderecos mantem
+    "?b=<base64 com access e refresh token>" ate a proxima navegacao --
+    access/refresh token do lojista fica exposto em historico do navegador
+    e possivelmente em logs de proxy/CDN.
+  root_cause: >
+    src/middleware.ts documenta essa decisao de proposito: um redirect
+    construido a partir de request.nextUrl usaria o host interno do vrtech,
+    escapando do proxy pro dominio errado (mesma classe do VRTECH-BUG-002)
+    -- entao preferiram deixar a query string visivel a quebrar a
+    navegacao.
+  fix_commit: "commit nesta sessao em caralho (dev->main), ver git log"
+  fix_files:
+    - "src/components/dashboard/BridgeUrlCleanup.tsx (novo)"
+    - "src/app/dashboard/layout.tsx (renderiza o componente)"
+  manual_verification: >
+    Repetir o fluxo do bridge e conferir a URL final na barra de
+    enderecos -- history.replaceState remove "?b=" apos o primeiro paint,
+    sem navegar (nao depende de saber o prefixo de proxy).
+
+- id: VRTECH-BUG-007
+  title: "Imagem Docker do ecommerce-api (railway up) falhava por causa de target/ nunca ignorado"
+  area: [backend, deploy]
+  service: ecommerce-api (Rust, Railway)
+  severity: high
+  status: fixed
+  reported_at: "2026-08-20"
+  fixed_at: "2026-08-20"
+  symptom: >
+    "railway up --service ecommerce-api" falhava logo no upload/build
+    (deployment FAILED), sem log de erro de compilacao claro.
+  root_cause: >
+    ecommerce/backend/ nunca teve .gitignore nem .dockerignore proprios --
+    o diretorio target/ (5.1GB de artefatos de build locais do Windows,
+    incompativeis com o runtime do Railway de qualquer forma) estava sendo
+    incluido no contexto de upload do "railway up", excedendo limites/tempo
+    razoavel.
+  fix_commit: "commit nesta sessao em ufersin (main), ver git log"
+  fix_files:
+    - "ecommerce/backend/.gitignore (novo)"
+    - "ecommerce/backend/.dockerignore (novo)"
+  manual_verification: >
+    "railway up --service ecommerce-api --detach" completou com sucesso
+    apos o fix (deployment SUCCESS na lista de "railway deployment list").
+
+- id: VRTECH-BUG-008
+  title: "EVOLUTION_API_URL/EVOLUTION_INSTANCE em producao apontavam pra recursos antigos/mortos"
+  area: [config, whatsapp]
+  service: vrtech (caralho), env vars Vercel
+  severity: critical
+  status: fixed
+  reported_at: "2026-08-20"
+  fixed_at: "2026-08-20"
+  symptom: >
+    Conectar WhatsApp em /dashboard/conta devolvia "Erro ao conectar:
+    Evolution API: falha ao criar instancia (404) Application not found".
+  root_cause: >
+    EVOLUTION_API_URL apontava pra um dominio Railway antigo
+    (evolution-api-production-128f...) que nao existe mais -- o servico
+    real hoje e evolution-api-production-8312... (dominios Railway mudam
+    quando o servico e recriado). O valor tambem tinha uma quebra de linha
+    grudada no final. EVOLUTION_INSTANCE estava como "vrtech", mas a
+    instancia real (ja conectada, com 18k+ mensagens de historico) se
+    chama "loja-vrtech".
+  fix_commit: "vars atualizadas diretamente via vercel env (nao passa por commit)"
+  fix_files: []
+  manual_verification: >
+    Apos corrigir as 3 env vars (URL, instancia, chave) e redeploy, o botao
+    Conectar em /dashboard/conta passou a gerar QR code normalmente, sem o
+    erro 404.
