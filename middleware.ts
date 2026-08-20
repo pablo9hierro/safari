@@ -48,14 +48,27 @@ export async function middleware(request: NextRequest) {
   const bridge = request.nextUrl.searchParams.get('b')
   if (bridge) {
     try {
-      const { at, rt } = JSON.parse(Buffer.from(bridge, 'base64url').toString('utf8'))
+      // Middleware roda no Edge runtime por padrão — sem `Buffer` global
+      // (era um bug real: o try/catch engolia o ReferenceError e o bridge
+      // nunca rodava). atob() é Web API padrão, existe nos dois runtimes.
+      const b64 = bridge.replace(/-/g, '+').replace(/_/g, '/')
+      const json = decodeURIComponent(
+        atob(b64)
+          .split('')
+          .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+          .join('')
+      )
+      const { at, rt } = JSON.parse(json)
       if (at && rt) await supabase.auth.setSession({ access_token: at, refresh_token: rt })
     } catch {}
-    const cleanUrl = request.nextUrl.clone()
-    cleanUrl.searchParams.delete('b')
-    const redirectResponse = NextResponse.redirect(cleanUrl)
-    response.cookies.getAll().forEach((c) => redirectResponse.cookies.set(c))
-    return redirectResponse
+    // Sem redirect aqui de propósito: `request.nextUrl` reflete o HOST
+    // interno do vrtech (o proxy reescreve o path antes de chegar aqui),
+    // não a URL que o navegador vê em resolutoo.com — um redirect
+    // construído a partir dele escaparia do proxy pro domínio errado.
+    // Deixa a MESMA requisição seguir com o cookie recém-setado; o `?b=`
+    // fica visível na barra só nesse primeiro load (token de curta duração,
+    // aberto pelo próprio dono da loja numa aba nova).
+    return response
   }
 
   // getUser() (não getSession()) força a validação/refresh real do token.
