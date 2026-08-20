@@ -59,7 +59,36 @@ export async function middleware(request: NextRequest) {
           .join('')
       )
       const { at, rt } = JSON.parse(json)
-      if (at && rt) await supabase.auth.setSession({ access_token: at, refresh_token: rt })
+      if (at && rt) {
+        const { data } = await supabase.auth.setSession({ access_token: at, refresh_token: rt })
+        // Pedidos/Financeiro usam um SEGUNDO token (AdminUser JWT do
+        // ecommerce-api, lido de localStorage — ver adminApi.ts), que só
+        // era emitido no formulário de login COM SENHA. Quem entra pela
+        // ponte nunca passa por ali, então essas duas páginas sempre
+        // caíam de volta pro login (achado real, reportado ao vivo). O
+        // ecommerce-api ganhou um endpoint interno pra emitir esse mesmo
+        // token só com tenant+email, confiando que este middleware já
+        // validou a sessão Supabase — resultado vai num cookie legível
+        // por JS (não HttpOnly) pro client bootstrap em adminApi.ts pegar.
+        const email = data.user?.email
+        if (email) {
+          try {
+            const res = await fetch(`${process.env.ECOMMERCE_API_URL}/internal/mint-admin-token`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-internal-key': process.env.INTERNAL_API_KEY! },
+              body: JSON.stringify({ tenant_slug: process.env.ECOMMERCE_TENANT_SLUG ?? 'vrtech', admin_email: email }),
+            })
+            if (res.ok) {
+              const { token } = await res.json()
+              response.cookies.set('vrtech_admin_bridge', token, {
+                maxAge: 60 * 60 * 24 * 7,
+                sameSite: 'lax',
+                secure: true,
+              })
+            }
+          } catch {}
+        }
+      }
     } catch {}
     // Sem redirect aqui de propósito: `request.nextUrl` reflete o HOST
     // interno do vrtech (o proxy reescreve o path antes de chegar aqui),

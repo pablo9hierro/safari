@@ -8,8 +8,28 @@ const ECOMMERCE_API_URL = process.env.NEXT_PUBLIC_ECOMMERCE_API_URL ?? 'https://
 
 export class AdminAuthError extends Error {}
 
+/**
+ * Quem entra via bridge de sessão (Painel da loja no hub) nunca passa pelo
+ * form de /login, que é o único lugar que gravava `vrtech_admin_token` em
+ * localStorage — Pedidos/Financeiro sempre caíam em "sessão expirada"
+ * mesmo com o Supabase válido. O middleware agora deixa esse mesmo token
+ * pronto num cookie legível (`vrtech_admin_bridge`, setado só na primeira
+ * visita via ?b=); aqui só promove ele pra localStorage na primeira
+ * chamada, mesmo lugar de sempre que o resto do código já lê.
+ */
+function resolveAdminToken(): string | null {
+  if (typeof window === 'undefined') return null
+  const existing = localStorage.getItem('vrtech_admin_token')
+  if (existing) return existing
+  const match = document.cookie.match(/(?:^|;\s*)vrtech_admin_bridge=([^;]+)/)
+  if (!match) return null
+  const bridged = decodeURIComponent(match[1])
+  localStorage.setItem('vrtech_admin_token', bridged)
+  return bridged
+}
+
 async function adminFetch(path: string, init?: RequestInit) {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('vrtech_admin_token') : null
+  const token = resolveAdminToken()
   if (!token) throw new AdminAuthError('Sessão de admin não encontrada — saia e entre de novo.')
   const res = await fetch(`${ECOMMERCE_API_URL}${path}`, {
     ...init,
