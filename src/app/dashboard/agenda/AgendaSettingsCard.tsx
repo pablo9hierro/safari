@@ -146,7 +146,7 @@ export default function AgendaSettingsCard() {
         </span>
       </label>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className={LABEL}>Antecedência mínima (min)</label>
           <input
@@ -177,22 +177,6 @@ export default function AgendaSettingsCard() {
             Folga obrigatória depois de um atendimento e a partir de agora — evita marcar em
             sequência colada. Com 30, um atendimento até 10h00 só libera novo agendamento a partir
             das 10h31.
-          </p>
-        </div>
-
-        <div>
-          <label className={LABEL}>Duração de fallback (min)</label>
-          <input
-            type="number"
-            min={5}
-            step={5}
-            value={cfg.default_duration_minutes}
-            onChange={(e) => set('default_duration_minutes', Number(e.target.value))}
-            className={INPUT}
-          />
-          <p className="text-xs text-vr-silver/50 mt-1">
-            Só vale quando o serviço não tem duração própria cadastrada — o normal é a duração vir
-            do cadastro do serviço.
           </p>
         </div>
       </div>
