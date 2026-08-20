@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { BookOpen, Plus, Trash2, Loader2, Check, ExternalLink, Search, X, Wrench, Pencil, DollarSign } from 'lucide-react'
-import Link from 'next/link'
+import { AdminToStoreLink } from '@/lib/storeProxyLink'
 import type { StockItem } from '@/lib/types'
 import Dialog from '@/components/ui/Dialog'
 
@@ -299,10 +299,10 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
           <BookOpen className="w-3.5 h-3.5" />
           Catálogo de serviços
         </p>
-        <Link href="/catalogo-servico" target="_blank" className="flex items-center gap-1.5 text-xs text-vr-silver/60 hover:text-vr-red transition-colors">
+        <AdminToStoreLink href="/catalogo-servico" target="_blank" className="flex items-center gap-1.5 text-xs text-vr-silver/60 hover:text-vr-red transition-colors">
           <ExternalLink className="w-3.5 h-3.5" />
           Ver página pública
-        </Link>
+        </AdminToStoreLink>
       </div>
 
       {/* Marcas */}

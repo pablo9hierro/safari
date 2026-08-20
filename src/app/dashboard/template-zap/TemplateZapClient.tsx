@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MessageSquare, Loader2, AlertCircle, Check, Lock, Smartphone } from 'lucide-react'
 import AccordionSection from '@/components/dashboard/AccordionSection'
+import { adminAwareHref } from '@/lib/storeProxyLink'
 
 type Template = {
   id: string
@@ -210,7 +211,7 @@ export default function TemplateZapClient() {
   useEffect(() => {
     fetch('/api/templates')
       .then(async (r) => {
-        if (r.status === 401) { window.location.href = '/login'; return null }
+        if (r.status === 401) { window.location.href = adminAwareHref('/login'); return null }
         const j = await r.json()
         if (!r.ok) throw new Error(j.error ?? 'Falha ao carregar templates.')
         return j

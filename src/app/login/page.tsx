@@ -2,16 +2,15 @@
 
 import { useState } from 'react'
 import { createResolutooAuthClient } from '@/lib/supabase/resolutooAuthClient'
-import { useRouter } from 'next/navigation'
 import { Loader2, AlertCircle } from 'lucide-react'
 import Logo from '@/components/ui/Logo'
+import { adminAwareHref } from '@/lib/storeProxyLink'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const router = useRouter()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -46,8 +45,11 @@ export default function LoginPage() {
       /* best-effort — não bloqueia o login principal */
     }
 
-    router.push('/dashboard')
-    router.refresh()
+    // window.location, não router.push: sob o proxy o router deste app
+    // navegaria pra "/dashboard" cru, saindo do alias
+    // /loja/eletronica-admin (achado real — mesma classe de bug do menu
+    // lateral, que sempre escapava pro domínio errado).
+    window.location.href = adminAwareHref('/dashboard')
   }
 
   return (

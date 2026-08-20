@@ -1,9 +1,9 @@
 'use client'
 
-import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { createResolutooAuthClient } from '@/lib/supabase/resolutooAuthClient'
 import Logo from '@/components/ui/Logo'
+import { AdminLink, adminAwareHref } from '@/lib/storeProxyLink'
 import { ClipboardList, Truck, Package, ShoppingBag, Wallet, LogOut, UserCog, Bot, CalendarDays, MessageSquare } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -20,12 +20,14 @@ const NAV_ITEMS = [
 
 export default function DashboardSidebar() {
   const pathname = usePathname()
-  const router = useRouter()
 
   const handleLogout = async () => {
     const supabase = createResolutooAuthClient()
     await supabase.auth.signOut()
-    router.push('/login')
+    // window.location, não router.push: sob o proxy "/login" bare é do
+    // app da PLATAFORMA (dominio errado) — adminAwareHref resolve pro
+    // alias /loja/eletronica-admin-login quando acessado via proxy.
+    window.location.href = adminAwareHref('/login')
   }
 
   return (
@@ -39,7 +41,7 @@ export default function DashboardSidebar() {
           {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
             const active = pathname === href
             return (
-              <Link
+              <AdminLink
                 key={href}
                 href={href}
                 className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
@@ -47,7 +49,7 @@ export default function DashboardSidebar() {
               >
                 <Icon className="w-4 h-4" />
                 {label}
-              </Link>
+              </AdminLink>
             )
           })}
         </nav>
@@ -74,7 +76,7 @@ export default function DashboardSidebar() {
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href
           return (
-            <Link
+            <AdminLink
               key={href}
               href={href}
               className={`shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all
@@ -82,7 +84,7 @@ export default function DashboardSidebar() {
             >
               <Icon className="w-3.5 h-3.5" />
               {label}
-            </Link>
+            </AdminLink>
           )
         })}
       </nav>

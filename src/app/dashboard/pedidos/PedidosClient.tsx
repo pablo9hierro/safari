@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { ShoppingBag, MapPin, Home, MessageCircle, Loader2, AlertCircle } from 'lucide-react'
 import { fetchOrders, AdminAuthError, type Order } from '@/lib/resolutoo/adminApi'
+import { adminAwareHref } from '@/lib/storeProxyLink'
 
 const PAYMENT_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   pendente: { label: 'Pagamento pendente', color: 'text-yellow-700', bg: 'bg-yellow-100' },
@@ -18,7 +18,6 @@ function whatsappLink(phone: string) {
 }
 
 export default function PedidosClient() {
-  const router = useRouter()
   const [orders, setOrders] = useState<Order[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -27,12 +26,12 @@ export default function PedidosClient() {
       .then(setOrders)
       .catch((e) => {
         if (e instanceof AdminAuthError) {
-          router.push('/login')
+          window.location.href = adminAwareHref('/login')
           return
         }
         setError(e instanceof Error ? e.message : 'Não foi possível carregar os pedidos.')
       })
-  }, [router])
+  }, [])
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">

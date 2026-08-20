@@ -9,8 +9,8 @@ import {
   XCircle, Wrench, ChevronLeft, ChevronDown, Package, Truck, AlertTriangle, Home,
   PackageCheck, PartyPopper, CreditCard, ClipboardList, Eye, Download,
 } from 'lucide-react'
-import Link from 'next/link'
 import Logo from '@/components/ui/Logo'
+import { StoreLink } from '@/lib/storeProxyLink'
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   pending:        { label: 'Aguardando avaliação',      color: 'text-yellow-700', bg: 'bg-yellow-100', icon: <Clock className="w-3.5 h-3.5" /> },
@@ -287,9 +287,9 @@ function ConsultarContent() {
 
       <main className="min-h-screen bg-gradient-to-b from-vr-graphite to-vr-black">
         <header className="px-5 pt-8 pb-6 text-white">
-          <Link href="/" className="flex items-center gap-1.5 text-vr-silver hover:text-white text-sm mb-5 w-fit transition-colors">
+          <StoreLink href="/" className="flex items-center gap-1.5 text-vr-silver hover:text-white text-sm mb-5 w-fit transition-colors">
             <ChevronLeft className="w-4 h-4" /> Início
-          </Link>
+          </StoreLink>
           <Logo size="sm" className="mb-3" />
           <h1 className="text-2xl font-bold">Minhas solicitações</h1>
           <p className="text-vr-silver/70 text-sm mt-1">Digite seu WhatsApp para ver o status dos seus pedidos</p>

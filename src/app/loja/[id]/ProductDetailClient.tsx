@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
 import { Product } from '@/lib/types'
 import { Logo } from '@/components/ui'
 import { ArrowLeft, Package, Minus, Plus, ShoppingCart, CheckCircle2 } from 'lucide-react'
+import { StoreLink } from '@/lib/storeProxyLink'
 
 const CART_STORAGE_KEY = 'vrtech_loja_cart'
 
@@ -53,13 +53,13 @@ export default function ProductDetailClient({ product }: { product: Product }) {
   return (
     <main className="min-h-screen bg-vr-black text-white">
       <header className="px-5 sm:px-10 py-5 flex items-center justify-between max-w-4xl mx-auto">
-        <Link
+        <StoreLink
           href="/loja"
           className="flex items-center gap-1.5 text-sm font-medium text-vr-silver hover:text-white transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           Catálogo
-        </Link>
+        </StoreLink>
         <Logo size="md" />
       </header>
 
@@ -115,7 +115,7 @@ export default function ProductDetailClient({ product }: { product: Product }) {
                 <div className="flex items-center gap-2 text-green-600 font-semibold text-sm">
                   <CheckCircle2 className="w-5 h-5" />
                   Adicionado à sacola!
-                  <Link href="/loja" className="text-vr-red underline ml-1">Ver sacola</Link>
+                  <StoreLink href="/loja" className="text-vr-red underline ml-1">Ver sacola</StoreLink>
                 </div>
               ) : (
                 <div className="flex items-center gap-3">

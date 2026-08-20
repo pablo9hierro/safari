@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { MIN_JUSTIFICATION_LENGTH } from '@/lib/agenda/types'
 import DateDropdown from '@/components/dashboard/DateDropdown'
+import { adminAwareHref } from '@/lib/storeProxyLink'
 
 type Appointment = {
   id: string
@@ -194,7 +195,7 @@ export default function AgendaClient() {
         fetch(`/api/agenda/blocks?date=${date}`),
       ])
       if ([dayRes, apptRes, blockRes].some((r) => r.status === 401)) {
-        window.location.href = '/login'
+        window.location.href = adminAwareHref('/login')
         return
       }
       const day = await dayRes.json()

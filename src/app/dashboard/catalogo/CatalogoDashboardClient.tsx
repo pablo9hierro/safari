@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { BookOpen, Plus, Trash2, Loader2, Check, ExternalLink } from 'lucide-react'
-import Link from 'next/link'
+import { AdminToStoreLink } from '@/lib/storeProxyLink'
 
 interface Category { id: string; name: string; slug: string; sort_order: number }
 interface Item { id: string; category_id: string; model_name: string; repair_type: string; price: number; description: string | null; sort_order: number; active: boolean }
@@ -102,10 +102,10 @@ export default function CatalogoDashboardClient({ initialCategories, initialItem
           <BookOpen className="w-5 h-5 text-vr-red" />
           Catálogo de serviços
         </h1>
-        <Link href="/catalogo-servico" target="_blank" className="flex items-center gap-1.5 text-xs text-vr-silver/60 hover:text-vr-red transition-colors">
+        <AdminToStoreLink href="/catalogo-servico" target="_blank" className="flex items-center gap-1.5 text-xs text-vr-silver/60 hover:text-vr-red transition-colors">
           <ExternalLink className="w-3.5 h-3.5" />
           Ver página pública
-        </Link>
+        </AdminToStoreLink>
       </div>
 
       {/* Categorias (marcas) */}

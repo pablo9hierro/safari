@@ -1,10 +1,10 @@
 import { fetchServiceCatalog, type CatalogCategory, type CatalogItem } from '@/lib/resolutoo/catalog'
 import CatalogoClient from './CatalogoClient'
-import Link from 'next/link'
 import Image from 'next/image'
 import { ArrowLeft } from 'lucide-react'
 import { CartProvider } from '@/lib/carrinho/context'
 import CarrinhoFlutuante from '@/components/CarrinhoFlutuante'
+import { StoreLink } from '@/lib/storeProxyLink'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,7 +17,7 @@ export default async function CatalogoServicoPage() {
     <CartProvider>
     <main className="min-h-screen bg-vr-black text-white">
       <header className="px-5 sm:px-10 py-5 flex items-center justify-between max-w-6xl mx-auto border-b border-white/5">
-        <Link href="/">
+        <StoreLink href="/">
           <Image
             src="https://res.cloudinary.com/dkqhped8y/image/upload/v1783212643/iconelogo_rpcnvw.png"
             alt="VR Tech"
@@ -26,11 +26,11 @@ export default async function CatalogoServicoPage() {
             className="rounded-lg block"
             unoptimized
           />
-        </Link>
-        <Link href="/" className="flex items-center gap-1.5 text-sm font-medium text-vr-silver hover:text-white transition-colors">
+        </StoreLink>
+        <StoreLink href="/" className="flex items-center gap-1.5 text-sm font-medium text-vr-silver hover:text-white transition-colors">
           <ArrowLeft className="w-4 h-4" />
           Voltar
-        </Link>
+        </StoreLink>
       </header>
 
       <section className="px-5 sm:px-10 py-10 max-w-5xl mx-auto">

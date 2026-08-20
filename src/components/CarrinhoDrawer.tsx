@@ -5,7 +5,7 @@ import {
   X, ShoppingBag, Trash2, Wrench, Package, ChevronRight,
   ChevronLeft, Minus, Plus, MapPin, Loader2, CheckCircle2, Home, Wallet,
 } from 'lucide-react'
-import Link from 'next/link'
+import { StoreLink } from '@/lib/storeProxyLink'
 import { useCart } from '@/lib/carrinho/context'
 import dynamic from 'next/dynamic'
 import type { LocationPickerResult } from './LocationPicker'
@@ -299,7 +299,7 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
                   </button>
                 )}
                 {hasServices && (
-                  <Link
+                  <StoreLink
                     href="/#orcamento"
                     onClick={onClose}
                     className="w-full flex items-center justify-center gap-2 bg-vr-black border border-white/10 text-white font-semibold py-3 rounded-xl hover:border-vr-red/40 transition-colors text-sm"
@@ -307,7 +307,7 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
                     <Wrench className="w-4 h-4 text-vr-red" />
                     Solicitar serviços
                     <ChevronRight className="w-4 h-4" />
-                  </Link>
+                  </StoreLink>
                 )}
                 <button
                   onClick={clear}

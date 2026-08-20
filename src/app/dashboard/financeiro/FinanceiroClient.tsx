@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Wallet, Wrench, ShoppingBag, Truck } from 'lucide-react'
 import MercadoPagoSection from '@/components/MercadoPagoSection'
 import { fetchOrders, AdminAuthError, type Order } from '@/lib/resolutoo/adminApi'
+import { adminAwareHref } from '@/lib/storeProxyLink'
 
 export type ServiceOrderRow = {
   id: string
@@ -71,7 +71,6 @@ function formatDay(day: string) {
 }
 
 export default function FinanceiroClient({ serviceOrders }: { serviceOrders: ServiceOrderRow[] }) {
-  const router = useRouter()
   const [orders, setOrders] = useState<Order[]>([])
   const [ordersError, setOrdersError] = useState<string | null>(null)
 
@@ -80,12 +79,12 @@ export default function FinanceiroClient({ serviceOrders }: { serviceOrders: Ser
       .then(setOrders)
       .catch((e) => {
         if (e instanceof AdminAuthError) {
-          router.push('/login')
+          window.location.href = adminAwareHref('/login')
           return
         }
         setOrdersError(e instanceof Error ? e.message : 'Não foi possível carregar os pedidos.')
       })
-  }, [router])
+  }, [])
 
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [datePreset, setDatePreset] = useState<DatePreset>('30d')
