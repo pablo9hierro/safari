@@ -1,23 +1,30 @@
 import { describe, it, expect } from 'vitest'
 import {
   formatStoreDateTime,
+  freeRangesForDay,
   overlaps,
   parseStoreDateTime,
   slotsForDay,
   storeDateKey,
+  subtractIntervals,
   withinBusinessHours,
 } from './slots'
 import type { BusinessHours } from './types'
 
-// Seg–Sex 09–18, Sáb 09–13, Dom fechado (mesmo default da migration).
+// Manhã 08-12 + tarde 14-18 no mesmo dia, pra testar múltiplos blocos.
+const HOURS_SPLIT: BusinessHours[] = [
+  { id: 's1', weekday: 4, open_time: '08:00', close_time: '12:00' },
+  { id: 's2', weekday: 4, open_time: '14:00', close_time: '18:00' },
+]
+
+// Seg–Sex 09–18, Sáb 09–13, Dom fechado (ausência de linha = fechado).
 const HOURS: BusinessHours[] = [
-  { weekday: 0, closed: true, open_time: '09:00', close_time: '18:00' },
-  { weekday: 1, closed: false, open_time: '09:00', close_time: '18:00' },
-  { weekday: 2, closed: false, open_time: '09:00', close_time: '18:00' },
-  { weekday: 3, closed: false, open_time: '09:00', close_time: '18:00' },
-  { weekday: 4, closed: false, open_time: '09:00', close_time: '18:00' },
-  { weekday: 5, closed: false, open_time: '09:00', close_time: '18:00' },
-  { weekday: 6, closed: false, open_time: '09:00', close_time: '13:00' },
+  { id: 'h1', weekday: 1, open_time: '09:00', close_time: '18:00' },
+  { id: 'h2', weekday: 2, open_time: '09:00', close_time: '18:00' },
+  { id: 'h3', weekday: 3, open_time: '09:00', close_time: '18:00' },
+  { id: 'h4', weekday: 4, open_time: '09:00', close_time: '18:00' },
+  { id: 'h5', weekday: 5, open_time: '09:00', close_time: '18:00' },
+  { id: 'h6', weekday: 6, open_time: '09:00', close_time: '13:00' },
 ]
 
 describe('conversão de fuso da loja', () => {
@@ -126,3 +133,73 @@ describe('horário de funcionamento', () => {
     expect(withinBusinessHours(interval('2026-08-22', '15:00', 60), HOURS)).toBe(false)
   })
 })
+
+describe('subtractIntervals', () => {
+  const iv = (date: string, start: string, endMinutes: number) => {
+    const s = parseStoreDateTime(date, start)
+    return { start: s, end: new Date(s.getTime() + endMinutes * 60_000) }
+  }
+
+  it('sem ocupação, devolve o bloco inteiro', () => {
+    const block = iv('2026-08-20', '09:00', 480) // 09:00-17:00
+    expect(subtractIntervals([block], [])).toEqual([block])
+  })
+
+  it('corta o meio do bloco', () => {
+    const block = iv('2026-08-20', '09:00', 480) // 09:00-17:00
+    const busy = iv('2026-08-20', '12:00', 60) // 12:00-13:00
+    const result = subtractIntervals([block], [busy])
+    expect(result).toEqual([
+      { start: block.start, end: busy.start },
+      { start: busy.end, end: block.end },
+    ])
+  })
+
+  it('funde dois ocupados adjacentes/sobrepostos', () => {
+    const block = iv('2026-08-20', '09:00', 480)
+    const busyA = iv('2026-08-20', '10:00', 60) // 10-11
+    const busyB = iv('2026-08-20', '10:30', 60) // 10:30-11:30 (sobrepõe)
+    const result = subtractIntervals([block], [busyA, busyB])
+    expect(result).toEqual([
+      { start: block.start, end: busyA.start },
+      { start: busyB.end, end: block.end },
+    ])
+  })
+})
+
+describe('freeRangesForDay', () => {
+  it('devolve manhã e tarde quando não há ocupação', () => {
+    const ranges = freeRangesForDay('2026-08-20', HOURS_SPLIT, [], 0, new Date(0))
+    expect(ranges.map(formatStoreTimePair)).toEqual([
+      ['08:00', '12:00'],
+      ['14:00', '18:00'],
+    ])
+  })
+
+  it('dia sem nenhum bloco de expediente fica vazio', () => {
+    expect(freeRangesForDay('2026-08-23', HOURS_SPLIT, [], 0, new Date(0))).toEqual([])
+  })
+
+  it('agendamento no meio da manhã reduz a faixa, buffer expande a exclusão nas duas pontas', () => {
+    const busy = [
+      { start: parseStoreDateTime('2026-08-20', '09:30'), end: parseStoreDateTime('2026-08-20', '10:00') },
+    ]
+    const ranges = freeRangesForDay('2026-08-20', HOURS_SPLIT, busy, 30, new Date(0))
+    // 09:30-10:00 + 30min de buffer nas duas pontas = 09:00-10:30 bloqueado
+    expect(ranges[0].start.toISOString()).toBe(parseStoreDateTime('2026-08-20', '08:00').toISOString())
+    expect(ranges[0].end.toISOString()).toBe(parseStoreDateTime('2026-08-20', '09:00').toISOString())
+    expect(ranges[1].start.toISOString()).toBe(parseStoreDateTime('2026-08-20', '10:30').toISOString())
+    expect(ranges[1].end.toISOString()).toBe(parseStoreDateTime('2026-08-20', '12:00').toISOString())
+  })
+
+  it('piso (floor) recorta o início da primeira faixa', () => {
+    const floor = parseStoreDateTime('2026-08-20', '10:00')
+    const ranges = freeRangesForDay('2026-08-20', HOURS_SPLIT, [], 0, floor)
+    expect(ranges[0].start.toISOString()).toBe(floor.toISOString())
+    expect(ranges[0].end.toISOString()).toBe(parseStoreDateTime('2026-08-20', '12:00').toISOString())
+  })
+})
+
+function formatStoreTimePair(r: { start: Date; end: Date }): [string, string] {
+  return [formatStoreDateTime(r.start).split(' às ')[1], formatStoreDateTime(r.end).split(' às ')[1]]
+}

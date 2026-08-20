@@ -10,18 +10,24 @@ export type ActorType = 'assistente' | 'admin' | 'cliente'
 export type AgendaSettings = {
   id: string
   appointment_ai_enabled: boolean
-  slot_minutes: number
+  /** Fallback interno — só usado quando não há service_id (serviço avulso) ou em agendamentos device_*. Nunca "a" duração do agendamento. */
   default_duration_minutes: number
   lead_time_minutes: number
   max_advance_days: number
+  /** Folga obrigatória entre agendamentos, e entre "agora" e o próximo horário aceito. */
+  buffer_minutes: number
 }
 
+/** Um bloco de expediente (ex: manhã 08–12). Pode haver vários por dia (manhã/tarde). Dia sem nenhuma linha = fechado. */
 export type BusinessHours = {
+  id: string
   weekday: number
-  closed: boolean
   open_time: string
   close_time: string
 }
+
+/** Faixa de disponibilidade contínua num dia, já com buffer/lead-time aplicados. */
+export type FreeRange = { start: Date; end: Date }
 
 /**
  * `service` = agendar o atendimento em si (catálogo de serviços/duração).

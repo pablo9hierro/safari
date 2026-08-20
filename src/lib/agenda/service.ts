@@ -11,6 +11,7 @@ import {
 } from './types'
 import {
   formatStoreDateTime,
+  freeRangesForDay,
   overlaps,
   slotsForDay,
   storeDateKey,
@@ -22,6 +23,14 @@ import { REPAIR_DONE_STATUSES } from '@/lib/serviceLifecycle/types'
 /** Status que ocupam horário — os demais liberam o slot. */
 const LIVE_STATUSES = ['agendado', 'remarcado'] as const
 
+/**
+ * Granularidade interna só pra listar exemplos de horário (grade de gestão
+ * do painel e "alternativas" quando um pedido é recusado) — não é mais uma
+ * config do lojista, a oferta real ao cliente/IA é por faixa contínua
+ * (ver freeRangesForDay). 15min é fino o bastante pra não escapar do bloco.
+ */
+const INTERNAL_GRID_MINUTES = 15
+
 type Db = ReturnType<typeof createServiceClient>
 
 export async function getSettings(db: Db = createServiceClient()): Promise<AgendaSettings> {
@@ -31,8 +40,59 @@ export async function getSettings(db: Db = createServiceClient()): Promise<Agend
 }
 
 export async function getBusinessHours(db: Db = createServiceClient()): Promise<BusinessHours[]> {
-  const { data, error } = await db.from('agenda_business_hours').select('*').order('weekday')
+  const { data, error } = await db.from('agenda_business_hours').select('*').order('weekday').order('open_time')
   if (error) throw new AgendaError(`Falha ao ler horário de funcionamento: ${error.message}`, 'validation')
+  return (data ?? []) as BusinessHours[]
+}
+
+export type BusinessHoursInput = { weekday: number; open_time: string; close_time: string }
+
+/**
+ * Substitui o horário de funcionamento inteiro. Cada dia pode ter vários
+ * blocos (ex: manhã 08-12 e tarde 14-18) — dia sem nenhum bloco = fechado.
+ * Sempre reescreve tudo (não há PATCH incremental) pra não ter que resolver
+ * diffs no cliente.
+ */
+export async function setBusinessHours(
+  blocks: BusinessHoursInput[],
+  db: Db = createServiceClient(),
+): Promise<BusinessHours[]> {
+  for (const b of blocks) {
+    if (b.weekday < 0 || b.weekday > 6) {
+      throw new AgendaError(`Dia da semana inválido: ${b.weekday}`, 'validation')
+    }
+    if (!/^\d{2}:\d{2}$/.test(b.open_time) || !/^\d{2}:\d{2}$/.test(b.close_time)) {
+      throw new AgendaError('Horário inválido — use HH:MM.', 'validation')
+    }
+    if (b.close_time <= b.open_time) {
+      throw new AgendaError('O horário de fechamento precisa ser depois do de abertura.', 'validation')
+    }
+  }
+  // Overlap entre blocos do mesmo dia — dois blocos que se cruzam tornam o
+  // cálculo de faixas livres ambíguo (a mesma janela contada duas vezes).
+  const byDay = new Map<number, BusinessHoursInput[]>()
+  for (const b of blocks) byDay.set(b.weekday, [...(byDay.get(b.weekday) ?? []), b])
+  for (const [, dayBlocks] of byDay) {
+    const sorted = [...dayBlocks].sort((a, b) => a.open_time.localeCompare(b.open_time))
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].open_time < sorted[i - 1].close_time) {
+        throw new AgendaError('Blocos de horário do mesmo dia não podem se sobrepor.', 'validation')
+      }
+    }
+  }
+
+  const { error: delError } = await db.from('agenda_business_hours').delete().gte('weekday', 0)
+  if (delError) throw new AgendaError(`Falha ao atualizar horário: ${delError.message}`, 'validation')
+
+  if (blocks.length === 0) return []
+
+  const { data, error } = await db
+    .from('agenda_business_hours')
+    .insert(blocks)
+    .select()
+    .order('weekday')
+    .order('open_time')
+  if (error) throw new AgendaError(`Falha ao salvar horário: ${error.message}`, 'validation')
   return (data ?? []) as BusinessHours[]
 }
 
@@ -92,7 +152,7 @@ export async function findAvailableSlots(
 
   for (let dayOffset = 0; dayOffset <= settings.max_advance_days && found.length < limit; dayOffset++) {
     const cursor = new Date(from.getTime() + dayOffset * 86_400_000)
-    const slots = slotsForDay(storeDateKey(cursor), hours, settings.slot_minutes, durationMinutes)
+    const slots = slotsForDay(storeDateKey(cursor), hours, INTERNAL_GRID_MINUTES, durationMinutes)
     for (const slot of slots) {
       if (found.length >= limit) break
       if (slot.start < earliest) continue
@@ -104,7 +164,46 @@ export async function findAvailableSlots(
 }
 
 /**
- * O horário pedido está livre? Quando não, diz POR QUE e oferece alternativas —
+ * Faixas de disponibilidade contínua de um dia (ex: "08:00-12:00 e
+ * 14:00-18:00"), já considerando expediente, agendamentos/bloqueios vivos
+ * (expandidos pelo buffer) e o piso mínimo a partir de agora. Isso substitui
+ * a grade fixa como forma de OFERECER horário ao cliente/IA -- a validação
+ * final de um horário específico continua em checkAvailability.
+ */
+export async function getFreeRangesForDay(
+  dateKey: string,
+  db: Db = createServiceClient(),
+  settingsInput?: AgendaSettings,
+  hoursInput?: BusinessHours[],
+): Promise<Interval[]> {
+  const settings = settingsInput ?? (await getSettings(db))
+  const hours = hoursInput ?? (await getBusinessHours(db))
+
+  const dayStart = parseDateKeyStartOfDayUtc(dateKey)
+  const dayEnd = new Date(dayStart.getTime() + 2 * 86_400_000) // janela generosa, corta no fuso da loja abaixo
+  const [appointments, blocks] = await Promise.all([
+    liveAppointmentsInRange(db, dayStart, dayEnd),
+    blocksInRange(db, dayStart, dayEnd),
+  ])
+  const busy: Interval[] = [
+    ...appointments.map((a) => ({ start: new Date(a.starts_at), end: new Date(a.ends_at) })),
+    ...blocks,
+  ]
+
+  const minLeadMs = Math.max(settings.lead_time_minutes, settings.buffer_minutes) * 60_000
+  const floor = new Date(Date.now() + minLeadMs)
+
+  return freeRangesForDay(dateKey, hours, busy, settings.buffer_minutes, floor)
+}
+
+function parseDateKeyStartOfDayUtc(dateKey: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey)
+  if (!m) throw new AgendaError(`Data invalida: "${dateKey}"`, 'validation')
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) - 1))
+}
+
+/**
+ * O horário pedido está livre? Quando não, diz POR QUE e oferece alternativas.
  * a IA precisa dessa distinção pra não inventar justificativa.
  */
 export async function checkAvailability(
@@ -126,14 +225,18 @@ export async function checkAvailability(
       ends_at: s.end.toISOString(),
     }))
 
-  const earliest = new Date(Date.now() + settings.lead_time_minutes * 60_000)
+  // Piso mínimo pra começar: o maior entre antecedência mínima e o buffer
+  // (o buffer também vale a partir de "agora", não só entre agendamentos —
+  // ver regra do produto: "10h agora + buffer 30 = só a partir de 10h31").
+  const minLeadMs = Math.max(settings.lead_time_minutes, settings.buffer_minutes) * 60_000
+  const earliest = new Date(Date.now() + minLeadMs)
   if (interval.start < earliest) {
     return {
       available: false,
       reason: 'muito_em_cima',
       detail:
-        settings.lead_time_minutes > 0
-          ? `É preciso agendar com pelo menos ${settings.lead_time_minutes} minutos de antecedência.`
+        minLeadMs > 0
+          ? `É preciso agendar com pelo menos ${Math.round(minLeadMs / 60_000)} minutos de antecedência.`
           : 'Esse horário já passou.',
       alternatives: await alternatives(),
     }
@@ -148,6 +251,12 @@ export async function checkAvailability(
     }
   }
 
+  const bufferMs = settings.buffer_minutes * 60_000
+  const expanded: Interval = {
+    start: new Date(interval.start.getTime() - bufferMs),
+    end: new Date(interval.end.getTime() + bufferMs),
+  }
+
   const blocks = await blocksInRange(db, interval.start, interval.end)
   if (blocks.some((b) => overlaps(interval, b))) {
     return {
@@ -158,13 +267,16 @@ export async function checkAvailability(
     }
   }
 
-  const appointments = await liveAppointmentsInRange(db, interval.start, interval.end)
+  const appointments = await liveAppointmentsInRange(db, expanded.start, expanded.end)
   const conflicting = appointments.filter((a) => a.id !== opts.ignoreAppointmentId)
   if (conflicting.length > 0) {
     return {
       available: false,
       reason: 'ocupado',
-      detail: 'Já existe um atendimento marcado nesse horário.',
+      detail:
+        settings.buffer_minutes > 0
+          ? `Esse horário fica muito perto de outro atendimento já marcado — é preciso pelo menos ${settings.buffer_minutes} minutos de intervalo.`
+          : 'Já existe um atendimento marcado nesse horário.',
       alternatives: await alternatives(),
     }
   }
@@ -457,7 +569,7 @@ export async function getDayAvailability(
 ): Promise<DaySlot[]> {
   const settings = await getSettings(db)
   const hours = await getBusinessHours(db)
-  const slots = slotsForDay(dateKey, hours, settings.slot_minutes, durationMinutes)
+  const slots = slotsForDay(dateKey, hours, INTERNAL_GRID_MINUTES, durationMinutes)
   if (slots.length === 0) return []
 
   const dayStart = slots[0].start

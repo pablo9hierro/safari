@@ -24,8 +24,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       date,
       duration_minutes: duration,
-      slot_minutes: settings.slot_minutes,
       lead_time_minutes: settings.lead_time_minutes,
+      buffer_minutes: settings.buffer_minutes,
       slots,
     })
   } catch (e) {

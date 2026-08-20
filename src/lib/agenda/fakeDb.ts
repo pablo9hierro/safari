@@ -165,20 +165,19 @@ export function seedDb(overrides: Partial<Row> = {}): FakeDb {
   db.tables.agenda_settings = [{
     id: 'default',
     appointment_ai_enabled: true,
-    slot_minutes: 30,
     default_duration_minutes: 60,
     lead_time_minutes: 0,
+    buffer_minutes: 0,
     max_advance_days: 60,
     ...overrides,
   }]
   db.tables.agenda_business_hours = [
-    { weekday: 0, closed: true, open_time: '09:00', close_time: '18:00' },
-    { weekday: 1, closed: false, open_time: '09:00', close_time: '18:00' },
-    { weekday: 2, closed: false, open_time: '09:00', close_time: '18:00' },
-    { weekday: 3, closed: false, open_time: '09:00', close_time: '18:00' },
-    { weekday: 4, closed: false, open_time: '09:00', close_time: '18:00' },
-    { weekday: 5, closed: false, open_time: '09:00', close_time: '18:00' },
-    { weekday: 6, closed: false, open_time: '09:00', close_time: '13:00' },
+    { id: 'bh-1', weekday: 1, open_time: '09:00', close_time: '18:00' },
+    { id: 'bh-2', weekday: 2, open_time: '09:00', close_time: '18:00' },
+    { id: 'bh-3', weekday: 3, open_time: '09:00', close_time: '18:00' },
+    { id: 'bh-4', weekday: 4, open_time: '09:00', close_time: '18:00' },
+    { id: 'bh-5', weekday: 5, open_time: '09:00', close_time: '18:00' },
+    { id: 'bh-6', weekday: 6, open_time: '09:00', close_time: '13:00' },
   ]
   db.tables.service_catalog_items = [
     { id: 'svc-1', model_name: 'iPhone 12', repair_type: 'Troca de tela', price: 450, active: true },

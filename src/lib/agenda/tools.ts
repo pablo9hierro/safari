@@ -4,7 +4,7 @@ import {
   checkAvailability,
   createAppointment,
   getAppointment,
-  getDayAvailability,
+  getFreeRangesForDay,
   listAppointments,
   rescheduleAppointment,
   resolveService,
@@ -42,7 +42,7 @@ export const AGENDA_TOOLS: ToolDef[] = [
   {
     name: 'consultar_disponibilidade',
     description:
-      'Verifica horários livres para agendamento. OBRIGATÓRIO rodar antes de dizer ao cliente que qualquer horário está disponível. Omita "horario" para receber a lista de horários livres de HOJE e AMANHÃ — a loja só agenda nesses dois dias, e a lista já respeita a antecedência mínima (o primeiro horário oferecido nunca é "agora"). Ofereça essa lista ao cliente e pergunte se ele prefere hoje ou amanhã e em qual horário. Informe "servico_id" para que a duração considerada seja a do serviço escolhido.',
+      'Verifica horários livres para agendamento. OBRIGATÓRIO rodar antes de dizer ao cliente que qualquer horário está disponível. Omita "horario" para receber as FAIXAS de horário livre de HOJE e AMANHÃ (ex: "das 08:00 até 12:00 e das 14:00 às 18:00") — a loja só agenda nesses dois dias, e a faixa já respeita a antecedência mínima e o buffer entre atendimentos (o início nunca é "agora"). Diga essa faixa ao cliente e pergunte que horário exato ele prefere dentro dela — depois rode de novo esta tool JÁ COM o horário escolhido pra confirmar antes de criar_agendamento. Informe "servico_id" para que a duração considerada seja a do serviço escolhido.',
     parameters: {
       type: 'object',
       properties: {
@@ -170,12 +170,14 @@ async function consultarDisponibilidade(input: {
     const blocos: string[] = []
 
     for (const key of chaves) {
-      const slots = (await getDayAvailability(key, duration)).filter((s) => s.available)
+      const ranges = (await getFreeRangesForDay(key)).filter(
+        (r) => r.end.getTime() - r.start.getTime() >= duration * 60_000,
+      )
       const rotulo = dias.find((d) => d.key === key)?.label ?? dateKeyToBr(key)
       blocos.push(
-        slots.length === 0
-          ? `${rotulo}: sem horários livres.`
-          : `${rotulo}:\n${slots.map((s) => `  - ${formatStoreTime(s.starts_at)}`).join('\n')}`,
+        ranges.length === 0
+          ? `${rotulo}: sem horário disponível.`
+          : `${rotulo}: das ${ranges.map((r) => `${formatStoreTime(r.start)} até ${formatStoreTime(r.end)}`).join(' e das ')}`,
       )
     }
     return [

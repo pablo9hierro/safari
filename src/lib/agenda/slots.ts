@@ -150,8 +150,10 @@ export function overlaps(a: Interval, b: Interval): boolean {
 }
 
 /**
- * Todos os slots de um dia que cabem inteiros dentro do expediente.
- * Só a grade — não considera ocupação nem bloqueio (isso é do chamador).
+ * Todos os slots de um dia que cabem inteiros dentro de QUALQUER bloco de
+ * expediente (manhã/tarde/etc). Só a grade — não considera ocupação nem
+ * bloqueio (isso é do chamador). Usado só pelo painel interno do lojista
+ * (grade de gestão); a oferta ao cliente/IA usa freeRangesForDay abaixo.
  */
 export function slotsForDay(
   dateKey: string,
@@ -167,31 +169,95 @@ export function slotsForDay(
 
   // Meio-dia evita qualquer ambiguidade de borda ao descobrir o dia da semana.
   const weekday = partsInStoreTz(storeTimeToUtc(year, month, day, 12, 0)).weekday
-  const bh = hours.find((h) => h.weekday === weekday)
-  if (!bh || bh.closed) return []
-
-  const openMin = timeToMinutes(bh.open_time)
-  const closeMin = timeToMinutes(bh.close_time)
+  const blocks = hours.filter((h) => h.weekday === weekday)
   const out: Interval[] = []
 
-  for (let m = openMin; m + durationMinutes <= closeMin; m += slotMinutes) {
-    const start = storeTimeToUtc(year, month, day, Math.floor(m / 60), m % 60)
-    out.push({ start, end: new Date(start.getTime() + durationMinutes * 60_000) })
+  for (const bh of blocks) {
+    const openMin = timeToMinutes(bh.open_time)
+    const closeMin = timeToMinutes(bh.close_time)
+    for (let m = openMin; m + durationMinutes <= closeMin; m += slotMinutes) {
+      const start = storeTimeToUtc(year, month, day, Math.floor(m / 60), m % 60)
+      out.push({ start, end: new Date(start.getTime() + durationMinutes * 60_000) })
+    }
   }
   return out
 }
 
-/** O intervalo cabe dentro do expediente daquele dia? */
+/** O intervalo cabe inteiro dentro de algum bloco de expediente daquele dia? */
 export function withinBusinessHours(interval: Interval, hours: BusinessHours[]): boolean {
   const p = partsInStoreTz(interval.start)
-  const bh = hours.find((h) => h.weekday === p.weekday)
-  if (!bh || bh.closed) return false
-
-  const startMin = p.hour * 60 + p.minute
   const endParts = partsInStoreTz(interval.end)
   // Terminou em outro dia — extrapola o expediente por definição.
   if (endParts.day !== p.day || endParts.month !== p.month) return false
+
+  const startMin = p.hour * 60 + p.minute
   const endMin = endParts.hour * 60 + endParts.minute
 
-  return startMin >= timeToMinutes(bh.open_time) && endMin <= timeToMinutes(bh.close_time)
+  return hours
+    .filter((h) => h.weekday === p.weekday)
+    .some((bh) => startMin >= timeToMinutes(bh.open_time) && endMin <= timeToMinutes(bh.close_time))
+}
+
+/**
+ * Subtrai intervalos ocupados (já expandidos pelo buffer nas duas pontas)
+ * de uma lista de blocos de expediente, devolvendo as faixas que sobraram.
+ * Algoritmo clássico de subtração de intervalos: ordena por início, varre e
+ * corta cada bloco pelos ocupados que o interceptam.
+ */
+export function subtractIntervals(blocks: Interval[], busy: Interval[]): Interval[] {
+  const sortedBusy = [...busy].sort((a, b) => a.start.getTime() - b.start.getTime())
+  const out: Interval[] = []
+
+  for (const block of blocks) {
+    let cursor = block.start
+    for (const b of sortedBusy) {
+      if (b.end <= cursor || b.start >= block.end) continue // não intercepta o restante do bloco
+      if (b.start > cursor) out.push({ start: cursor, end: new Date(Math.min(b.start.getTime(), block.end.getTime())) })
+      if (b.end > cursor) cursor = b.end
+      if (cursor >= block.end) break
+    }
+    if (cursor < block.end) out.push({ start: cursor, end: block.end })
+  }
+  return out.filter((r) => r.end > r.start)
+}
+
+/**
+ * Faixas de disponibilidade contínua de um dia (não mais grade discreta):
+ * expediente do dia (todos os blocos), menos agendamentos/bloqueios vivos
+ * (expandidos pelo buffer nas duas pontas), recortado pelo piso mínimo
+ * (max(agora + lead_time, agora + buffer) e/ou início do bloco).
+ */
+export function freeRangesForDay(
+  dateKey: string,
+  hours: BusinessHours[],
+  busy: Interval[],
+  bufferMinutes: number,
+  floor: Date,
+): Interval[] {
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey)
+  if (!dm) return []
+  const year = Number(dm[1])
+  const month = Number(dm[2])
+  const day = Number(dm[3])
+  const weekday = partsInStoreTz(storeTimeToUtc(year, month, day, 12, 0)).weekday
+
+  const blocks: Interval[] = hours
+    .filter((h) => h.weekday === weekday)
+    .map((bh) => {
+      const [oh, om] = bh.open_time.split(':').map(Number)
+      const [ch, cm] = bh.close_time.split(':').map(Number)
+      return { start: storeTimeToUtc(year, month, day, oh, om), end: storeTimeToUtc(year, month, day, ch, cm) }
+    })
+  if (blocks.length === 0) return []
+
+  const bufferMs = bufferMinutes * 60_000
+  const expandedBusy = busy.map((b) => ({
+    start: new Date(b.start.getTime() - bufferMs),
+    end: new Date(b.end.getTime() + bufferMs),
+  }))
+
+  const free = subtractIntervals(blocks, expandedBusy)
+  return free
+    .map((r) => ({ start: r.start < floor ? floor : r.start, end: r.end }))
+    .filter((r) => r.end > r.start)
 }

@@ -15,7 +15,7 @@ export async function GET() {
   }
 }
 
-/** PUT /api/agenda/settings — ajusta antecedência mínima, grade e duração padrão. */
+/** PUT /api/agenda/settings — ajusta antecedência mínima, buffer entre atendimentos e duração de fallback. */
 export async function PUT(req: NextRequest) {
   const auth = await requireAdmin()
   if (!auth.ok) return auth.response
@@ -33,7 +33,9 @@ export async function PUT(req: NextRequest) {
       // Antecedência mínima: impede o cliente de marcar "pra agora". A
       // assistente já oferece a primeira vaga considerando essa folga.
       lead_time_minutes: num(body.lead_time_minutes, 0, 24 * 60, current.lead_time_minutes),
-      slot_minutes: num(body.slot_minutes, 5, 240, current.slot_minutes),
+      // Folga obrigatória entre atendimentos (e a partir de "agora") — não
+      // dá pra marcar em sequência colada. Substitui a antiga grade fixa.
+      buffer_minutes: num(body.buffer_minutes, 0, 240, current.buffer_minutes),
       default_duration_minutes: num(
         body.default_duration_minutes, 5, 1440, current.default_duration_minutes,
       ),
