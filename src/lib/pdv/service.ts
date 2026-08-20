@@ -109,6 +109,8 @@ export type AddPaymentInput = {
   amount: number
   installments?: number | null
   change_amount?: number | null
+  /** Preenchido só pra Pix -- confirmado via status real na Mercado Pago, não clique do lojista. */
+  mp_payment_id?: string | null
 }
 
 /** Adiciona uma forma de pagamento à venda (pendente até confirmar). */
@@ -138,6 +140,7 @@ export async function addPayment(
       amount: input.amount,
       installments: input.installments ?? null,
       change_amount: input.change_amount ?? null,
+      mp_payment_id: input.mp_payment_id ?? null,
       status: 'pendente',
     })
     .select()

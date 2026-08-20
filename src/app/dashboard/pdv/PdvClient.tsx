@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Search, Loader2, Plus, Minus, X, ShoppingCart, CreditCard, Banknote, QrCode, Check } from 'lucide-react'
 import { apiPath } from '@/lib/storeProxyLink'
 import { createClient } from '@/lib/supabase/client'
+import { createPdvPix, getPdvPixStatus, AdminAuthError } from '@/lib/resolutoo/adminApi'
 
 const INPUT =
   'w-full px-3.5 py-2.5 rounded-xl bg-vr-black border border-white/8 text-white text-sm placeholder-vr-silver/30 outline-none focus:border-vr-red/50 transition-colors'
@@ -219,12 +220,62 @@ function CashConfirmDialog({
   )
 }
 
+type PixDialogState = {
+  amount: number
+  payment_id: string
+  qr_code: string
+  qr_code_base64: string
+  status: 'pendente' | 'aprovado' | 'erro'
+}
+
+/** Dialog com QR Pix + copia-e-cola, com polling do status real na Mercado Pago. */
+function PixDialog({
+  state, onClose,
+}: { state: PixDialogState; onClose: () => void }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-vr-graphite rounded-2xl border border-white/10 p-5 w-full max-w-sm space-y-4">
+        <div className="flex items-center gap-2">
+          <QrCode className="w-5 h-5 text-vr-red" />
+          <h3 className="text-white font-semibold">Pix — {money(state.amount)}</h3>
+        </div>
+        {state.status === 'aprovado' ? (
+          <p className="text-sm text-green-400 flex items-center gap-1.5 py-6 justify-center">
+            <Check className="w-5 h-5" /> Pagamento aprovado!
+          </p>
+        ) : (
+          <>
+            {state.qr_code_base64 && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={state.qr_code_base64} alt="QR Code Pix" className="w-full rounded-xl bg-white p-2" />
+            )}
+            <button
+              onClick={() => { navigator.clipboard.writeText(state.qr_code); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+              className="w-full px-3 py-2.5 rounded-xl text-xs font-mono text-vr-silver/70 bg-vr-black border border-white/8 hover:border-vr-red/40 transition-colors truncate"
+            >
+              {copied ? 'Copiado!' : 'Copiar código copia-e-cola'}
+            </button>
+            <p className="text-xs text-vr-silver/50 flex items-center gap-1.5">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Aguardando pagamento...
+            </p>
+          </>
+        )}
+        <button onClick={onClose} className="w-full px-4 py-2 rounded-xl text-sm text-vr-silver/70 hover:text-white transition-colors">
+          Fechar
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function PdvClient() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [sale, setSale] = useState<PdvSale | null>(null)
   const [checkingOut, setCheckingOut] = useState(false)
   const [cardDialogAmount, setCardDialogAmount] = useState<number | null>(null)
   const [cashDialogAmount, setCashDialogAmount] = useState<number | null>(null)
+  const [pixDialog, setPixDialog] = useState<PixDialogState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -289,7 +340,7 @@ export default function PdvClient() {
     return json as PdvSale
   }
 
-  const addPayment = async (method: 'pix' | 'cartao' | 'dinheiro', amount: number, extra?: { installments?: number; change_amount?: number }) => {
+  const addPayment = async (method: 'pix' | 'cartao' | 'dinheiro', amount: number, extra?: { installments?: number; change_amount?: number; mp_payment_id?: string }) => {
     if (!sale) return
     setBusy(true); setError(null)
     try {
@@ -318,6 +369,55 @@ export default function PdvClient() {
       setBusy(false)
     }
   }
+
+  const startPix = async () => {
+    if (!sale) return
+    setBusy(true); setError(null)
+    try {
+      const pix = await createPdvPix({
+        amount: remaining,
+        customer_name: 'Cliente balcão',
+        external_reference: sale.id,
+      })
+      setPixDialog({ amount: remaining, payment_id: pix.payment_id, qr_code: pix.qr_code, qr_code_base64: pix.qr_code_base64, status: 'pendente' })
+    } catch (e) {
+      setError(e instanceof AdminAuthError ? e.message : e instanceof Error ? e.message : 'Falha ao gerar Pix.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Poll do status real na Mercado Pago enquanto o dialog Pix está aberto.
+  useEffect(() => {
+    if (!pixDialog || pixDialog.status !== 'pendente' || !sale) return
+    const t = setInterval(async () => {
+      try {
+        const { status } = await getPdvPixStatus(pixDialog.payment_id)
+        if (status === 'approved') {
+          clearInterval(t)
+          setPixDialog((prev) => (prev ? { ...prev, status: 'aprovado' } : prev))
+          await addPayment('pix', pixDialog.amount, { mp_payment_id: pixDialog.payment_id })
+          // addPayment não confirma pix sozinho (feito abaixo, já sabemos que foi pago de verdade).
+          const refreshed = await refreshSale(sale.id)
+          const pending = refreshed.payments.find((p) => p.method === 'pix' && p.status === 'pendente')
+          if (pending) {
+            const res = await fetch(apiPath(`/api/pdv/sales/${sale.id}/payments/${pending.id}/confirm`), { method: 'POST' })
+            const confirmedSale = await res.json()
+            if (res.ok) {
+              setSale(confirmedSale)
+              if (confirmedSale.status === 'concluida') {
+                setTimeout(() => { setCart([]); setSale(null); setCheckingOut(false); setPixDialog(null) }, 1800)
+              }
+            }
+          }
+        }
+      } catch {
+        // erro de rede pontual no polling não precisa travar a UI -- tenta de novo no próximo tick.
+      }
+    }, 3000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pixDialog?.payment_id, pixDialog?.status])
 
   const cancelCheckout = async () => {
     if (sale && sale.status === 'aberta') {
@@ -429,12 +529,12 @@ export default function PdvClient() {
           {sale.status !== 'concluida' && (
             <div className="grid grid-cols-3 gap-3">
               <button
-                disabled
-                title="Em breve — precisa da integração com Mercado Pago"
-                className="flex flex-col items-center gap-1.5 p-4 rounded-xl bg-vr-graphite border border-white/5 text-vr-silver/30 cursor-not-allowed"
+                onClick={startPix}
+                disabled={busy}
+                className="flex flex-col items-center gap-1.5 p-4 rounded-xl bg-vr-graphite border border-white/5 text-white hover:border-vr-red/40 transition-colors disabled:opacity-40"
               >
-                <QrCode className="w-5 h-5" />
-                <span className="text-xs">Pix (em breve)</span>
+                <QrCode className="w-5 h-5 text-vr-red" />
+                <span className="text-xs">Pix</span>
               </button>
               <button
                 onClick={() => setCardDialogAmount(remaining)}
@@ -478,6 +578,7 @@ export default function PdvClient() {
           onConfirm={(received) => { addPayment('dinheiro', cashDialogAmount, { change_amount: Math.max(0, received - cashDialogAmount) }); setCashDialogAmount(null) }}
         />
       )}
+      {pixDialog && <PixDialog state={pixDialog} onClose={() => setPixDialog(null)} />}
     </div>
   )
 }

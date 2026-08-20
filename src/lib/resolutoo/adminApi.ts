@@ -89,3 +89,23 @@ export type FinanceiroSummary = {
 export function fetchFinanceiro(): Promise<FinanceiroSummary> {
   return adminFetch('/api/admin/financeiro')
 }
+
+export type PdvPix = { payment_id: string; qr_code: string; qr_code_base64: string }
+
+/** Gera a cobrança Pix do PDV usando o Mercado Pago já conectado pelo lojista. */
+export function createPdvPix(input: {
+  amount: number
+  customer_name: string
+  customer_email?: string | null
+  external_reference: string
+}): Promise<PdvPix> {
+  return adminFetch('/api/admin/pdv/pix', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export function getPdvPixStatus(paymentId: string): Promise<{ status: string }> {
+  return adminFetch(`/api/admin/pdv/pix/${paymentId}/status`)
+}

@@ -15,6 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       amount: Number(body.amount),
       installments: body.installments ? Number(body.installments) : null,
       change_amount: body.change_amount != null ? Number(body.change_amount) : null,
+      mp_payment_id: body.mp_payment_id ?? null,
     })
     return NextResponse.json(payment, { status: 201 })
   } catch (e) {
