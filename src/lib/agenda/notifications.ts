@@ -1,4 +1,4 @@
-import { sendWhatsAppText } from '@/lib/whatsapp/evolutionClient'
+import { deliverReliable } from '@/lib/queue/whatsappQueue'
 import { createServiceClient } from '@/lib/supabase/service'
 import { renderMessage } from '@/lib/templates/store'
 import { formatStoreDateTime } from './slots'
@@ -39,15 +39,25 @@ async function logOutboundMessage(phone: string, content: string): Promise<void>
   }
 }
 
-async function deliver(phone: string, message: string): Promise<boolean> {
-  try {
-    await sendWhatsAppText(phone, message)
-    await logOutboundMessage(phone, message)
-    return true
-  } catch (e) {
-    console.error('[agenda] falha ao notificar cliente:', e instanceof Error ? e.message : e)
-    return false
-  }
+/**
+ * `deliverReliable` tenta o envio direto e cai pra fila (Redis, com
+ * retry/backoff via cron) se falhar — o cliente nunca deixa de ser
+ * avisado só por uma instabilidade momentânea da Evolution API.
+ * Reagendamento/cancelamento são 'high': o cliente pode aparecer no
+ * endereço/horário errado se a mensagem atrasar demais.
+ */
+async function deliver(
+  phone: string,
+  message: string,
+  opts: { priority: 'high' | 'normal'; relatedType: string; relatedId: string },
+): Promise<boolean> {
+  const sentNow = await deliverReliable(phone, message, opts)
+  // Loga na conversa mesmo quando caiu pra fila: do ponto de vista do
+  // histórico/IA, a INTENÇÃO de notificar já existe agora, e o drain vai
+  // garantir a entrega — não faz sentido a IA "não saber" que reagendou
+  // só porque o envio levou mais alguns minutos.
+  await logOutboundMessage(phone, message)
+  return sentNow
 }
 
 export function buildRescheduleMessage(
@@ -99,11 +109,11 @@ export async function notifyReschedule(
   appointment: Appointment,
   previousStartsAt: string,
   justification: string,
+  customMessage?: string,
 ): Promise<boolean> {
-  // A justificativa vai literal, com ou sem template: o renderer só troca as
-  // variáveis do texto, nunca gera conteúdo novo — o motivo do lojista chega
-  // ao cliente exatamente como foi escrito.
-  const text = await renderMessage(
+  // Mensagem personalizada do admin substitui o template inteiro, literal —
+  // mesma garantia que a justificativa já tinha: nunca passa pelo modelo.
+  const text = customMessage?.trim() || await renderMessage(
     'appointment_rescheduled',
     {
       nome: appointment.customer_name,
@@ -114,14 +124,19 @@ export async function notifyReschedule(
     },
     buildRescheduleMessage(appointment, previousStartsAt, justification),
   )
-  return deliver(appointment.customer_phone, text)
+  return deliver(appointment.customer_phone, text, {
+    priority: 'high',
+    relatedType: 'appointment_reschedule',
+    relatedId: appointment.id,
+  })
 }
 
 export async function notifyCancellation(
   appointment: Appointment,
   justification: string,
+  customMessage?: string,
 ): Promise<boolean> {
-  const text = await renderMessage(
+  const text = customMessage?.trim() || await renderMessage(
     'appointment_cancelled',
     {
       nome: appointment.customer_name,
@@ -131,7 +146,11 @@ export async function notifyCancellation(
     },
     buildCancellationMessage(appointment, justification),
   )
-  return deliver(appointment.customer_phone, text)
+  return deliver(appointment.customer_phone, text, {
+    priority: 'high',
+    relatedType: 'appointment_cancel',
+    relatedId: appointment.id,
+  })
 }
 
 /**
@@ -149,5 +168,9 @@ export async function notifyAppointmentCreated(appointment: Appointment): Promis
     },
     buildCreatedMessage(appointment),
   )
-  return deliver(appointment.customer_phone, text)
+  return deliver(appointment.customer_phone, text, {
+    priority: 'normal',
+    relatedType: 'appointment_created',
+    relatedId: appointment.id,
+  })
 }

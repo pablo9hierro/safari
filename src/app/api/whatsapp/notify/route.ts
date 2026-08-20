@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { sendWhatsAppText } from '@/lib/whatsapp/evolutionClient'
+import { deliverReliable } from '@/lib/queue/whatsappQueue'
 import { ownerNewRequestMessage, pendingCustomerMessage, STATUS_MESSAGES, OrderSummary } from '@/lib/whatsapp/messages'
 import { ServiceRequest, ServiceStatus } from '@/lib/types'
 import { renderMessage } from '@/lib/templates/store'
@@ -72,13 +72,21 @@ export async function POST(req: NextRequest) {
     if (event === 'created') {
       // Aviso interno pro dono da loja não é mensagem ao cliente — fora do
       // escopo do Template Zap, segue como sempre foi.
-      await sendWhatsAppText(OWNER_PHONE, ownerNewRequestMessage(typedRequest))
+      await deliverReliable(OWNER_PHONE, ownerNewRequestMessage(typedRequest), {
+        priority: 'normal',
+        relatedType: 'request_owner_notify',
+        relatedId: requestId,
+      })
       const text = await renderMessage(
         'request_pending',
         requestVars(typedRequest, null),
         pendingCustomerMessage(typedRequest),
       )
-      await sendWhatsAppText(typedRequest.customer_phone, text)
+      await deliverReliable(typedRequest.customer_phone, text, {
+        priority: 'normal',
+        relatedType: 'request_pending',
+        relatedId: requestId,
+      })
       return NextResponse.json({ ok: true })
     }
 
@@ -101,7 +109,15 @@ export async function POST(req: NextRequest) {
       ? await renderMessage(templateKey, requestVars(typedRequest, order), fallback)
       : fallback
 
-    await sendWhatsAppText(typedRequest.customer_phone, text)
+    // em_pagamento/completed são o momento em que o cliente precisa saber
+    // que já pode pagar / que o serviço terminou — mesma prioridade alta
+    // do reagendamento, não pode atrasar por trás de mensagens comuns.
+    const priority = event === 'em_pagamento' || event === 'completed' ? 'high' : 'normal'
+    await deliverReliable(typedRequest.customer_phone, text, {
+      priority,
+      relatedType: `request_status_${event}`,
+      relatedId: requestId,
+    })
     return NextResponse.json({ ok: true })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Erro ao enviar WhatsApp'

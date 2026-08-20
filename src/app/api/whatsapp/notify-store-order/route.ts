@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sendWhatsAppText } from '@/lib/whatsapp/evolutionClient'
+import { deliverReliable } from '@/lib/queue/whatsappQueue'
 import { renderMessage } from '@/lib/templates/store'
 
 const OWNER_PHONE = process.env.OWNER_PHONE || '5583920021373'
@@ -37,13 +37,21 @@ export async function POST(req: NextRequest) {
   ].join('\n')
 
   try {
-    await sendWhatsAppText(OWNER_PHONE, ownerMessage)
+    await deliverReliable(OWNER_PHONE, ownerMessage, {
+      priority: 'high',
+      relatedType: 'store_order_owner',
+      relatedId: String(orderId),
+    })
     const customerMessage = await renderMessage(
       'store_order_pending',
       { nome: customerName, pedido: String(orderId).slice(0, 8), valor: currency(Number(total) || 0) },
       customerFallback,
     )
-    await sendWhatsAppText(customerWhatsapp, customerMessage)
+    await deliverReliable(customerWhatsapp, customerMessage, {
+      priority: 'high',
+      relatedType: 'store_order_customer',
+      relatedId: String(orderId),
+    })
     return NextResponse.json({ ok: true })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Erro ao enviar WhatsApp'
