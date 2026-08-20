@@ -6,8 +6,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
   try {
     const supabase = await createResolutooAuthServerClient()
     const { data: { user }, error } = await supabase.auth.getUser()
-    if (error) return <pre className="text-red-400 p-8 text-xs">auth.getUser error: {JSON.stringify(error)}</pre>
-    if (!user) redirect('/login')
+    // Sem sessão (cookie ausente/expirado) é o caso NORMAL de visitante não
+    // logado, não uma falha real — supabase-js sempre devolve
+    // AuthSessionMissingError nesse caso, não é exceção. Mandar pro login
+    // igual ao caso !user, nunca vazar o erro cru na tela (achado real:
+    // acontecia sempre que /dashboard era acessado sem sessão, incluindo
+    // pelo proxy de resolutoo.com/loja/eletronica-admin).
+    if (error || !user) redirect('/login')
 
     return (
       <div className="min-h-screen bg-vr-black md:flex">
