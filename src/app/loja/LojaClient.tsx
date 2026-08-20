@@ -44,13 +44,17 @@ export default function LojaClient({ initialProducts }: { initialProducts: Produ
     <main className="min-h-screen bg-vr-black text-white">
       <header className="px-5 sm:px-10 py-5 flex items-center justify-between max-w-6xl mx-auto">
         <div className="flex items-center gap-4">
-          <Link
-            href="/"
+          <button
+            type="button"
+            onClick={() => {
+              setCategoryFilter('all')
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
             className="flex items-center gap-1.5 text-sm font-medium text-vr-silver hover:text-white transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span className="hidden sm:inline">Início</span>
-          </Link>
+          </button>
           <Logo size="md" />
         </div>
         <button
