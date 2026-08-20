@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from 'react'
 import { Product } from '@/lib/types'
-import Link from 'next/link'
 import { Logo } from '@/components/ui'
 import { ShoppingBag, Plus, Minus, Package, ArrowLeft } from 'lucide-react'
 import { useCart } from '@/lib/carrinho/context'
+import { StoreLink, useStoreProxyPrefix } from '@/lib/storeProxyLink'
 
 function currency(v: number) {
   return `R$ ${v.toFixed(2).replace('.', ',')}`
@@ -15,6 +15,7 @@ export default function LojaClient({ initialProducts }: { initialProducts: Produ
   const [products] = useState<Product[]>(initialProducts)
   const [categoryFilter, setCategoryFilter] = useState('all')
   const { items, add, updateQty, count } = useCart()
+  const proxyPrefix = useStoreProxyPrefix()
 
   const categories = useMemo(() => {
     const set = new Set<string>()
@@ -44,17 +45,13 @@ export default function LojaClient({ initialProducts }: { initialProducts: Produ
     <main className="min-h-screen bg-vr-black text-white">
       <header className="px-5 sm:px-10 py-5 flex items-center justify-between max-w-6xl mx-auto">
         <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => {
-              setCategoryFilter('all')
-              window.scrollTo({ top: 0, behavior: 'smooth' })
-            }}
+          <StoreLink
+            href="/"
             className="flex items-center gap-1.5 text-sm font-medium text-vr-silver hover:text-white transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span className="hidden sm:inline">Início</span>
-          </button>
+          </StoreLink>
           <Logo size="md" />
         </div>
         <button
@@ -111,7 +108,7 @@ export default function LojaClient({ initialProducts }: { initialProducts: Produ
               const outOfStock = Number(product.quantity) <= 0
               return (
                 <div key={product.id} className="bg-white rounded-2xl overflow-hidden shadow-xl flex flex-col">
-                  <Link href={`/loja/${product.id}`} className="flex flex-col flex-1">
+                  <StoreLink href={`/loja/${product.id}`} className="flex flex-col flex-1">
                     <div className="aspect-square bg-gray-100 flex items-center justify-center overflow-hidden">
                       {product.image_url ? (
                         <img
@@ -137,7 +134,7 @@ export default function LojaClient({ initialProducts }: { initialProducts: Produ
                       </div>
                       <p className="text-vr-red font-bold mt-auto">{currency(Number(product.price))}</p>
                     </div>
-                  </Link>
+                  </StoreLink>
 
                   <div className="px-3 pb-3">
                     {outOfStock ? (
