@@ -185,6 +185,7 @@ export default function AgendaClient() {
   const [detail, setDetail] = useState<(Appointment & { events: AppointmentEvent[] }) | null>(null)
   const [reschedulingId, setReschedulingId] = useState<string | null>(null)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
+  const [actionChooserId, setActionChooserId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setError(null)
@@ -421,16 +422,10 @@ export default function AgendaClient() {
                         <CheckCircle2 className="w-3.5 h-3.5" /> Concluir
                       </button>
                       <button
-                        onClick={() => setReschedulingId(a.id)}
-                        className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 bg-blue-500/10 px-3 py-1.5 rounded-lg transition-colors"
+                        onClick={() => setActionChooserId(a.id)}
+                        className="flex items-center gap-1.5 text-sm text-vr-silver hover:text-white bg-white/5 px-3 py-1.5 rounded-lg transition-colors"
                       >
-                        <CalendarClock className="w-3.5 h-3.5" /> Remarcar
-                      </button>
-                      <button
-                        onClick={() => setCancellingId(a.id)}
-                        className="flex items-center gap-1.5 text-sm text-red-400 hover:text-red-300 bg-red-500/10 px-3 py-1.5 rounded-lg transition-colors"
-                      >
-                        <Ban className="w-3.5 h-3.5" /> Cancelar
+                        <CalendarClock className="w-3.5 h-3.5" /> Ação
                       </button>
                     </>
                   )}
@@ -471,6 +466,34 @@ export default function AgendaClient() {
 
       {creating && <CreateDialog date={date} onClose={() => setCreating(false)} onDone={() => { setCreating(false); load() }} />}
       {blocking && <BlockDialog date={date} onClose={() => setBlocking(false)} onDone={() => { setBlocking(false); load() }} />}
+
+      {actionChooserId && (
+        <Dialog title="O que você quer fazer?" onClose={() => setActionChooserId(null)}>
+          <button
+            onClick={() => { const id = actionChooserId; setActionChooserId(null); setReschedulingId(id) }}
+            className="w-full text-left rounded-xl border border-white/10 bg-vr-black px-4 py-3 hover:border-blue-500 transition-colors"
+          >
+            <span className="flex items-center gap-2 text-white font-medium">
+              <CalendarClock className="w-4 h-4 text-blue-400" /> Remarcar agendamento
+            </span>
+            <span className="block text-xs text-vr-silver/50 mt-1">
+              Escolhe um novo horário e avisa o cliente.
+            </span>
+          </button>
+          <button
+            onClick={() => { const id = actionChooserId; setActionChooserId(null); setCancellingId(id) }}
+            className="w-full text-left rounded-xl border border-white/10 bg-vr-black px-4 py-3 hover:border-red-500 transition-colors"
+          >
+            <span className="flex items-center gap-2 text-white font-medium">
+              <Ban className="w-4 h-4 text-red-400" /> Cancelar agendamento
+            </span>
+            <span className="block text-xs text-vr-silver/50 mt-1">
+              Desmarca o horário e avisa o cliente.
+            </span>
+          </button>
+        </Dialog>
+      )}
+
       {reschedulingId && (
         <RescheduleDialog id={reschedulingId} date={date} onClose={() => setReschedulingId(null)} onDone={() => { setReschedulingId(null); load() }} />
       )}
@@ -609,15 +632,54 @@ function BlockDialog({ date, onClose, onDone }: { date: string; onClose: () => v
   )
 }
 
+/** Checkbox "mensagem padrão" (default true) + textarea obrigatória quando
+ * desmarcado — mesmo padrão nos dois dialogs (reagendar/cancelar). */
+function DefaultMessageToggle({
+  useDefault, onToggle, customMessage, onCustomMessage, label,
+}: {
+  useDefault: boolean
+  onToggle: (v: boolean) => void
+  customMessage: string
+  onCustomMessage: (v: string) => void
+  label: string
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 text-sm text-vr-silver cursor-pointer">
+        <input
+          type="checkbox"
+          checked={useDefault}
+          onChange={(e) => onToggle(e.target.checked)}
+          className="rounded border-white/20 bg-vr-black text-vr-red focus:ring-vr-red/50"
+        />
+        {label}
+      </label>
+      {!useDefault && (
+        <textarea
+          value={customMessage}
+          onChange={(e) => onCustomMessage(e.target.value)}
+          rows={3}
+          placeholder="Escreva a mensagem que o cliente vai receber pelo WhatsApp..."
+          className="w-full bg-vr-black border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-vr-silver/30 outline-none focus:border-vr-red transition-colors resize-none"
+        />
+      )}
+    </div>
+  )
+}
+
 function RescheduleDialog({
   id, date, onClose, onDone,
 }: { id: string; date: string; onClose: () => void; onDone: () => void }) {
   const [dia, setDia] = useState(date)
   const [horario, setHorario] = useState('09:00')
   const [justification, setJustification] = useState('')
+  const [useDefaultMessage, setUseDefaultMessage] = useState(true)
+  const [customMessage, setCustomMessage] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const valid = justification.trim().length >= MIN_JUSTIFICATION_LENGTH
+  const valid =
+    justification.trim().length >= MIN_JUSTIFICATION_LENGTH &&
+    (useDefaultMessage || customMessage.trim().length >= 10)
 
   const submit = async () => {
     setSaving(true); setErr(null)
@@ -625,7 +687,13 @@ function RescheduleDialog({
       const res = await fetch(apiPath(`/api/appointments/${id}/reschedule`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: dia, horario, justification }),
+        body: JSON.stringify({
+          data: dia,
+          horario,
+          justification,
+          use_default_message: useDefaultMessage,
+          custom_message: useDefaultMessage ? undefined : customMessage,
+        }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Falha ao remarcar.')
@@ -648,6 +716,13 @@ function RescheduleDialog({
         <TimeDropdown value={horario} onChange={setHorario} />
       </div>
       <JustificationField value={justification} onChange={setJustification} label="Justificativa da remarcação" />
+      <DefaultMessageToggle
+        useDefault={useDefaultMessage}
+        onToggle={setUseDefaultMessage}
+        customMessage={customMessage}
+        onCustomMessage={setCustomMessage}
+        label="Enviar mensagem de reagendamento padrão"
+      />
       {err && <p className="text-sm text-red-400">{err}</p>}
       <button
         onClick={submit}
@@ -664,9 +739,13 @@ function RescheduleDialog({
 
 function CancelDialog({ id, onClose, onDone }: { id: string; onClose: () => void; onDone: () => void }) {
   const [justification, setJustification] = useState('')
+  const [useDefaultMessage, setUseDefaultMessage] = useState(true)
+  const [customMessage, setCustomMessage] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const valid = justification.trim().length >= MIN_JUSTIFICATION_LENGTH
+  const valid =
+    justification.trim().length >= MIN_JUSTIFICATION_LENGTH &&
+    (useDefaultMessage || customMessage.trim().length >= 10)
 
   const submit = async () => {
     setSaving(true); setErr(null)
@@ -674,7 +753,11 @@ function CancelDialog({ id, onClose, onDone }: { id: string; onClose: () => void
       const res = await fetch(apiPath(`/api/appointments/${id}/cancel`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ justification }),
+        body: JSON.stringify({
+          justification,
+          use_default_message: useDefaultMessage,
+          custom_message: useDefaultMessage ? undefined : customMessage,
+        }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Falha ao cancelar.')
@@ -689,6 +772,13 @@ function CancelDialog({ id, onClose, onDone }: { id: string; onClose: () => void
   return (
     <Dialog title="Cancelar agendamento" onClose={onClose}>
       <JustificationField value={justification} onChange={setJustification} label="Justificativa do cancelamento" />
+      <DefaultMessageToggle
+        useDefault={useDefaultMessage}
+        onToggle={setUseDefaultMessage}
+        customMessage={customMessage}
+        onCustomMessage={setCustomMessage}
+        label="Enviar mensagem padrão de desmarcação"
+      />
       {err && <p className="text-sm text-red-400">{err}</p>}
       <button
         onClick={submit}

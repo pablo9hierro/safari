@@ -1,0 +1,20 @@
+name: Drenar fila WhatsApp
+
+# Vercel Hobby só permite cron diário (nativo do vercel.json rejeita
+# qualquer coisa mais frequente) — este workflow substitui isso, chamando
+# o endpoint de drenagem a cada poucos minutos. GitHub Actions não garante
+# o minuto exato do schedule (pode atrasar alguns minutos em horários de
+# pico da plataforma), mas é confiável o bastante pra uma fila de retry.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chamar /api/cron/whatsapp-drain
+        run: |
+          curl -sf -X GET "https://vrtech-jp.vercel.app/api/cron/whatsapp-drain" \
+            -H "Authorization: Bearer ${{ secrets.WHATSAPP_DRAIN_SECRET }}"

@@ -16,6 +16,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   try {
     const { id } = await ctx.params
     const body = await req.json().catch(() => ({}))
+    const useDefaultMessage = body.use_default_message !== false
+    const customMessage = body.custom_message ? String(body.custom_message).trim() : ''
+    if (!useDefaultMessage && customMessage.length < 10) {
+      return NextResponse.json(
+        { error: 'Mensagem personalizada precisa ter pelo menos 10 caracteres.' },
+        { status: 400 },
+      )
+    }
 
     // Guarda os dados originais: depois do cancelamento o cliente precisa
     // saber qual horário foi desmarcado.
@@ -30,7 +38,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       justification: body.justification ? String(body.justification) : undefined,
     })
 
-    const notified = await notifyCancellation(before, String(body.justification))
+    const notified = await notifyCancellation(
+      before,
+      String(body.justification),
+      useDefaultMessage ? undefined : customMessage,
+    )
     return NextResponse.json({ ...appointment, notified })
   } catch (e) {
     return errorResponse(e)

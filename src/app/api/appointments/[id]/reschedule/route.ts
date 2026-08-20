@@ -20,6 +20,17 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (!body.data || !body.horario) {
       return NextResponse.json({ error: 'Informe a nova data e o novo horário.' }, { status: 400 })
     }
+    // use_default_message ausente/true = comportamento de sempre (template).
+    // false exige texto próprio — validado aqui também, não só no form, pra
+    // uma chamada direta à API não conseguir mandar mensagem vazia ao cliente.
+    const useDefaultMessage = body.use_default_message !== false
+    const customMessage = body.custom_message ? String(body.custom_message).trim() : ''
+    if (!useDefaultMessage && customMessage.length < 10) {
+      return NextResponse.json(
+        { error: 'Mensagem personalizada precisa ter pelo menos 10 caracteres.' },
+        { status: 400 },
+      )
+    }
 
     const { appointment, previous } = await rescheduleAppointment(
       id,
@@ -32,8 +43,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       },
     )
 
-    // A justificativa vai literal pro cliente — não passa pelo modelo.
-    const notified = await notifyReschedule(appointment, previous.starts_at, String(body.justification))
+    // A justificativa (ou a mensagem personalizada) vai literal pro cliente
+    // — nunca passa pelo modelo.
+    const notified = await notifyReschedule(
+      appointment,
+      previous.starts_at,
+      String(body.justification),
+      useDefaultMessage ? undefined : customMessage,
+    )
     return NextResponse.json({ ...appointment, previous, notified })
   } catch (e) {
     return errorResponse(e)
