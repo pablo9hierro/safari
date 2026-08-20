@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell -Command 'Get-CimInstance Win32_Process -Filter \"Name='\\\\''sonset_backend.exe'\\\\''\" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }')",
+      "Read(//c/Users/pablo/Documents/ufersin/ecommerce/backend/**)",
+      "Bash(cargo run *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\pablo\\Documents\\ufersin\\ecommerce\\frontend"
+    ]
+  }
+}

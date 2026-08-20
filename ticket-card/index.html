@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ticket Card — Uiverse clone</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <section class="panel">
+        <h2 class="panel-title">Ticket — by dexter-st</h2>
+        <div class="stage">
+        <!-- From Uiverse.io by dexter-st -->
+        <div class="card">
+          <div class="notes">♪♪♪♪♪</div>
+          <div class="notes">♪♪♪♪</div>
+          <div class="notes">♪♪♪♪♪</div>
+
+          <div class="header">
+            TICKET
+            <div class="symbol">✁</div>
+          </div>
+          <div class="body">
+            <em>Day pass</em><br />
+            May 14<sup>th</sup> 2026<br />
+            Venue address, State, #####
+          </div>
+          <div class="footer">
+            <div class="number">Seat <span class="bold">E7</span></div>
+            <div class="barcode"></div>
+          </div>
+
+          <div class="bg holographic"></div>
+          <svg class="filter">
+            <filter id="bump">
+              <feTurbulence
+                result="noise"
+                numOctaves="3"
+                baseFrequency="0.7"
+                type="fractalNoise"
+              ></feTurbulence>
+              <feSpecularLighting
+                in="noise"
+                result="specular"
+                lighting-color="#fffffc"
+                specularExponent="25"
+                specularConstant="0.8"
+                surfaceScale="0.15"
+              >
+                <fePointLight z="210" y="100" x="100"></fePointLight>
+              </feSpecularLighting>
+              <feComposite
+                result="noise2"
+                operator="in"
+                in="specular"
+                in2="SourceGraphic"
+              ></feComposite>
+              <feBlend mode="screen" in2="noise2" in="SourceGraphic"></feBlend>
+            </filter>
+          </svg>
+        </div>
+        </div>
+      </section>
+
+      <section class="panel panel-fire">
+        <h2 class="panel-title">Fire Loader — by SelfMadeSystem</h2>
+        <div class="controls fire-controls">
+          <label for="blur-range">Blur <span id="blur-value">2px</span></label>
+          <input type="range" id="blur-range" min="0" max="15" step="0.5" value="2" />
+
+          <label for="count-range">Bolinhas <span id="count-value">96</span></label>
+          <input type="range" id="count-range" min="1" max="96" step="1" value="96" />
+
+          <label for="width-range">Largura <span id="width-value">133px</span></label>
+          <input type="range" id="width-range" min="50" max="320" step="1" value="133" />
+
+          <label for="height-range">Altura <span id="height-value">200px</span></label>
+          <input type="range" id="height-range" min="80" max="420" step="1" value="200" />
+
+          <label for="speed-range">Velocidade <span id="speed-value">1x</span></label>
+          <input type="range" id="speed-range" min="0.2" max="3" step="0.1" value="1" />
+        </div>
+        <div class="stage">
+        <!-- From Uiverse.io by SelfMadeSystem -->
+        <div class="loader">
+          <div class="fire">
+            <div class="ball" style="--n: 0.8865"></div>
+            <div class="ball" style="--n: 0.1355"></div>
+            <div class="ball" style="--n: 0.7449"></div>
+            <div class="ball" style="--n: 0.8842"></div>
+            <div class="ball" style="--n: 0.9783"></div>
+            <div class="ball" style="--n: 0.2639"></div>
+            <div class="ball" style="--n: 0.8008"></div>
+            <div class="ball" style="--n: 0.0349"></div>
+            <div class="ball" style="--n: 0.8160"></div>
+            <div class="ball" style="--n: 0.4397"></div>
+            <div class="ball" style="--n: 0.7457"></div>
+            <div class="ball" style="--n: 0.0481"></div>
+            <div class="ball" style="--n: 0.4100"></div>
+            <div class="ball" style="--n: 0.1041"></div>
+            <div class="ball" style="--n: 0.9967"></div>
+            <div class="ball" style="--n: 0.3815"></div>
+            <div class="ball" style="--n: 0.4520"></div>
+            <div class="ball" style="--n: 0.2286"></div>
+            <div class="ball" style="--n: 0.8291"></div>
+            <div class="ball" style="--n: 0.9617"></div>
+            <div class="ball" style="--n: 0.3374"></div>
+            <div class="ball" style="--n: 0.7277"></div>
+            <div class="ball" style="--n: 0.8969"></div>
+            <div class="ball" style="--n: 0.3096"></div>
+            <div class="ball" style="--n: 0.3860"></div>
+            <div class="ball" style="--n: 0.2347"></div>
+            <div class="ball" style="--n: 0.4591"></div>
+            <div class="ball" style="--n: 0.0450"></div>
+            <div class="ball" style="--n: 0.0815"></div>
+            <div class="ball" style="--n: 0.9100"></div>
+            <div class="ball" style="--n: 0.9737"></div>
+            <div class="ball" style="--n: 0.4185"></div>
+            <div class="ball" style="--n: 0.1508"></div>
+            <div class="ball" style="--n: 0.9323"></div>
+            <div class="ball" style="--n: 0.0341"></div>
+            <div class="ball" style="--n: 0.8304"></div>
+            <div class="ball" style="--n: 0.3449"></div>
+            <div class="ball" style="--n: 0.3398"></div>
+            <div class="ball" style="--n: 0.0458"></div>
+            <div class="ball" style="--n: 0.0326"></div>
+            <div class="ball" style="--n: 0.5843"></div>
+            <div class="ball" style="--n: 0.1483"></div>
+            <div class="ball" style="--n: 0.3297"></div>
+            <div class="ball" style="--n: 0.2765"></div>
+            <div class="ball" style="--n: 0.1764"></div>
+            <div class="ball" style="--n: 0.9811"></div>
+            <div class="ball" style="--n: 0.8625"></div>
+            <div class="ball" style="--n: 0.9378"></div>
+            <div class="ball" style="--n: 0.4417"></div>
+            <div class="ball" style="--n: 0.0425"></div>
+            <div class="ball" style="--n: 0.1440"></div>
+            <div class="ball" style="--n: 0.2503"></div>
+            <div class="ball" style="--n: 0.6050"></div>
+            <div class="ball" style="--n: 0.7947"></div>
+            <div class="ball" style="--n: 0.3677"></div>
+            <div class="ball" style="--n: 0.5063"></div>
+            <div class="ball" style="--n: 0.0301"></div>
+            <div class="ball" style="--n: 0.3217"></div>
+            <div class="ball" style="--n: 0.1559"></div>
+            <div class="ball" style="--n: 0.9862"></div>
+            <div class="ball" style="--n: 0.0212"></div>
+            <div class="ball" style="--n: 0.9632"></div>
+            <div class="ball" style="--n: 0.2334"></div>
+            <div class="ball" style="--n: 0.0241"></div>
+            <div class="ball" style="--n: 0.9374"></div>
+            <div class="ball" style="--n: 0.2286"></div>
+            <div class="ball" style="--n: 0.6427"></div>
+            <div class="ball" style="--n: 0.6731"></div>
+            <div class="ball" style="--n: 0.8664"></div>
+            <div class="ball" style="--n: 0.7627"></div>
+            <div class="ball" style="--n: 0.7768"></div>
+            <div class="ball" style="--n: 0.6954"></div>
+            <div class="ball" style="--n: 0.3915"></div>
+            <div class="ball" style="--n: 0.9714"></div>
+            <div class="ball" style="--n: 0.3935"></div>
+            <div class="ball" style="--n: 0.4859"></div>
+            <div class="ball" style="--n: 0.1976"></div>
+            <div class="ball" style="--n: 0.5246"></div>
+            <div class="ball" style="--n: 0.6430"></div>
+            <div class="ball" style="--n: 0.3265"></div>
+            <div class="ball" style="--n: 0.6532"></div>
+            <div class="ball" style="--n: 0.7922"></div>
+            <div class="ball" style="--n: 0.8988"></div>
+            <div class="ball" style="--n: 0.9969"></div>
+            <div class="ball" style="--n: 0.2227"></div>
+            <div class="ball" style="--n: 0.8205"></div>
+            <div class="ball" style="--n: 0.2930"></div>
+            <div class="ball" style="--n: 0.1042"></div>
+            <div class="ball" style="--n: 0.3598"></div>
+            <div class="ball" style="--n: 0.2926"></div>
+            <div class="ball" style="--n: 0.7555"></div>
+            <div class="ball" style="--n: 0.1403"></div>
+            <div class="ball" style="--n: 0.5981"></div>
+            <div class="ball" style="--n: 0.6467"></div>
+            <div class="ball" style="--n: 0.9956"></div>
+            <div class="ball" style="--n: 0.6911"></div>
+            <div class="ball" style="--n: 0.4679"></div>
+            <div class="ball" style="--n: 0.1181"></div>
+            <div class="ball" style="--n: 0.3470"></div>
+            <div class="ball" style="--n: 0.6709"></div>
+          </div>
+        </div>
+        </div>
+      </section>
+
+      <section class="panel panel-smoke">
+        <h2 class="panel-title">Smoke — by esraaabdel-kareem</h2>
+        <div class="controls smoke-controls">
+          <label for="smoke-blur-range">Blur <span id="smoke-blur-value">8px</span></label>
+          <input type="range" id="smoke-blur-range" min="0" max="20" step="0.5" value="8" />
+
+          <label for="smoke-count-range">Fumaças <span id="smoke-count-value">3</span></label>
+          <input type="range" id="smoke-count-range" min="1" max="3" step="1" value="3" />
+
+          <label for="smoke-width-range">Largura <span id="smoke-width-value">10px</span></label>
+          <input type="range" id="smoke-width-range" min="2" max="40" step="1" value="10" />
+
+          <label for="smoke-height-range">Altura <span id="smoke-height-value">25px</span></label>
+          <input type="range" id="smoke-height-range" min="5" max="60" step="1" value="25" />
+
+          <label for="smoke-speed-range">Velocidade <span id="smoke-speed-value">1x</span></label>
+          <input type="range" id="smoke-speed-range" min="0.2" max="3" step="0.1" value="1" />
+        </div>
+        <div class="stage stage-smoke">
+        <!-- From Uiverse.io by esraaabdel-kareem (cup removido, só a fumaça) -->
+        <div class="smoke-loader">
+          <div class="smoke one"></div>
+          <div class="smoke two"></div>
+          <div class="smoke three"></div>
+        </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel-title">Coupon Slot — by dexter-st (com ticket)</h2>
+        <div class="stage stage-coupon">
+          <!-- From Uiverse.io by dexter-st, papel substituído pelo ticket -->
+          <div class="coupon-wrapper">
+            <div class="cutout-wrapper">
+              <div class="cutout"></div>
+            </div>
+            <div class="paper-wrapper">
+              <div class="sec">
+                <button class="paper">
+                  <div class="card card-coupon">
+                    <div class="header">
+                      Cupom
+                      <div class="symbol">✁</div>
+                    </div>
+                    <div class="body">
+                      <em>Cupom Exclusivo</em><br />
+                      Válido até 14/Maio<br />
+                      Venue address, State, #####
+                    </div>
+                    <div class="footer">
+                      <div class="number">Código <span class="bold">CodigoCupom15</span></div>
+                      <div class="barcode"></div>
+                    </div>
+
+                    <div class="bg holographic"></div>
+                    <svg class="filter">
+                      <filter id="bump-coupon">
+                        <feTurbulence
+                          result="noise"
+                          numOctaves="3"
+                          baseFrequency="0.7"
+                          type="fractalNoise"
+                        ></feTurbulence>
+                        <feSpecularLighting
+                          in="noise"
+                          result="specular"
+                          lighting-color="#fffffc"
+                          specularExponent="25"
+                          specularConstant="0.8"
+                          surfaceScale="0.15"
+                        >
+                          <fePointLight z="210" y="100" x="100"></fePointLight>
+                        </feSpecularLighting>
+                        <feComposite
+                          result="noise2"
+                          operator="in"
+                          in="specular"
+                          in2="SourceGraphic"
+                        ></feComposite>
+                        <feBlend mode="screen" in2="noise2" in="SourceGraphic"></feBlend>
+                      </filter>
+                    </svg>
+                  </div>
+                </button>
+              </div>
+            </div>
+            <div class="shadow-wrapper">
+              <div class="shadow"></div>
+            </div>
+            <div class="cutter-wrapper">
+              <div class="cutter"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

@@ -10,5 +10,6 @@ export async function GET() {
     'x-forwarded-for': h.get('x-forwarded-for'),
     'x-vercel-...': [...h.entries()].filter(([k]) => k.startsWith('x-')),
     cookieNames: c.getAll().map((x) => x.name),
+    rawCookieHeader: h.get('cookie'),
   })
 }

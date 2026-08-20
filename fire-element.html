@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fire Element — reference</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+      }
+
+      /* ==== Panel wrapper (delimited container + drag + transparent bg) ==== */
+      .panel-fire {
+        position: relative;
+        isolation: isolate;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1.25rem;
+        padding: 1.5rem 2.5rem 2.5rem;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 20px;
+        background: transparent;
+        cursor: grab;
+        touch-action: none;
+        z-index: 10;
+      }
+
+      .panel-fire.dragging {
+        cursor: grabbing;
+        z-index: 100;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-family: sans-serif;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #9aa0ab;
+      }
+
+      /* ==== Controls (range sliders) ==== */
+      .controls {
+        display: grid;
+        grid-template-columns: auto 120px;
+        align-items: center;
+        gap: 0.5rem 0.75rem;
+        font-family: sans-serif;
+        font-size: 0.7rem;
+        color: #c7cad1;
+        cursor: default;
+      }
+
+      .controls label {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        white-space: nowrap;
+      }
+
+      .controls label span {
+        min-width: 2.6em;
+        color: #ff9a4d;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .controls input[type="range"] {
+        width: 120px;
+        accent-color: #ff6b35;
+        cursor: pointer;
+      }
+
+      .stage {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+      }
+
+      /* ==== From Uiverse.io by SelfMadeSystem (overlay/blur removido; blur agora é por bolinha via --ball-blur) ==== */
+      .loader {
+        position: relative;
+        width: var(--fire-w, 133px);
+        height: var(--fire-h, 200px);
+        max-height: 80%;
+      }
+
+      .ball {
+        position: absolute;
+        bottom: 0;
+        --a: 32.02135;
+        --w: 24px;
+        --m: 10px;
+        --b: mod(var(--n) * var(--a), 1);
+        left: calc((100% - var(--w)) * var(--b));
+        width: var(--w);
+        height: var(--w);
+        background: radial-gradient(closest-side, #fff, #f50, #f00, #f300);
+        border-radius: 0% 100%;
+        filter: blur(var(--ball-blur, 2px));
+        translate: calc(-1 * var(--m)) 0;
+        animation-name: ball-wee, ball-bf;
+        animation-duration: calc(2s / var(--speed, 1)), calc(1.756s / var(--speed, 1));
+        animation-delay: calc(var(--n) * -2s / var(--speed, 1)),
+          calc(mod(var(--n) * 6, 1) * -1.232s / var(--speed, 1));
+        animation-timing-function: linear, ease-in-out;
+        animation-iteration-count: infinite, infinite;
+      }
+
+      @keyframes ball-wee {
+        from {
+          scale: 0;
+          opacity: 0;
+        }
+        5% {
+          opacity: 1;
+        }
+        15% {
+          scale: 1;
+        }
+        to {
+          left: calc(50% - var(--w) * 0.5 + (25%) * (var(--b) * 2 - 1));
+          bottom: calc(100% - 24px);
+          scale: 0;
+          rotation: 180deg;
+        }
+      }
+
+      @keyframes ball-bf {
+        50% {
+          translate: var(--m) 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <section class="panel-fire">
+      <h2 class="panel-title">Fire Loader — by SelfMadeSystem</h2>
+      <div class="controls fire-controls">
+        <label for="blur-range">Blur <span id="blur-value">2px</span></label>
+        <input type="range" id="blur-range" min="0" max="15" step="0.5" value="2" />
+
+        <label for="count-range">Bolinhas <span id="count-value">96</span></label>
+        <input type="range" id="count-range" min="1" max="96" step="1" value="96" />
+
+        <label for="width-range">Largura <span id="width-value">133px</span></label>
+        <input type="range" id="width-range" min="50" max="320" step="1" value="133" />
+
+        <label for="height-range">Altura <span id="height-value">200px</span></label>
+        <input type="range" id="height-range" min="80" max="420" step="1" value="200" />
+
+        <label for="speed-range">Velocidade <span id="speed-value">1x</span></label>
+        <input type="range" id="speed-range" min="0.2" max="3" step="0.1" value="1" />
+      </div>
+      <div class="stage">
+        <!-- From Uiverse.io by SelfMadeSystem -->
+        <div class="loader">
+          <div class="fire">
+            <div class="ball" style="--n: 0.8865"></div>
+            <div class="ball" style="--n: 0.1355"></div>
+            <div class="ball" style="--n: 0.7449"></div>
+            <div class="ball" style="--n: 0.8842"></div>
+            <div class="ball" style="--n: 0.9783"></div>
+            <div class="ball" style="--n: 0.2639"></div>
+            <div class="ball" style="--n: 0.8008"></div>
+            <div class="ball" style="--n: 0.0349"></div>
+            <div class="ball" style="--n: 0.8160"></div>
+            <div class="ball" style="--n: 0.4397"></div>
+            <div class="ball" style="--n: 0.7457"></div>
+            <div class="ball" style="--n: 0.0481"></div>
+            <div class="ball" style="--n: 0.4100"></div>
+            <div class="ball" style="--n: 0.1041"></div>
+            <div class="ball" style="--n: 0.9967"></div>
+            <div class="ball" style="--n: 0.3815"></div>
+            <div class="ball" style="--n: 0.4520"></div>
+            <div class="ball" style="--n: 0.2286"></div>
+            <div class="ball" style="--n: 0.8291"></div>
+            <div class="ball" style="--n: 0.9617"></div>
+            <div class="ball" style="--n: 0.3374"></div>
+            <div class="ball" style="--n: 0.7277"></div>
+            <div class="ball" style="--n: 0.8969"></div>
+            <div class="ball" style="--n: 0.3096"></div>
+            <div class="ball" style="--n: 0.3860"></div>
+            <div class="ball" style="--n: 0.2347"></div>
+            <div class="ball" style="--n: 0.4591"></div>
+            <div class="ball" style="--n: 0.0450"></div>
+            <div class="ball" style="--n: 0.0815"></div>
+            <div class="ball" style="--n: 0.9100"></div>
+            <div class="ball" style="--n: 0.9737"></div>
+            <div class="ball" style="--n: 0.4185"></div>
+            <div class="ball" style="--n: 0.1508"></div>
+            <div class="ball" style="--n: 0.9323"></div>
+            <div class="ball" style="--n: 0.0341"></div>
+            <div class="ball" style="--n: 0.8304"></div>
+            <div class="ball" style="--n: 0.3449"></div>
+            <div class="ball" style="--n: 0.3398"></div>
+            <div class="ball" style="--n: 0.0458"></div>
+            <div class="ball" style="--n: 0.0326"></div>
+            <div class="ball" style="--n: 0.5843"></div>
+            <div class="ball" style="--n: 0.1483"></div>
+            <div class="ball" style="--n: 0.3297"></div>
+            <div class="ball" style="--n: 0.2765"></div>
+            <div class="ball" style="--n: 0.1764"></div>
+            <div class="ball" style="--n: 0.9811"></div>
+            <div class="ball" style="--n: 0.8625"></div>
+            <div class="ball" style="--n: 0.9378"></div>
+            <div class="ball" style="--n: 0.4417"></div>
+            <div class="ball" style="--n: 0.0425"></div>
+            <div class="ball" style="--n: 0.1440"></div>
+            <div class="ball" style="--n: 0.2503"></div>
+            <div class="ball" style="--n: 0.6050"></div>
+            <div class="ball" style="--n: 0.7947"></div>
+            <div class="ball" style="--n: 0.3677"></div>
+            <div class="ball" style="--n: 0.5063"></div>
+            <div class="ball" style="--n: 0.0301"></div>
+            <div class="ball" style="--n: 0.3217"></div>
+            <div class="ball" style="--n: 0.1559"></div>
+            <div class="ball" style="--n: 0.9862"></div>
+            <div class="ball" style="--n: 0.0212"></div>
+            <div class="ball" style="--n: 0.9632"></div>
+            <div class="ball" style="--n: 0.2334"></div>
+            <div class="ball" style="--n: 0.0241"></div>
+            <div class="ball" style="--n: 0.9374"></div>
+            <div class="ball" style="--n: 0.2286"></div>
+            <div class="ball" style="--n: 0.6427"></div>
+            <div class="ball" style="--n: 0.6731"></div>
+            <div class="ball" style="--n: 0.8664"></div>
+            <div class="ball" style="--n: 0.7627"></div>
+            <div class="ball" style="--n: 0.7768"></div>
+            <div class="ball" style="--n: 0.6954"></div>
+            <div class="ball" style="--n: 0.3915"></div>
+            <div class="ball" style="--n: 0.9714"></div>
+            <div class="ball" style="--n: 0.3935"></div>
+            <div class="ball" style="--n: 0.4859"></div>
+            <div class="ball" style="--n: 0.1976"></div>
+            <div class="ball" style="--n: 0.5246"></div>
+            <div class="ball" style="--n: 0.6430"></div>
+            <div class="ball" style="--n: 0.3265"></div>
+            <div class="ball" style="--n: 0.6532"></div>
+            <div class="ball" style="--n: 0.7922"></div>
+            <div class="ball" style="--n: 0.8988"></div>
+            <div class="ball" style="--n: 0.9969"></div>
+            <div class="ball" style="--n: 0.2227"></div>
+            <div class="ball" style="--n: 0.8205"></div>
+            <div class="ball" style="--n: 0.2930"></div>
+            <div class="ball" style="--n: 0.1042"></div>
+            <div class="ball" style="--n: 0.3598"></div>
+            <div class="ball" style="--n: 0.2926"></div>
+            <div class="ball" style="--n: 0.7555"></div>
+            <div class="ball" style="--n: 0.1403"></div>
+            <div class="ball" style="--n: 0.5981"></div>
+            <div class="ball" style="--n: 0.6467"></div>
+            <div class="ball" style="--n: 0.9956"></div>
+            <div class="ball" style="--n: 0.6911"></div>
+            <div class="ball" style="--n: 0.4679"></div>
+            <div class="ball" style="--n: 0.1181"></div>
+            <div class="ball" style="--n: 0.3470"></div>
+            <div class="ball" style="--n: 0.6709"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <script>
+      function bindRange(inputId, labelId, cssVar, { unit = "px", cssUnit = unit } = {}) {
+        const input = document.getElementById(inputId);
+        const label = document.getElementById(labelId);
+        const apply = () => {
+          document.documentElement.style.setProperty(cssVar, `${input.value}${cssUnit}`);
+          label.textContent = `${input.value}${unit}`;
+        };
+        input.addEventListener("input", apply);
+        apply();
+      }
+
+      function bindCount(inputId, labelId, selector) {
+        const input = document.getElementById(inputId);
+        const label = document.getElementById(labelId);
+        const items = Array.from(document.querySelectorAll(selector));
+        const apply = () => {
+          const count = Number(input.value);
+          items.forEach((el, i) => {
+            el.style.display = i < count ? "" : "none";
+          });
+          label.textContent = count;
+        };
+        input.addEventListener("input", apply);
+        apply();
+      }
+
+      function makeDraggable(panel, excludeSelector) {
+        let drag = null;
+
+        panel.addEventListener("pointerdown", (e) => {
+          if (excludeSelector && e.target.closest(excludeSelector)) return;
+
+          const rect = panel.getBoundingClientRect();
+          if (panel.style.position !== "fixed") {
+            panel.style.position = "fixed";
+            panel.style.margin = "0";
+            panel.style.top = `${rect.top}px`;
+            panel.style.left = `${rect.left}px`;
+          }
+
+          drag = { offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
+          panel.classList.add("dragging");
+          panel.setPointerCapture(e.pointerId);
+        });
+
+        panel.addEventListener("pointermove", (e) => {
+          if (!drag) return;
+          panel.style.left = `${e.clientX - drag.offsetX}px`;
+          panel.style.top = `${e.clientY - drag.offsetY}px`;
+        });
+
+        function endDrag(e) {
+          if (!drag) return;
+          drag = null;
+          panel.classList.remove("dragging");
+          panel.releasePointerCapture(e.pointerId);
+        }
+
+        panel.addEventListener("pointerup", endDrag);
+        panel.addEventListener("pointercancel", endDrag);
+      }
+
+      bindRange("blur-range", "blur-value", "--ball-blur");
+      bindRange("width-range", "width-value", "--fire-w");
+      bindRange("height-range", "height-value", "--fire-h");
+      bindRange("speed-range", "speed-value", "--speed", { unit: "x", cssUnit: "" });
+      bindCount("count-range", "count-value", ".fire .ball");
+
+      makeDraggable(document.querySelector(".panel-fire"), ".fire-controls");
+    </script>
+  </body>
+</html>

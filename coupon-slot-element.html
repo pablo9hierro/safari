@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Coupon Slot + Ticket — reference</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        /* sem fundo — deixa transparente pra usar em cima de qualquer página */
+        background: transparent;
+      }
+
+      /* ==== Painel de referência (opcional: só título + borda delimitando, sem preenchimento) ==== */
+      .panel-coupon {
+        position: relative;
+        isolation: isolate;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1.25rem;
+        padding: 1.5rem 2.5rem 22rem;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 20px;
+        background: transparent;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-family: sans-serif;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #9aa0ab;
+      }
+
+      /* ==== Ticket card (From Uiverse.io by dexter-st, adaptado como conteúdo do cupom) ==== */
+      .card {
+        --width: 180px;
+        --height: 320px;
+        --perforation-size: 12px;
+        --cutouts-adjust: 70px;
+
+        position: relative;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: 1rem;
+        grid-template-areas:
+          "header"
+          "body"
+          "footer";
+
+        width: var(--width);
+        height: var(--height);
+        padding: var(--perforation-size) 0;
+
+        font-family: "Inter", sans-serif;
+        font-size: 1rem;
+        user-select: none;
+        overflow: hidden;
+        background: transparent;
+
+        filter: drop-shadow(0 2px 1px #00000025) drop-shadow(0 4px 3px #00000025)
+          drop-shadow(0 10px 9px #00000025) drop-shadow(0 20px 20px #00000025)
+          drop-shadow(0 40px 40px #00000025);
+        animation: card-hover 3s ease infinite;
+        will-change: transform, filter;
+      }
+
+      @keyframes card-hover {
+        50% {
+          filter: drop-shadow(0 4px 3px #00000015) drop-shadow(0 6px 6px #00000015)
+            drop-shadow(0 16px 14px #00000015) drop-shadow(0 30px 28px #00000015)
+            drop-shadow(0 60px 60px #00000015);
+          transform: translateY(-7px) scale(1.02);
+        }
+      }
+
+      .filter {
+        position: absolute;
+      }
+
+      .bg {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background-color: #fff;
+        filter: url(#bump-coupon);
+        mask:
+          radial-gradient(
+            circle at 50% 0,
+            #fff0 calc(var(--perforation-size) - 5px),
+            #000 calc(var(--perforation-size) - 4px)
+          ),
+          radial-gradient(
+            circle at 50% 100%,
+            #fff0 calc(var(--perforation-size) - 5px),
+            #000 calc(var(--perforation-size) - 4px)
+          ),
+          radial-gradient(circle 8px at left center, #000 98%, #0000 100%),
+          radial-gradient(circle 8px at right center, #000 98%, #0000 100%),
+          repeating-linear-gradient(90deg, #000 10px, #000 15px, #0000 16px, #0000 24px);
+
+        mask-repeat: repeat-x, repeat-x, no-repeat, no-repeat, repeat-x;
+
+        mask-size:
+          calc(var(--perforation-size) * 2) 100%,
+          calc(var(--perforation-size) * 2) 100%,
+          16px 16px,
+          16px 16px,
+          10px 2px;
+
+        mask-position:
+          calc(0.5 * var(--perforation-size)) top,
+          calc(0.5 * var(--perforation-size)) bottom,
+          left var(--cutouts-adjust),
+          right var(--cutouts-adjust),
+          0 calc(var(--cutouts-adjust) + 7px);
+
+        mask-composite: intersect, exclude, add, add;
+      }
+
+      .holographic {
+        background-image: linear-gradient(to bottom, #fe58, 90%, #0002),
+          conic-gradient(
+            at 60% 50%,
+            #ccc,
+            #ff6bfe,
+            #00f9f8,
+            #ddd,
+            #0081fd,
+            #eef0bc,
+            #0081fd,
+            #ff6bfe,
+            #0002,
+            #0081fd,
+            #ddd,
+            #01fefb,
+            #ccc
+          );
+      }
+      .holographic::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: radial-gradient(circle at 70% 20%, #f0f, #0000),
+          repeating-radial-gradient(circle at 30% 80%, #fff, #f4a 48px, #eeeeee 150px);
+        mix-blend-mode: color-burn;
+      }
+      .holographic::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(to bottom, #f205, #f00, #0f0, #f205);
+        mix-blend-mode: difference;
+
+        animation: bg-pos 3s ease-in-out infinite alternate;
+        background-position: 0 0;
+        background-size: 100% 300%;
+        background-repeat: repeat;
+      }
+
+      @keyframes bg-pos {
+        to {
+          background-position: 0 500px;
+        }
+      }
+
+      .header {
+        position: relative;
+        grid-area: header;
+        margin: 0 8px;
+        text-align: center;
+        z-index: 1;
+        font-family: "Impact", sans-serif;
+        font-size: 2.75rem;
+        letter-spacing: 2px;
+        color: #ffffff9f;
+        text-shadow: 0 0 0 #000;
+        -webkit-text-stroke: #fff 0.5px;
+        mix-blend-mode: difference;
+      }
+
+      .body {
+        grid-area: body;
+        margin: 0 1em;
+        padding: 0.5em;
+        font-weight: 200;
+        z-index: 1;
+      }
+
+      .footer {
+        grid-area: footer;
+        z-index: 1;
+        margin: 0 1em 1em 1em;
+      }
+
+      .number {
+        margin-bottom: 0.75rem;
+        text-align: center;
+        border-radius: 999px 0;
+        color: #000;
+        font-weight: 200;
+      }
+      .number .bold {
+        font-weight: 600;
+      }
+
+      .barcode {
+        justify-self: center;
+        width: 0;
+        height: 32px;
+        box-shadow:
+          0px 0 0 1px #000,
+          5px 0 0 1px #000,
+          7px 0 0 1px #000,
+          11px 0 0 1px #000,
+          15px 0 0 1px #000,
+          16px 0 0 1px #000,
+          22px 0 0 1px #000,
+          27px 0 0 1px #000,
+          30px 0 0 1px #000,
+          35px 0 0 1px #000,
+          36px 0 0 1px #000,
+          39px 0 0 1px #000,
+          43px 0 0 1px #000,
+          47px 0 0 1px #000,
+          50px 0 0 1px #000,
+          55px 0 0 1px #000,
+          59px 0 0 1px #000,
+          60px 0 0 1px #000,
+          64px 0 0 1px #000,
+          69px 0 0 1px #000,
+          70px 0 0 1px #000,
+          74px 0 0 1px #000;
+        transform: translateX(37px);
+      }
+
+      .symbol {
+        position: absolute;
+        top: 1.3em;
+        right: 0px;
+        rotate: 185deg;
+        font-size: 1.1em;
+        color: #fff;
+        line-height: 0.5;
+        opacity: 0.2;
+      }
+
+      /* ==== Coupon slot (From Uiverse.io by dexter-st, papel substituído pelo ticket) ==== */
+      .coupon-wrapper {
+        --width: 190px;
+        --paper-width-multiplier: 0.95;
+        --paper-height: 320px;
+        --cut-size: 5px;
+        --perspective: 200px;
+
+        position: relative;
+        display: grid;
+        place-items: center;
+
+        width: var(--width);
+        height: 60px;
+        margin: 1rem;
+
+        user-select: none;
+        pointer-events: none;
+      }
+
+      .cutout-wrapper {
+        position: absolute;
+        top: 0;
+        width: 100%;
+        height: 60px;
+        transform-style: preserve-3d;
+        perspective: var(--perspective);
+      }
+
+      .cutout {
+        position: absolute;
+        width: 100%;
+        height: 60px;
+        transform: rotateX(-10deg);
+        box-sizing: border-box;
+
+        border: 1px solid #0004;
+        box-shadow:
+          inset 0 1px 1px 0px #0017,
+          inset 0 2px 2px 0px #0017,
+          inset 0 4px 4px 0px #0017,
+          inset 0 12px 12px 0px #0017,
+          inset 0 24px 24px 0px #0017;
+      }
+
+      .paper-wrapper {
+        position: absolute;
+        width: calc(var(--width) * var(--paper-width-multiplier));
+        height: var(--paper-height);
+        top: 2px;
+        filter: drop-shadow(0 1px 1px #0003) drop-shadow(0 6px 3px #0004)
+          drop-shadow(0 16px 16px #0003);
+        overflow: hidden;
+      }
+
+      .paper {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+
+        border: none;
+        background: transparent;
+        padding: 0;
+        box-sizing: border-box;
+
+        mask-image: linear-gradient(
+            #000 calc(var(--paper-height) - var(--cut-size)),
+            #0000 calc(var(--paper-height) - var(--cut-size) + 2px)
+          ),
+          conic-gradient(#000 135deg, #0000 135.5deg, #0000 224.5deg, #000 225deg);
+        mask-position:
+          0,
+          0 calc(var(--paper-height) - var(--cut-size));
+        mask-repeat: no-repeat, repeat-x;
+        mask-size:
+          100%,
+          var(--cut-size) var(--cut-size);
+
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+
+        cursor: pointer;
+        pointer-events: all;
+      }
+
+      .sec {
+        height: 100%;
+        transform: translateY(calc(-1 * var(--paper-height) + 100px));
+
+        /* loop único cobrindo os 3 estados: peek parado, reveal parcial (hover) e saída total (clique) */
+        animation: coupon-cycle 7s ease-in-out infinite;
+      }
+
+      @keyframes coupon-cycle {
+        0%,
+        12% {
+          transform: translateY(calc(-1 * var(--paper-height) + 100px));
+        }
+        30%,
+        40% {
+          transform: translateY(calc(-1 * var(--paper-height) + 192px));
+        }
+        58%,
+        78% {
+          transform: translateY(0);
+        }
+        96%,
+        100% {
+          transform: translateY(calc(-1 * var(--paper-height) + 100px));
+        }
+      }
+
+      .shadow-wrapper {
+        position: absolute;
+        width: 100%;
+        height: 32px;
+        top: 0;
+
+        transform-style: preserve-3d;
+        perspective: calc(var(--perspective) / 1.33);
+      }
+
+      .shadow {
+        position: absolute;
+        top: 1px;
+        width: 100%;
+        height: 32px;
+        background-color: #0005;
+        background-image: linear-gradient(#000, #0000 8px);
+        mask-image: linear-gradient(#000 0, #0000 70%);
+        transform: rotateX(-10deg);
+      }
+
+      .cutter-wrapper {
+        position: absolute;
+        width: 100%;
+        height: 32px;
+        top: 0;
+        transform-style: preserve-3d;
+        perspective: calc(var(--perspective) / 1.33);
+        mix-blend-mode: screen;
+      }
+
+      .cutter {
+        position: absolute;
+        top: 1px;
+        width: 100%;
+        height: calc(var(--cut-size) + 3px);
+        background-color: #ddd;
+        background-image: linear-gradient(#000, #0000 8px);
+        mask-image: linear-gradient(
+            #000 calc(calc(var(--cut-size) + 3px) - var(--cut-size)),
+            #0000 calc(calc(var(--cut-size) + 3px) - var(--cut-size) + 2px)
+          ),
+          conic-gradient(#000 135deg, #0000 135.5deg, #0000 224.5deg, #000 225deg);
+        mask-position:
+          0,
+          calc(var(--cut-size) / 2) 3px;
+        mask-repeat: no-repeat, repeat-x;
+        mask-size:
+          100%,
+          var(--cut-size) var(--cut-size);
+
+        transform: rotateX(-10deg);
+      }
+    </style>
+  </head>
+  <body>
+    <section class="panel-coupon">
+      <h2 class="panel-title">Coupon Slot — by dexter-st (com ticket)</h2>
+      <div class="coupon-wrapper">
+        <div class="cutout-wrapper">
+          <div class="cutout"></div>
+        </div>
+        <div class="paper-wrapper">
+          <div class="sec">
+            <button class="paper">
+              <div class="card">
+                <div class="header">
+                  Cupom
+                  <div class="symbol">✁</div>
+                </div>
+                <div class="body">
+                  <em>Cupom Exclusivo</em><br />
+                  Válido até 14/Maio<br />
+                  Venue address, State, #####
+                </div>
+                <div class="footer">
+                  <div class="number">Código <span class="bold">CodigoCupom15</span></div>
+                  <div class="barcode"></div>
+                </div>
+
+                <div class="bg holographic"></div>
+                <svg class="filter">
+                  <filter id="bump-coupon">
+                    <feTurbulence
+                      result="noise"
+                      numOctaves="3"
+                      baseFrequency="0.7"
+                      type="fractalNoise"
+                    ></feTurbulence>
+                    <feSpecularLighting
+                      in="noise"
+                      result="specular"
+                      lighting-color="#fffffc"
+                      specularExponent="25"
+                      specularConstant="0.8"
+                      surfaceScale="0.15"
+                    >
+                      <fePointLight z="210" y="100" x="100"></fePointLight>
+                    </feSpecularLighting>
+                    <feComposite
+                      result="noise2"
+                      operator="in"
+                      in="specular"
+                      in2="SourceGraphic"
+                    ></feComposite>
+                    <feBlend mode="screen" in2="noise2" in="SourceGraphic"></feBlend>
+                  </filter>
+                </svg>
+              </div>
+            </button>
+          </div>
+        </div>
+        <div class="shadow-wrapper">
+          <div class="shadow"></div>
+        </div>
+        <div class="cutter-wrapper">
+          <div class="cutter"></div>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>
