@@ -59,8 +59,18 @@ export async function middleware(request: NextRequest) {
           .join('')
       )
       const { at, rt } = JSON.parse(json)
-      if (at && rt) await supabase.auth.setSession({ access_token: at, refresh_token: rt })
-    } catch {}
+      const hadTokens = Boolean(at && rt)
+      let errMsg = 'skipped'
+      if (hadTokens) {
+        const { error } = await supabase.auth.setSession({ access_token: at, refresh_token: rt })
+        errMsg = error?.message ?? 'none'
+      }
+      response.headers.set('x-bridge-had-tokens', String(hadTokens))
+      response.headers.set('x-bridge-error', errMsg)
+      response.headers.set('x-bridge-cookies-set', String(response.cookies.getAll().length))
+    } catch (e) {
+      response.headers.set('x-bridge-catch', String(e))
+    }
     // Sem redirect aqui de propósito: `request.nextUrl` reflete o HOST
     // interno do vrtech (o proxy reescreve o path antes de chegar aqui),
     // não a URL que o navegador vê em resolutoo.com — um redirect
