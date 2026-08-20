@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ServiceCatalogCategory, ServiceCatalogItem, ServiceDiagnostic, ServiceRequest } from '@/lib/types'
 import { jsPDF } from 'jspdf'
+import { apiPath } from '@/lib/storeProxyLink'
 import {
   Loader2,
   AlertCircle,
@@ -215,7 +216,7 @@ export default function DiagnosticSection({ request, onSaved }: DiagnosticSectio
       if (reqErr) throw reqErr
 
       // 4. Notify via WhatsApp (fire-and-forget)
-      fetch('/api/whatsapp/notify', {
+      fetch(apiPath('/api/whatsapp/notify'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requestId: request.id, event: 'diagnostico_enviado' }),

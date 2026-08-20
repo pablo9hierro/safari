@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { ServiceOrder, ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceRequest, ServiceStatus, StockItem, UsedPart } from '@/lib/types'
 import { SERVICE_ORDER_COMPONENTS } from '@/lib/constants'
 import { generateServiceOrderPdf } from '@/lib/generateServiceOrderPdf'
+import { apiPath } from '@/lib/storeProxyLink'
 import {
   ClipboardList,
   Loader2,
@@ -599,7 +600,7 @@ export default function ServiceOrderPanel({
     if (logEntry) setUpdates((prev) => [...prev, logEntry as ServiceOrderUpdate])
 
     if (customerPhone) {
-      fetch('/api/whatsapp/notify', {
+      fetch(apiPath('/api/whatsapp/notify'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requestId, event: 'completed' }),

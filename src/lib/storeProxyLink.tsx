@@ -44,6 +44,25 @@ function currentAdminPrefix(): string {
   return window.location.pathname.startsWith(ADMIN_PREFIX) ? ADMIN_PREFIX : ''
 }
 
+/**
+ * fetch('/api/...') relativo resolve contra a ORIGEM que o navegador vê
+ * (resolutoo.com), não contra este app — sob o proxy isso batia num
+ * "/api/..." que não existe em resolutoo.com (é da PLATAFORMA, rota
+ * ocupada por outra coisa), caindo no catch-all de SPA dela e devolvendo
+ * HTML 200 em vez do JSON esperado (achado real, confirmado ao vivo:
+ * quebrava Agenda, Template Zap, Assistente IA, /consultar, orçamento,
+ * carrinho, WhatsApp notify — tudo que chama /api/* client-side). Usar
+ * SEMPRE isso em vez de um literal "/api/..." em fetch().
+ */
+export function apiPath(path: string): string {
+  if (typeof window === 'undefined') return path
+  const admin = currentAdminPrefix()
+  if (admin) return `${admin}${path}`
+  const store = currentPrefix()
+  if (store) return `${store}${path}`
+  return path
+}
+
 /** Igual resolveHref, pra rotas do /dashboard (proxy passthrough 1:1 —
  * /loja/eletronica-admin/:path* -> vrtech /dashboard/:path*), mais o alias
  * dedicado de /login (não existe rewrite pra "/login" bare). */

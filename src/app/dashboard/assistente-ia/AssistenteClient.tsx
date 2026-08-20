@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { Bot, Save, ChevronDown, ChevronUp, AlertCircle, CheckCircle2, Upload, FileText, Trash2, Loader2 } from 'lucide-react'
 import type { AssistantConfig } from '@/lib/assistant/types'
 import AgendaSettingsCard from './AgendaSettingsCard'
+import { apiPath } from '@/lib/storeProxyLink'
 
 const LABEL = 'block text-xs font-semibold text-vr-silver/60 mb-1.5 uppercase tracking-wider'
 const INPUT = 'w-full px-3.5 py-2.5 rounded-xl bg-vr-black border border-white/8 text-white text-sm placeholder-vr-silver/30 outline-none focus:border-vr-red/50 transition-colors'
@@ -25,7 +26,7 @@ export default function AssistenteClient({ initialConfig }: { initialConfig: Ass
     setError(null)
     setSaved(false)
     try {
-      const res = await fetch('/api/assistant/config', {
+      const res = await fetch(apiPath('/api/assistant/config'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -238,7 +239,7 @@ function RagSection() {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const loadDocs = useCallback(async () => {
-    const res = await fetch('/api/assistant/rag')
+    const res = await fetch(apiPath('/api/assistant/rag'))
     if (res.ok) setDocs(await res.json())
     setLoaded(true)
   }, [])
@@ -254,7 +255,7 @@ function RagSection() {
     for (const file of Array.from(files)) {
       const form = new FormData()
       form.append('file', file)
-      const res = await fetch('/api/assistant/rag', { method: 'POST', body: form })
+      const res = await fetch(apiPath('/api/assistant/rag'), { method: 'POST', body: form })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
         setError(j.error ?? `Erro ao enviar ${file.name}`)
@@ -265,7 +266,7 @@ function RagSection() {
   }
 
   const remove = async (id: string) => {
-    await fetch(`/api/assistant/rag?id=${id}`, { method: 'DELETE' })
+    await fetch(apiPath(`/api/assistant/rag?id=${id}`), { method: 'DELETE' })
     setDocs((d) => d.filter((x) => x.id !== id))
   }
 

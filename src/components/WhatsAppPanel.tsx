@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Wifi, WifiOff, RefreshCw, Smartphone, LogOut } from 'lucide-react'
+import { apiPath } from '@/lib/storeProxyLink'
 
 type WState = {
   status: 'connected' | 'connecting' | 'disconnected'
@@ -26,7 +27,7 @@ export default function WhatsAppPanel() {
     if (!force && now - lastConnectAttempt.current < AUTO_CONNECT_COOLDOWN_MS) return
     lastConnectAttempt.current = now
     try {
-      const res = await fetch('/api/whatsapp/connect', { method: 'POST' })
+      const res = await fetch(apiPath('/api/whatsapp/connect'), { method: 'POST' })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
         setConnectError(data?.error || `Erro ${res.status} ao conectar`)

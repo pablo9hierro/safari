@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { CalendarClock, Loader2, AlertCircle } from 'lucide-react'
+import { apiPath } from '@/lib/storeProxyLink'
 
 type Slot = { starts_at: string; ends_at: string }
 type Day = { date: string; label: string; slots: Slot[] }
@@ -38,7 +39,7 @@ export default function AgendamentoPicker({
 
   useEffect(() => {
     const q = serviceId ? `?service_id=${encodeURIComponent(serviceId)}` : ''
-    fetch(`/api/agenda/public/availability${q}`)
+    fetch(apiPath(`/api/agenda/public/availability${q}`))
       .then(async (r) => {
         const j = await r.json()
         if (!r.ok) throw new Error(j.error ?? 'Falha ao carregar horários.')

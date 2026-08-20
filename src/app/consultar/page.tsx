@@ -10,7 +10,7 @@ import {
   PackageCheck, PartyPopper, CreditCard, ClipboardList, Eye, Download,
 } from 'lucide-react'
 import Logo from '@/components/ui/Logo'
-import { StoreLink } from '@/lib/storeProxyLink'
+import {StoreLink, apiPath } from '@/lib/storeProxyLink'
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   pending:        { label: 'Aguardando avaliação',      color: 'text-yellow-700', bg: 'bg-yellow-100', icon: <Clock className="w-3.5 h-3.5" /> },
@@ -229,7 +229,7 @@ function ConsultarContent() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/consultar?phone=${encodeURIComponent(digits)}`)
+      const res = await fetch(apiPath(`/api/consultar?phone=${encodeURIComponent(digits)}`))
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erro ao buscar')
       setRequests(data.requests)
@@ -259,7 +259,7 @@ function ConsultarContent() {
     const id = cancelTargetId
     setCancellingId(id)
     try {
-      const res = await fetch('/api/consultar', {
+      const res = await fetch(apiPath('/api/consultar'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, phone: phone.replace(/\D/g, '') }),

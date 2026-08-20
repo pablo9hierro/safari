@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { MIN_JUSTIFICATION_LENGTH } from '@/lib/agenda/types'
 import DateDropdown from '@/components/dashboard/DateDropdown'
-import { adminAwareHref } from '@/lib/storeProxyLink'
+import {adminAwareHref, apiPath } from '@/lib/storeProxyLink'
 
 type Appointment = {
   id: string
@@ -190,9 +190,9 @@ export default function AgendaClient() {
     setError(null)
     try {
       const [dayRes, apptRes, blockRes] = await Promise.all([
-        fetch(`/api/agenda/day?date=${date}`),
-        fetch(`/api/appointments?date=${date}`),
-        fetch(`/api/agenda/blocks?date=${date}`),
+        fetch(apiPath(`/api/agenda/day?date=${date}`)),
+        fetch(apiPath(`/api/appointments?date=${date}`)),
+        fetch(apiPath(`/api/agenda/blocks?date=${date}`)),
       ])
       if ([dayRes, apptRes, blockRes].some((r) => r.status === 401)) {
         window.location.href = adminAwareHref('/login')
@@ -212,12 +212,12 @@ export default function AgendaClient() {
   useEffect(() => { load() }, [load])
 
   const openDetail = async (id: string) => {
-    const res = await fetch(`/api/appointments/${id}`)
+    const res = await fetch(apiPath(`/api/appointments/${id}`))
     if (res.ok) setDetail(await res.json())
   }
 
   const completeAppt = async (id: string) => {
-    const res = await fetch(`/api/appointments/${id}/complete`, { method: 'POST' })
+    const res = await fetch(apiPath(`/api/appointments/${id}/complete`), { method: 'POST' })
     const json = await res.json().catch(() => ({}))
     if (!res.ok) { setError(json.error ?? 'Falha ao concluir.'); return }
     if (json.freed_minutes > 0) {
@@ -228,7 +228,7 @@ export default function AgendaClient() {
   }
 
   const unblock = async (id: string) => {
-    const res = await fetch(`/api/agenda/blocks/${id}`, { method: 'DELETE' })
+    const res = await fetch(apiPath(`/api/agenda/blocks/${id}`), { method: 'DELETE' })
     if (res.ok) load()
   }
 
@@ -492,7 +492,7 @@ function CreateDialog({ date, onClose, onDone }: { date: string; onClose: () => 
   const submit = async () => {
     setSaving(true); setErr(null)
     try {
-      const res = await fetch('/api/appointments', {
+      const res = await fetch(apiPath('/api/appointments'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, data: dia, horario }),
@@ -554,7 +554,7 @@ function BlockDialog({ date, onClose, onDone }: { date: string; onClose: () => v
   const submit = async () => {
     setSaving(true); setErr(null)
     try {
-      const res = await fetch('/api/agenda/blocks', {
+      const res = await fetch(apiPath('/api/agenda/blocks'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: dia, hora_inicio: inicio, hora_fim: fim, motivo }),
@@ -622,7 +622,7 @@ function RescheduleDialog({
   const submit = async () => {
     setSaving(true); setErr(null)
     try {
-      const res = await fetch(`/api/appointments/${id}/reschedule`, {
+      const res = await fetch(apiPath(`/api/appointments/${id}/reschedule`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: dia, horario, justification }),
@@ -671,7 +671,7 @@ function CancelDialog({ id, onClose, onDone }: { id: string; onClose: () => void
   const submit = async () => {
     setSaving(true); setErr(null)
     try {
-      const res = await fetch(`/api/appointments/${id}/cancel`, {
+      const res = await fetch(apiPath(`/api/appointments/${id}/cancel`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ justification }),

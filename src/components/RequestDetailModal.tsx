@@ -6,6 +6,7 @@ import { PAYMENT_METHODS } from '@/lib/constants'
 import { createClient } from '@/lib/supabase/client'
 import ServiceOrderPanel, { isServiceOrderStatus } from '@/components/ServiceOrderPanel'
 import DiagnosticSection from '@/components/DiagnosticSection'
+import { apiPath } from '@/lib/storeProxyLink'
 import {
   X,
   Smartphone,
@@ -242,7 +243,7 @@ export default function RequestDetailModal({
   const notifyWhatsApp = async (event: ServiceStatus) => {
     setWaError(null)
     try {
-      const res = await fetch('/api/whatsapp/notify', {
+      const res = await fetch(apiPath('/api/whatsapp/notify'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requestId: request.id, event }),

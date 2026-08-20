@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { ServiceCatalogCategory, ServiceCatalogItem } from '@/lib/types'
 import dynamic from 'next/dynamic'
 import type { LocationPickerResult } from '@/components/LocationPicker'
+import { apiPath } from '@/lib/storeProxyLink'
 import {
   Smartphone,
   MapPin,
@@ -234,7 +235,7 @@ export default function ServiceRequestForm() {
         }
       }
 
-      const res = await fetch('/api/service-requests', {
+      const res = await fetch(apiPath('/api/service-requests'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -268,7 +269,7 @@ export default function ServiceRequestForm() {
       setSubmitted(true)
 
       if (json.data?.id) {
-        fetch('/api/whatsapp/notify', {
+        fetch(apiPath('/api/whatsapp/notify'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ requestId: json.data.id, event: 'created' }),

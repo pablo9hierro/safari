@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MessageSquare, Loader2, AlertCircle, Check, Lock, Smartphone } from 'lucide-react'
 import AccordionSection from '@/components/dashboard/AccordionSection'
-import { adminAwareHref } from '@/lib/storeProxyLink'
+import {adminAwareHref, apiPath } from '@/lib/storeProxyLink'
 
 type Template = {
   id: string
@@ -105,7 +105,7 @@ function EditableTemplateCard({ tpl, onSaved }: { tpl: Template; onSaved: (t: Te
   const save = async () => {
     setSaving(true); setError(null)
     try {
-      const res = await fetch(`/api/templates/${tpl.template_key}`, {
+      const res = await fetch(apiPath(`/api/templates/${tpl.template_key}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
@@ -209,7 +209,7 @@ export default function TemplateZapClient() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch('/api/templates')
+    fetch(apiPath('/api/templates'))
       .then(async (r) => {
         if (r.status === 401) { window.location.href = adminAwareHref('/login'); return null }
         const j = await r.json()

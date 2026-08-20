@@ -5,7 +5,7 @@ import {
   X, ShoppingBag, Trash2, Wrench, Package, ChevronRight,
   ChevronLeft, Minus, Plus, MapPin, Loader2, CheckCircle2, Home, Wallet,
 } from 'lucide-react'
-import { StoreLink } from '@/lib/storeProxyLink'
+import {StoreLink, apiPath } from '@/lib/storeProxyLink'
 import { useCart } from '@/lib/carrinho/context'
 import dynamic from 'next/dynamic'
 import type { LocationPickerResult } from './LocationPicker'
@@ -110,7 +110,7 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
     // achando que ficou marcado.
     if (hasServices && agendamento?.time) {
       try {
-        const res = await fetch('/api/agenda/public/appointments', {
+        const res = await fetch(apiPath('/api/agenda/public/appointments'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -138,7 +138,7 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
 
     clear()
 
-    fetch('/api/whatsapp/notify-store-order', {
+    fetch(apiPath('/api/whatsapp/notify-store-order'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

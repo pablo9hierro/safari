@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Bot, Plus, Trash2, ArrowUp, ArrowDown, Loader2, AlertTriangle } from 'lucide-react'
 import Dialog from '@/components/ui/Dialog'
 import type { AiModelConfigPublic, AiProvider } from '@/lib/assistant/modelConfigs'
+import { apiPath } from '@/lib/storeProxyLink'
 
 const LABEL = 'block text-xs font-semibold text-vr-silver/60 mb-1.5 uppercase tracking-wider'
 const INPUT = 'w-full px-3.5 py-2.5 rounded-xl bg-vr-black border border-white/8 text-white text-sm placeholder-vr-silver/30 outline-none focus:border-vr-red/50 transition-colors'
@@ -32,7 +33,7 @@ export default function AiModelsCard() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/assistant/ai-models')
+      const res = await fetch(apiPath('/api/assistant/ai-models'))
       if (!res.ok) throw new Error(await res.text())
       setModels(await res.json())
     } catch (e) {
@@ -50,7 +51,7 @@ export default function AiModelsCard() {
     }
     setSaving(true)
     try {
-      const res = await fetch('/api/assistant/ai-models', {
+      const res = await fetch(apiPath('/api/assistant/ai-models'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: 'openrouter', model_id: formModelId.trim(), api_key: formApiKey.trim(), label: formLabel.trim() || null }),
@@ -69,7 +70,7 @@ export default function AiModelsCard() {
   const handleToggle = async (m: AiModelConfigPublic) => {
     setBusyId(m.id)
     try {
-      const res = await fetch(`/api/assistant/ai-models/${m.id}`, {
+      const res = await fetch(apiPath(`/api/assistant/ai-models/${m.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: !m.enabled }),
@@ -92,11 +93,11 @@ export default function AiModelsCard() {
     setBusyId(m.id)
     try {
       await Promise.all([
-        fetch(`/api/assistant/ai-models/${m.id}`, {
+        fetch(apiPath(`/api/assistant/ai-models/${m.id}`), {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ priority: swapWith.priority }),
         }),
-        fetch(`/api/assistant/ai-models/${swapWith.id}`, {
+        fetch(apiPath(`/api/assistant/ai-models/${swapWith.id}`), {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ priority: m.priority }),
         }),
@@ -112,7 +113,7 @@ export default function AiModelsCard() {
   const handleDelete = async (m: AiModelConfigPublic) => {
     setBusyId(m.id)
     try {
-      const res = await fetch(`/api/assistant/ai-models/${m.id}`, { method: 'DELETE' })
+      const res = await fetch(apiPath(`/api/assistant/ai-models/${m.id}`), { method: 'DELETE' })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Erro.')
       await load()
     } catch (e) {

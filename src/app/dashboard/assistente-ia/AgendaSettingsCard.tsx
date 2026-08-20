@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { CalendarClock, Check, Loader2 } from 'lucide-react'
+import { apiPath } from '@/lib/storeProxyLink'
 
 const LABEL = 'block text-xs font-semibold text-vr-silver/60 mb-1.5 uppercase tracking-wider'
 const INPUT =
@@ -26,7 +27,7 @@ export default function AgendaSettingsCard() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch('/api/agenda/settings')
+    fetch(apiPath('/api/agenda/settings'))
       .then(async (r) => {
         if (!r.ok) throw new Error((await r.json()).error ?? 'Falha ao carregar')
         return r.json()
@@ -42,7 +43,7 @@ export default function AgendaSettingsCard() {
     if (!cfg) return
     setSaving(true); setError(null)
     try {
-      const res = await fetch('/api/agenda/settings', {
+      const res = await fetch(apiPath('/api/agenda/settings'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(cfg),
