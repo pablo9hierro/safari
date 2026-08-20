@@ -78,7 +78,18 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
+  // /api/* de propósito fora do matcher: páginas como Agenda disparam
+  // vários fetch() em paralelo pras próprias API routes ao carregar — cada
+  // uma rodando o middleware batia o getUser()/refresh AO MESMO TEMPO.
+  // Refresh token do Supabase é de uso único; requests concorrentes
+  // corriam pra trocar o MESMO refresh token, um vencia e os outros
+  // ficavam com token já usado — o Set-Cookie de uma resposta podia
+  // sobrescrever o de outra com um valor inválido, derrubando a sessão
+  // sem motivo (achado real: "sessão caindo toda hora" ao navegar em
+  // páginas com múltiplas chamadas simultâneas). A navegação de PÁGINA já
+  // passa por aqui e renova o cookie antes das chamadas de API acontecerem
+  // — elas só precisam LER o cookie já válido, não disparar refresh de novo.
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
