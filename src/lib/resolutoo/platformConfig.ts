@@ -1,8 +1,10 @@
 // Config da loja que vive na PLATAFORMA (/meu-plano), não no Supabase do
 // vrtech — mesmo endpoint público usado por checkout.ts, mas sem 'use client'
 // pra poder ser chamado de código server-side (ex: pipeline.ts da assistente).
-const RESOLUTOO_API_URL = process.env.NEXT_PUBLIC_RESOLUTOO_API_URL ?? 'https://ufersin-api-production.up.railway.app'
-const TENANT_SLUG = process.env.NEXT_PUBLIC_ECOMMERCE_TENANT_SLUG ?? 'vrtech'
+import { envOr } from '@/lib/envGuard'
+
+const RESOLUTOO_API_URL = envOr(process.env.NEXT_PUBLIC_RESOLUTOO_API_URL, 'https://ufersin-api-production.up.railway.app')
+const TENANT_SLUG = envOr(process.env.NEXT_PUBLIC_ECOMMERCE_TENANT_SLUG, 'vrtech')
 
 export type PlatformStoreConfig = {
   /** Loja não faz deslocamento nenhum: sem coleta, sem entrega de produto, sem entrega de aparelho reparado. */

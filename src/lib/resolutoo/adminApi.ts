@@ -1,10 +1,12 @@
 'use client'
 
+import { envOr } from '@/lib/envGuard'
+
 // Pedidos/Financeiro reais — endpoints admin do ecommerce-api, autenticados
 // com o AdminUser JWT (token "sombra" gravado no login, ver login/page.tsx).
 // Nunca usar `.from()` do Supabase pra isso — o pedido real vive no banco
 // do motor de e-commerce, não no schema vrtech.
-const ECOMMERCE_API_URL = process.env.NEXT_PUBLIC_ECOMMERCE_API_URL ?? 'https://ecommerce-api-production-d447.up.railway.app'
+const ECOMMERCE_API_URL = envOr(process.env.NEXT_PUBLIC_ECOMMERCE_API_URL, 'https://ecommerce-api-production-d447.up.railway.app')
 
 export class AdminAuthError extends Error {}
 

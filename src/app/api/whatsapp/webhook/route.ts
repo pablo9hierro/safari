@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { setWhatsAppState as setState } from '@/lib/whatsapp/state'
 import { createServiceClient } from '@/lib/supabase/service'
+import { envOr } from '@/lib/envGuard'
 
 // Recebe os eventos de webhook da Evolution API.
 // Trata: QR code, status de conexão e mensagens de texto (encaminha pro assistente IA).
@@ -73,9 +74,8 @@ export async function POST(req: NextRequest) {
       const pushName: string = msg?.pushName ?? ''
 
       // Fire-and-forget: não bloqueia a resposta do webhook
-      const assistantUrl = process.env.NEXT_PUBLIC_APP_URL
-        ? `${process.env.NEXT_PUBLIC_APP_URL}/api/assistant/message`
-        : `${req.nextUrl.origin}/api/assistant/message`
+      const appUrl = envOr(process.env.NEXT_PUBLIC_APP_URL, req.nextUrl.origin)
+      const assistantUrl = `${appUrl}/api/assistant/message`
 
       fetch(assistantUrl, {
         method: 'POST',

@@ -5,6 +5,7 @@ import { createResolutooAuthClient } from '@/lib/supabase/resolutooAuthClient'
 import { Loader2, AlertCircle } from 'lucide-react'
 import Logo from '@/components/ui/Logo'
 import { adminAwareHref } from '@/lib/storeProxyLink'
+import { envOr } from '@/lib/envGuard'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -30,8 +31,8 @@ export default function LoginPage() {
     // separada da sessão Supabase acima). Best-effort: se falhar, a tela de
     // Pedidos mostra o erro real, não trava o login em si.
     try {
-      const ecommerceApiUrl = process.env.NEXT_PUBLIC_ECOMMERCE_API_URL ?? 'https://ecommerce-api-production-d447.up.railway.app'
-      const tenantSlug = process.env.NEXT_PUBLIC_ECOMMERCE_TENANT_SLUG ?? 'vrtech'
+      const ecommerceApiUrl = envOr(process.env.NEXT_PUBLIC_ECOMMERCE_API_URL, 'https://ecommerce-api-production-d447.up.railway.app')
+      const tenantSlug = envOr(process.env.NEXT_PUBLIC_ECOMMERCE_TENANT_SLUG, 'vrtech')
       const res = await fetch(`${ecommerceApiUrl}/api/auth/admin/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

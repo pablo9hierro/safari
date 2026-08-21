@@ -5,8 +5,11 @@ import { ownerNewRequestMessage, pendingCustomerMessage, STATUS_MESSAGES, OrderS
 import { ServiceRequest, ServiceStatus } from '@/lib/types'
 import { renderMessage, isTemplateEnabled } from '@/lib/templates/store'
 import type { TemplateVars } from '@/lib/templates/renderer'
+import { envOr } from '@/lib/envGuard'
+import { SITE_URL } from '@/lib/constants'
 
 const OWNER_PHONE = process.env.OWNER_PHONE || '5583920021373'
+const siteUrl = envOr(process.env.NEXT_PUBLIC_SITE_URL, SITE_URL)
 
 /** status_* — mesma chave usada em vrtech.whatsapp_templates. */
 const STATUS_TEMPLATE_KEY: Partial<Record<ServiceStatus, string>> = {
@@ -33,10 +36,10 @@ function requestVars(req: ServiceRequest, order: OrderSummary): TemplateVars {
     problema: req.problem_description,
     valor: `R$ ${Number(order?.final_value ?? req.quote_value ?? 0).toFixed(2).replace('.', ',')}`,
     endereco: [req.address_neighborhood, req.address_city].filter(Boolean).join(', '),
-    link_acompanhamento: `${process.env.NEXT_PUBLIC_SITE_URL ?? ''}/consultar?phone=${digits}`,
+    link_acompanhamento: `${siteUrl}/consultar?phone=${digits}`,
     servicos: (order?.completed_services || '').split(',').map((s) => s.trim()).filter(Boolean).join(', '),
     garantia: order?.warranty ?? 'não informada',
-    link_os: order?.pdf_url ?? `${process.env.NEXT_PUBLIC_SITE_URL ?? ''}/consultar?phone=${digits}`,
+    link_os: order?.pdf_url ?? `${siteUrl}/consultar?phone=${digits}`,
     tempo_estimado: req.busy_until
       ? `${Math.max(1, Math.round((new Date(req.busy_until).getTime() - Date.now()) / 60_000))} minutos`
       : '',

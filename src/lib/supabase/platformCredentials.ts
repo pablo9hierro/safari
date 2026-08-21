@@ -19,11 +19,21 @@ const URL_FALLBACK = 'https://migkkrwzykpztrakbfij.supabase.co'
 const ANON_KEY_FALLBACK =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pZ2trcnd6eWtwenRyYWtiZmlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5NjI2OTQsImV4cCI6MjA5MTUzODY5NH0.0bEy_WikqnfPU9eV7wusSb757dhiTiK5D2KeDSWyJTo'
 
+// A poluição real observada em produção não é "vazio" -- é o Vercel
+// substituindo o valor por um placeholder LITERAL "[SENSITIVE]" (política
+// de env var sensível), que é uma string não-vazia e passaria batido num
+// simples `|| FALLBACK`. Precisa rejeitar explicitamente esse placeholder
+// e qualquer coisa curta demais pra ser uma URL/JWT de verdade.
+function isPoisoned(value: string | undefined): value is undefined {
+  return !value || value === '[SENSITIVE]' || value.length < 15
+}
+
 export function platformSupabaseUrl(): string {
   const env = process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_URL
-  return env?.startsWith('http') ? env : URL_FALLBACK
+  return !isPoisoned(env) && env.startsWith('http') ? env : URL_FALLBACK
 }
 
 export function platformSupabaseAnonKey(): string {
-  return process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_ANON_KEY || ANON_KEY_FALLBACK
+  const env = process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_ANON_KEY
+  return isPoisoned(env) ? ANON_KEY_FALLBACK : env
 }

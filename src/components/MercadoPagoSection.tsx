@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react'
 import { CreditCard, RefreshCw, Unlink, ExternalLink, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { createResolutooAuthClient } from '@/lib/supabase/resolutooAuthClient'
+import { envOr } from '@/lib/envGuard'
 
 // Mesmo fluxo OAuth que qualquer lojista do Resolutoo usa (ufersin-api) —
 // grava em tenants.plataforma_credenciais, não mais numa tabela própria do
 // vrtech. Autenticação: mesmo JWT da sessão de login único (REQ-009).
-const RESOLUTOO_API_URL = process.env.NEXT_PUBLIC_RESOLUTOO_API_URL ?? 'https://ufersin-api-production.up.railway.app'
+const RESOLUTOO_API_URL = envOr(process.env.NEXT_PUBLIC_RESOLUTOO_API_URL, 'https://ufersin-api-production.up.railway.app')
 
 type MeStatus = {
   has_plataforma_credenciais: boolean
