@@ -1,11 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Package, Wrench, Boxes, Smartphone } from 'lucide-react'
+import { Package, Wrench, Boxes, Smartphone, AlertTriangle, PackageX } from 'lucide-react'
 import ProdutosTab from './ProdutosTab'
 import ServicosTab from './ServicosTab'
 import EstoqueTab from './EstoqueTab'
 import AparelhoMarcaModeloTab from './AparelhoMarcaModeloTab'
+import StockAlertList from './StockAlertList'
 import type { Product, ProductCategory, StockItem, StockMovement } from '@/lib/types'
 
 interface CatalogCategory { id: string; name: string; slug: string; sort_order: number; device_type_id: string | null }
@@ -24,13 +25,15 @@ interface ItemDeviceLink { service_catalog_item_id: string; device_type_id: stri
 interface ItemBrandLink { service_catalog_item_id: string; brand_id: string }
 interface ItemModelLink { service_catalog_item_id: string; model_id: string }
 
-type Tab = 'produtos' | 'servicos' | 'estoque' | 'aparelho_marca_modelo'
+type Tab = 'produtos' | 'servicos' | 'estoque' | 'aparelho_marca_modelo' | 'alertas' | 'em_falta'
 
 const TABS: { key: Tab; label: string; icon: React.ElementType }[] = [
   { key: 'produtos', label: 'Produtos', icon: Package },
   { key: 'servicos', label: 'Serviços', icon: Wrench },
   { key: 'estoque', label: 'Estoque', icon: Boxes },
   { key: 'aparelho_marca_modelo', label: 'Aparelho/Marca/Modelo', icon: Smartphone },
+  { key: 'alertas', label: 'Alerta de reposição', icon: AlertTriangle },
+  { key: 'em_falta', label: 'Em falta', icon: PackageX },
 ]
 
 interface Props {
@@ -64,12 +67,12 @@ export default function ProdutosClient(props: Props) {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
-      <div className="flex gap-1 bg-vr-graphite border border-white/5 p-1 rounded-2xl">
+      <div className="flex gap-1 bg-vr-graphite border border-white/5 p-1 rounded-2xl overflow-x-auto scrollbar-hide">
         {TABS.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-all
+            className={`shrink-0 flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold whitespace-nowrap transition-all
               ${tab === key ? 'bg-vr-red text-white shadow' : 'text-vr-silver/60 hover:text-white'}`}
           >
             <Icon className="w-4 h-4" />
@@ -114,6 +117,20 @@ export default function ProdutosClient(props: Props) {
           setDeviceTypes={setDeviceTypes}
           models={models}
           setModels={setModels}
+        />
+      )}
+      {tab === 'alertas' && (
+        <StockAlertList
+          title="Alerta de reposição"
+          emptyMessage="Nenhum item em baixo estoque no momento."
+          filter={(quantity, threshold) => threshold != null && quantity > 0 && quantity <= threshold}
+        />
+      )}
+      {tab === 'em_falta' && (
+        <StockAlertList
+          title="Em falta"
+          emptyMessage="Nenhum item em falta no momento."
+          filter={(quantity) => quantity <= 0}
         />
       )}
     </div>

@@ -161,6 +161,7 @@ export interface StockItem {
   warranty_days?: number | null
   /** Só quando unit = 'caixa': quantas unidades vêm dentro de uma caixa. */
   units_per_box?: number | null
+  low_stock_threshold?: number | null
   created_at: string
   updated_at: string
 }
@@ -218,6 +219,19 @@ export interface Product {
   product_categories?: { name: string } | null
   /** Tags de busca geradas por IA -- nunca aparecem soltas, só dentro do accordion recolhido do card. */
   tags?: string[]
+  low_stock_threshold?: number | null
+}
+
+export type StockActivityEventType = 'created' | 'updated' | 'deleted' | 'stock_updated' | 'low_stock' | 'out_of_stock'
+
+export interface StockActivityLog {
+  id: string
+  entity_type: 'product' | 'stock_item'
+  entity_id: string
+  entity_name: string
+  event_type: StockActivityEventType
+  detail: Record<string, unknown> | null
+  created_at: string
 }
 
 export type StoreOrderStatus = 'pendente' | 'vendido' | 'recusado'

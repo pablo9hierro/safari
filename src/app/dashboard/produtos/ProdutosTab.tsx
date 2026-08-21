@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { apiPath } from '@/lib/storeProxyLink'
 import { Product, ProductCategory } from '@/lib/types'
+import { logStockEvent, stockTransitionEvent } from '@/lib/stockActivityLog'
 import { Package, Search, X, Pencil, Trash2, Loader2, ImagePlus, ChevronDown, ChevronRight } from 'lucide-react'
 
 const MAX_IMAGES = 3
@@ -86,6 +87,7 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
   const [price, setPrice] = useState('')
   const [quantity, setQuantity] = useState('')
   const [description, setDescription] = useState('')
+  const [lowStockThreshold, setLowStockThreshold] = useState('')
   const [imageSlots, setImageSlots] = useState<ImageSlot[]>(emptySlots())
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -104,6 +106,7 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
   const [editPrice, setEditPrice] = useState('')
   const [editQuantity, setEditQuantity] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const [editLowStockThreshold, setEditLowStockThreshold] = useState('')
   const [editImageSlots, setEditImageSlots] = useState<ImageSlot[]>(emptySlots())
   const [editError, setEditError] = useState<string | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
@@ -149,7 +152,8 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
   }
 
   const resetForm = () => {
-    setName(''); setPhoneBrand(''); setPhoneModel(''); setPrice(''); setQuantity(''); setDescription(''); setImageSlots(emptySlots())
+    setName(''); setPhoneBrand(''); setPhoneModel(''); setPrice(''); setQuantity(''); setDescription('')
+    setLowStockThreshold(''); setImageSlots(emptySlots())
     setCreateError(null); setShowForm(false)
   }
 
@@ -180,6 +184,7 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
         phone_model: phoneModel.trim() || null,
         image_url: imageUrls[0] ?? null,
         image_urls: imageUrls,
+        low_stock_threshold: lowStockThreshold.trim() ? Number(lowStockThreshold) : null,
       })
       .select('*, product_categories(name)')
       .single()
@@ -191,6 +196,7 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
     }
 
     setProducts((prev) => [...prev, created as Product].sort((a, b) => a.name.localeCompare(b.name)))
+    logStockEvent(supabase, 'product', created.id, created.name, 'created')
     resetForm()
     setCreating(false)
 
@@ -211,6 +217,7 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
     setEditPrice(String(Number(product.price)))
     setEditQuantity(String(Number(product.quantity)))
     setEditDescription(product.description ?? '')
+    setEditLowStockThreshold(product.low_stock_threshold != null ? String(product.low_stock_threshold) : '')
     setEditImageSlots(emptySlots(product.image_urls?.length ? product.image_urls : (product.image_url ? [product.image_url] : [])))
     setEditError(null)
   }
@@ -242,6 +249,7 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
         phone_model: editPhoneModel.trim() || null,
         image_url: imageUrls[0] ?? null,
         image_urls: imageUrls,
+        low_stock_threshold: editLowStockThreshold.trim() ? Number(editLowStockThreshold) : null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', editProduct.id)
@@ -255,6 +263,9 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
     }
 
     setProducts((prev) => prev.map((p) => (p.id === editProduct.id ? (updated as Product) : p)).sort((a, b) => a.name.localeCompare(b.name)))
+    logStockEvent(supabase, 'product', editProduct.id, (updated as Product).name, 'updated')
+    const transition = stockTransitionEvent(Number(editProduct.quantity), qtyNum, (updated as Product).low_stock_threshold)
+    if (transition) logStockEvent(supabase, 'product', editProduct.id, (updated as Product).name, transition)
     setSavingEdit(false)
     setEditProduct(null)
   }
@@ -266,6 +277,7 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
     const { error } = await supabase.from('products').delete().eq('id', actionsProduct.id)
     if (error) { setDeleting(false); return }
     setProducts((prev) => prev.filter((p) => p.id !== actionsProduct.id))
+    logStockEvent(supabase, 'product', actionsProduct.id, actionsProduct.name, 'deleted')
     setDeleting(false)
     setActionsProduct(null)
   }
@@ -329,6 +341,11 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
               <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Descrição</label>
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalhes do produto..." rows={2}
                 className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red resize-none" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Alertar baixo estoque quando chegar em:</label>
+              <input type="number" inputMode="numeric" step="1" min="0" value={lowStockThreshold} onChange={(e) => setLowStockThreshold(e.target.value)} placeholder="Opcional -- ex: 5"
+                className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red" />
             </div>
             {createError && <p className="text-xs text-red-400">{createError}</p>}
             <div className="flex gap-2">
@@ -503,6 +520,11 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
               <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Descrição</label>
               <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={2}
                 className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red resize-none" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Alertar baixo estoque quando chegar em:</label>
+              <input type="number" inputMode="numeric" step="1" min="0" value={editLowStockThreshold} onChange={(e) => setEditLowStockThreshold(e.target.value)} placeholder="Opcional -- ex: 5"
+                className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red" />
             </div>
             {editError && <p className="text-xs text-red-400">{editError}</p>}
             <button onClick={handleSaveEdit} disabled={savingEdit} className="btn-primary w-full flex items-center justify-center gap-2">

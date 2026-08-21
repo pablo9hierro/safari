@@ -15,7 +15,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/agenda', label: 'Agenda', icon: CalendarDays },
   { href: '/dashboard/produtos', label: 'Produtos/Serviços', icon: Package },
   { href: '/dashboard/servicodeslocamento', label: 'Serviço de deslocamento', icon: Truck },
-  { href: '/dashboard/financeiro', label: 'Financeiro', icon: Wallet },
+  { href: '/dashboard/relatorios', label: 'Relatórios', icon: Wallet },
   { href: '/dashboard/template-zap', label: 'Template Zap', icon: MessageSquare },
   { href: '/dashboard/conta', label: 'Conta', icon: UserCog },
 ]

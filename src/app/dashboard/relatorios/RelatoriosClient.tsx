@@ -5,6 +5,7 @@ import { Wallet, Wrench, ShoppingBag, Truck } from 'lucide-react'
 import MercadoPagoSection from '@/components/MercadoPagoSection'
 import { fetchOrders, AdminAuthError, type Order } from '@/lib/resolutoo/adminApi'
 import { adminAwareHref } from '@/lib/storeProxyLink'
+import StockActivitySection from './StockActivitySection'
 
 export type ServiceOrderRow = {
   id: string
@@ -70,7 +71,7 @@ function formatDay(day: string) {
   return `${d}/${m}`
 }
 
-export default function FinanceiroClient({ serviceOrders }: { serviceOrders: ServiceOrderRow[] }) {
+export default function RelatoriosClient({ serviceOrders }: { serviceOrders: ServiceOrderRow[] }) {
   const [orders, setOrders] = useState<Order[]>([])
   const [ordersError, setOrdersError] = useState<string | null>(null)
 
@@ -360,6 +361,8 @@ export default function FinanceiroClient({ serviceOrders }: { serviceOrders: Ser
           ))
         )}
       </div>
+
+      <StockActivitySection />
     </div>
   )
 }

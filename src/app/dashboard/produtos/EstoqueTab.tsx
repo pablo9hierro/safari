@@ -4,6 +4,7 @@ import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { StockItem, StockMovement, StockUnit } from '@/lib/types'
 import { Boxes, ArrowDownCircle, ArrowUpCircle, Loader2, Search, X, Pencil, Trash2 } from 'lucide-react'
+import { logStockEvent, stockTransitionEvent } from '@/lib/stockActivityLog'
 
 export default function EstoqueTab({
   items,
@@ -22,6 +23,7 @@ export default function EstoqueTab({
   const [newUnitsPerBox, setNewUnitsPerBox] = useState('')
   const [newPrice, setNewPrice] = useState('')
   const [newWarrantyDays, setNewWarrantyDays] = useState('')
+  const [newLowStockThreshold, setNewLowStockThreshold] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -38,6 +40,7 @@ export default function EstoqueTab({
   const [editUnitsPerBox, setEditUnitsPerBox] = useState('')
   const [editPrice, setEditPrice] = useState('')
   const [editWarrantyDays, setEditWarrantyDays] = useState('')
+  const [editLowStockThreshold, setEditLowStockThreshold] = useState('')
   const [editError, setEditError] = useState<string | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
 
@@ -78,6 +81,7 @@ export default function EstoqueTab({
         units_per_box: unitsPerBoxNum,
         price: priceNum,
         warranty_days: newWarrantyDays.trim() ? parseInt(newWarrantyDays, 10) : null,
+        low_stock_threshold: newLowStockThreshold.trim() ? Number(newLowStockThreshold) : null,
       })
       .select()
       .single()
@@ -89,7 +93,8 @@ export default function EstoqueTab({
     }
 
     setItems((prev) => [...prev, created as StockItem].sort((a, b) => a.name.localeCompare(b.name)))
-    setNewName(''); setNewQuantity(''); setNewUnit('unidade'); setNewUnitsPerBox(''); setNewPrice(''); setNewWarrantyDays('')
+    logStockEvent(supabase, 'stock_item', created.id, created.name, 'created')
+    setNewName(''); setNewQuantity(''); setNewUnit('unidade'); setNewUnitsPerBox(''); setNewPrice(''); setNewWarrantyDays(''); setNewLowStockThreshold('')
     setCreating(false)
   }
 
@@ -104,6 +109,7 @@ export default function EstoqueTab({
     setEditUnitsPerBox(item.units_per_box != null ? String(item.units_per_box) : '')
     setEditPrice(item.price != null ? String(item.price) : '')
     setEditWarrantyDays(item.warranty_days != null ? String(item.warranty_days) : '')
+    setEditLowStockThreshold(item.low_stock_threshold != null ? String(item.low_stock_threshold) : '')
     setEditError(null)
   }
   const closeEdit = () => setEditItem(null)
@@ -134,6 +140,7 @@ export default function EstoqueTab({
         units_per_box: editUnitsPerBoxNum,
         price: priceNum,
         warranty_days: editWarrantyDays.trim() ? parseInt(editWarrantyDays, 10) : null,
+        low_stock_threshold: editLowStockThreshold.trim() ? Number(editLowStockThreshold) : null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', editItem.id)
@@ -147,6 +154,9 @@ export default function EstoqueTab({
     }
 
     setItems((prev) => prev.map((i) => (i.id === editItem.id ? (updated as StockItem) : i)).sort((a, b) => a.name.localeCompare(b.name)))
+    logStockEvent(supabase, 'stock_item', editItem.id, (updated as StockItem).name, 'updated')
+    const transition = stockTransitionEvent(Number(editItem.quantity), qty, (updated as StockItem).low_stock_threshold)
+    if (transition) logStockEvent(supabase, 'stock_item', editItem.id, (updated as StockItem).name, transition)
     setSavingEdit(false)
     setEditItem(null)
   }
@@ -176,11 +186,15 @@ export default function EstoqueTab({
     }
 
     const itemId = exitItem.id
-    setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, quantity: Number(i.quantity) - qty } : i)))
+    const newQty = Number(exitItem.quantity) - qty
+    setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, quantity: newQty } : i)))
     setMovements((prev) => [
       { ...(movement as StockMovement), stock_items: { name: exitItem.name, unit: exitItem.unit } },
       ...prev,
     ])
+    logStockEvent(supabase, 'stock_item', itemId, exitItem.name, 'stock_updated', { delta: -qty })
+    const transition = stockTransitionEvent(Number(exitItem.quantity), newQty, exitItem.low_stock_threshold)
+    if (transition) logStockEvent(supabase, 'stock_item', itemId, exitItem.name, transition)
     setSavingExit(false)
     setExitItem(null)
   }
@@ -194,6 +208,7 @@ export default function EstoqueTab({
     const itemId = actionsItem.id
     setItems((prev) => prev.filter((i) => i.id !== itemId))
     setMovements((prev) => prev.filter((m) => m.item_id !== itemId))
+    logStockEvent(supabase, 'stock_item', itemId, actionsItem.name, 'deleted')
     setDeleting(false)
     closeActions()
   }
@@ -244,6 +259,11 @@ export default function EstoqueTab({
             <input type="number" step="1" min="0" value={newWarrantyDays} onChange={(e) => setNewWarrantyDays(e.target.value)} placeholder="Ex: 90"
               className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red" />
           </div>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Alertar baixo estoque quando chegar em:</label>
+          <input type="number" step="0.01" min="0" value={newLowStockThreshold} onChange={(e) => setNewLowStockThreshold(e.target.value)} placeholder="Opcional -- ex: 5"
+            className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red" />
         </div>
         {createError && <p className="text-xs text-red-400">{createError}</p>}
         <button type="submit" disabled={creating} className="btn-primary w-full flex items-center justify-center gap-2">
@@ -393,6 +413,11 @@ export default function EstoqueTab({
                 <input type="number" step="1" min="0" value={editWarrantyDays} onChange={(e) => setEditWarrantyDays(e.target.value)} placeholder="Ex: 90"
                   className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red" />
               </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Alertar baixo estoque quando chegar em:</label>
+              <input type="number" step="0.01" min="0" value={editLowStockThreshold} onChange={(e) => setEditLowStockThreshold(e.target.value)} placeholder="Opcional -- ex: 5"
+                className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red" />
             </div>
             {editError && <p className="text-xs text-red-400">{editError}</p>}
             <button onClick={handleSaveEdit} disabled={savingEdit} className="btn-primary w-full flex items-center justify-center gap-2">
