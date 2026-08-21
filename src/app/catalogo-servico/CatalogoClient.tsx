@@ -23,7 +23,12 @@ function repairIcon(repairType: string) {
   return REPAIR_ICONS[repairType] ?? <Wrench className="w-4 h-4" />
 }
 
-export default function CatalogoClient({ categories, items }: Props) {
+export default function CatalogoClient({ categories: rawCategories, items }: Props) {
+  // Categorias legadas "servicos-*" (ex.: "Serviços - Celular Motorola")
+  // são duplicatas feias de um seed antigo, anteriores ao rebrand limpo
+  // (Motorola/Samsung/Xiaomi/iPhone) -- escondidas aqui e no wizard do
+  // checkout (ServiceRequestForm.tsx), mesmo filtro nos dois lugares.
+  const categories = useMemo(() => rawCategories.filter((c) => !c.slug.startsWith('servicos-')), [rawCategories])
   const [activeSlug, setActiveSlug] = useState<string | null>(categories[0]?.slug ?? null)
   const [search, setSearch] = useState('')
   const [selectedRepairTypes, setSelectedRepairTypes] = useState<Set<string>>(new Set())

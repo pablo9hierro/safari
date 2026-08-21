@@ -49,6 +49,10 @@ export interface ServiceRequest {
   /** Bancada ocupada até este instante (diagnóstico/reparo em andamento) --
    * bloqueia a agenda enquanto vigente. Ver src/lib/agenda/service.ts. */
   busy_until?: string | null
+  /** Orçamento falado de boca na coleta -- referência pra comparar com o
+   * orçamento real (pós-diagnóstico) e decidir se avança sozinho pro
+   * reparo. Ver src/lib/serviceLifecycle/quoteDecision.ts. */
+  estimated_quote_value?: number | null
 }
 
 export type DeviceType = 'celular' | 'tablet' | 'notebook' | 'computador' | 'outro'

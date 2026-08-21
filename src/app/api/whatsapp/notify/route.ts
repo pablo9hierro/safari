@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { deliverReliable } from '@/lib/queue/whatsappQueue'
 import { ownerNewRequestMessage, pendingCustomerMessage, STATUS_MESSAGES, OrderSummary } from '@/lib/whatsapp/messages'
 import { ServiceRequest, ServiceStatus } from '@/lib/types'
-import { renderMessage } from '@/lib/templates/store'
+import { renderMessage, isTemplateEnabled } from '@/lib/templates/store'
 import type { TemplateVars } from '@/lib/templates/renderer'
 
 const OWNER_PHONE = process.env.OWNER_PHONE || '5583920021373'
@@ -37,6 +37,9 @@ function requestVars(req: ServiceRequest, order: OrderSummary): TemplateVars {
     servicos: (order?.completed_services || '').split(',').map((s) => s.trim()).filter(Boolean).join(', '),
     garantia: order?.warranty ?? 'não informada',
     link_os: order?.pdf_url ?? `${process.env.NEXT_PUBLIC_SITE_URL ?? ''}/consultar?phone=${digits}`,
+    tempo_estimado: req.busy_until
+      ? `${Math.max(1, Math.round((new Date(req.busy_until).getTime() - Date.now()) / 60_000))} minutos`
+      : '',
   }
 }
 
@@ -104,6 +107,9 @@ export async function POST(req: NextRequest) {
     }
 
     const templateKey = STATUS_TEMPLATE_KEY[event as ServiceStatus]
+    if (templateKey && !(await isTemplateEnabled(templateKey))) {
+      return NextResponse.json({ ok: true, skipped: true, reason: 'disabled' })
+    }
     const fallback = fn(typedRequest, order)
     const text = templateKey
       ? await renderMessage(templateKey, requestVars(typedRequest, order), fallback)

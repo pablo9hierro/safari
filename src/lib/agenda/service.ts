@@ -441,7 +441,9 @@ export async function ensureServiceRequestForAppointment(
     problem_description?: string | null
     service_label: string
     source: ServiceRequestSource
-    /** 'pending' pro fluxo normal (triagem pendente); PDV usa 'accepted' -- orçamento já foi acordado no balcão, pula a negociação. */
+    /** 'em_busca' pro fluxo normal (self_pickup=false aqui, nasce já em
+     * deslocamento -- nunca fica "pendente" esperando aceite manual); PDV
+     * usa 'accepted' -- orçamento já foi acordado no balcão, pula a coleta. */
     status?: string
   },
   db: Db = createServiceClient(),
@@ -457,7 +459,7 @@ export async function ensureServiceRequestForAppointment(
       diagnosis_requested: false,
       self_pickup: false,
       payment_methods: [],
-      status: input.status ?? 'pending',
+      status: input.status ?? 'em_busca',
       source: input.source,
     })
     .select('id')

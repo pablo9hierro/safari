@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { MessageSquare, Loader2, AlertCircle, Check, Lock, Smartphone } from 'lucide-react'
+import { MessageSquare, Loader2, AlertCircle, Check, Lock, Smartphone, ToggleLeft, ToggleRight } from 'lucide-react'
 import AccordionSection from '@/components/dashboard/AccordionSection'
 import {adminAwareHref, apiPath } from '@/lib/storeProxyLink'
 
@@ -15,6 +15,7 @@ type Template = {
   required_variables: string[]
   available_variables: string[]
   editable: boolean
+  enabled: boolean
   sort_order: number
 }
 
@@ -92,6 +93,39 @@ function VariablesHint({ tpl }: { tpl: Template; content: string }) {
   )
 }
 
+/** Toggle ativo/inativo do disparo -- só ícone, sem texto (pedido explícito). */
+function EnabledToggle({ tpl, onToggled }: { tpl: Template; onToggled: (t: Template) => void }) {
+  const [busy, setBusy] = useState(false)
+  const toggle = async () => {
+    setBusy(true)
+    const next = !tpl.enabled
+    onToggled({ ...tpl, enabled: next }) // otimista
+    try {
+      const res = await fetch(apiPath(`/api/templates/${tpl.template_key}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      })
+      if (!res.ok) throw new Error()
+    } catch {
+      onToggled({ ...tpl, enabled: !next }) // rollback
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={busy}
+      title={tpl.enabled ? 'Disparo ativo — clique pra desativar' : 'Disparo inativo — clique pra ativar'}
+      className={`shrink-0 transition-colors disabled:opacity-40 ${tpl.enabled ? 'text-green-500 hover:text-green-400' : 'text-vr-silver/30 hover:text-vr-silver/50'}`}
+    >
+      {tpl.enabled ? <ToggleRight className="w-6 h-6" /> : <ToggleLeft className="w-6 h-6" />}
+    </button>
+  )
+}
+
 function EditableTemplateCard({ tpl, onSaved }: { tpl: Template; onSaved: (t: Template) => void }) {
   const [content, setContent] = useState(tpl.content)
   const [saving, setSaving] = useState(false)
@@ -123,9 +157,12 @@ function EditableTemplateCard({ tpl, onSaved }: { tpl: Template; onSaved: (t: Te
 
   return (
     <div className="bg-vr-black/40 border border-white/5 rounded-xl p-3.5 space-y-3">
-      <div>
-        <p className="text-sm font-medium text-white">{tpl.label}</p>
-        {tpl.description && <p className="text-xs text-vr-silver/50 mt-0.5">{tpl.description}</p>}
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium text-white">{tpl.label}</p>
+          {tpl.description && <p className="text-xs text-vr-silver/50 mt-0.5">{tpl.description}</p>}
+        </div>
+        <EnabledToggle tpl={tpl} onToggled={onSaved} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -174,13 +211,16 @@ function EditableTemplateCard({ tpl, onSaved }: { tpl: Template; onSaved: (t: Te
   )
 }
 
-function ProtectedTemplateCard({ tpl }: { tpl: Template }) {
+function ProtectedTemplateCard({ tpl, onToggled }: { tpl: Template; onToggled: (t: Template) => void }) {
   const preview = useMemo(() => localPreview(tpl.content), [tpl.content])
   return (
     <div className="bg-vr-black/40 border border-yellow-500/20 rounded-xl p-3.5 space-y-3">
-      <div className="flex items-center gap-2">
-        <Lock className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
-        <p className="text-sm font-medium text-white">{tpl.label}</p>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Lock className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+          <p className="text-sm font-medium text-white">{tpl.label}</p>
+        </div>
+        <EnabledToggle tpl={tpl} onToggled={onToggled} />
       </div>
       <p className="text-xs text-yellow-400/80">
         Mensagem automática gerada pelo sistema de pagamento — não editável. Alterá-la quebraria a cobrança.
@@ -265,7 +305,7 @@ export default function TemplateZapClient() {
               tpl.editable ? (
                 <EditableTemplateCard key={tpl.id} tpl={tpl} onSaved={updateOne} />
               ) : (
-                <ProtectedTemplateCard key={tpl.id} tpl={tpl} />
+                <ProtectedTemplateCard key={tpl.id} tpl={tpl} onToggled={updateOne} />
               ),
             )}
           </AccordionSection>

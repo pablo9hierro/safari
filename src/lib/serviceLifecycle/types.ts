@@ -21,7 +21,10 @@ export type ServiceStatus =
 
 /** Descrição curta e segura pro cliente — nunca observação interna do lojista. */
 export const STATUS_DESCRIPTION: Record<ServiceStatus, string> = {
-  pending: 'Solicitação recebida, aguardando análise inicial.',
+  // Na prática, transitório -- nasce e migra pra retirada_local/em_busca no
+  // mesmo instante (nunca fica "pendente" esperando aceite manual). Texto
+  // aqui só existe como fallback pra dado histórico legado.
+  pending: 'Aguardando combinar a coleta ou chegada do aparelho na loja.',
   aguardando_diagnostico: 'Aparelho recebido, aguardando o diagnóstico físico.',
   diagnostico_enviado: 'Diagnóstico concluído — orçamento disponível, aguardando sua aprovação.',
   accepted: 'Orçamento aprovado. Aguardando coleta ou chegada do aparelho na loja.',
@@ -48,7 +51,6 @@ export const REPAIR_DONE_STATUSES: ServiceStatus[] = ['completed', 'em_pagamento
  * for adicionado ao enum sem ganhar um balde aqui.
  */
 export type StatusGroup =
-  | 'pendente'
   | 'em_deslocamento'
   | 'em_diagnostico'
   | 'em_reparo'
@@ -56,8 +58,14 @@ export type StatusGroup =
   | 'concluidos'
 
 export const STATUS_GROUP: Record<ServiceStatus, StatusGroup> = {
-  pending: 'pendente',
-  accepted: 'pendente',
+  // "pendente" deixou de existir como balde -- a solicitação nasce direto
+  // em retirada_local/em_busca (ver POST /api/service-requests). 'pending'
+  // continua no enum só por compatibilidade com dado histórico; 'accepted'
+  // continua existindo como status transitório de uso interno (PDV,
+  // ver agenda/service.ts), mas nenhuma tela mostra "Pendente" mais --
+  // os dois caem no mesmo balde de quem está aguardando deslocamento físico.
+  pending: 'em_deslocamento',
+  accepted: 'em_deslocamento',
   aguardando_diagnostico: 'em_diagnostico',
   diagnostico_enviado: 'em_diagnostico',
   retirada_local: 'em_deslocamento',
@@ -81,7 +89,6 @@ export const STATUS_GROUP: Record<ServiceStatus, StatusGroup> = {
 export const ENDED_NEGATIVE_STATUSES: ServiceStatus[] = ['rejected', 'cancelled']
 
 export const STATUS_GROUP_LABEL: Record<StatusGroup, string> = {
-  pendente: 'Pendente',
   em_deslocamento: 'Em deslocamento',
   em_diagnostico: 'Em diagnóstico',
   em_reparo: 'Em reparo',

@@ -6,6 +6,7 @@ import {
   type ServiceStatus,
   type ServiceSummary,
 } from './types'
+import { computeRepairBusyUntil } from './busyUntil'
 
 type Db = ReturnType<typeof createServiceClient>
 
@@ -146,10 +147,11 @@ export async function getRepairStatus(
 
 /**
  * Aprova o orçamento — a mesma transição que o botão "Cliente aprovou o
- * orçamento" faz no painel (`diagnostico_enviado` → `accepted`), só que
- * disparada pelo próprio cliente via WhatsApp. Só permitida nesse status
- * exato: aprovar antes do diagnóstico, ou depois de já aprovado/recusado,
- * não faz sentido e é recusado.
+ * orçamento" faz no painel (`diagnostico_enviado` → `in_progress`, direto
+ * pro reparo -- `accepted` deixou de ser destino funcional dessa transição),
+ * só que disparada pelo próprio cliente via WhatsApp. Só permitida nesse
+ * status exato: aprovar antes do diagnóstico, ou depois de já aprovado/
+ * recusado, não faz sentido e é recusado.
  */
 export async function approveServiceQuote(
   requestId: string,
@@ -163,7 +165,14 @@ export async function approveServiceQuote(
       'invalid_transition',
     )
   }
-  return transition(requestId, phone, 'accepted', db)
+  const { data: diag } = await db
+    .from('service_diagnostics')
+    .select('services_selected')
+    .eq('service_request_id', requestId)
+    .maybeSingle()
+  const serviceIds = ((diag?.services_selected ?? []) as { id: string }[]).map((s) => s.id)
+  const busyUntil = await computeRepairBusyUntil(serviceIds, db)
+  return transition(requestId, phone, 'in_progress', db, { busy_until: busyUntil })
 }
 
 /**
@@ -322,10 +331,11 @@ async function transition(
   phone: string,
   next: ServiceStatus,
   db: Db,
+  extra: Record<string, unknown> = {},
 ): Promise<ServiceSummary> {
   const { data, error } = await db
     .from('service_requests')
-    .update({ status: next })
+    .update({ status: next, ...extra })
     .eq('id', requestId)
     .select('id, status, phone_model, problem_description, quote_value, self_pickup, created_at')
     .single()

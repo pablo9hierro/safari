@@ -15,6 +15,9 @@ export type WhatsAppTemplate = {
   required_variables: string[]
   available_variables: string[]
   editable: boolean
+  /** Controla se esse disparo específico acontece -- toggle por card em
+   * /dashboard/template-zap. Default true (nasce ligado). */
+  enabled: boolean
   sort_order: number
   updated_at: string
 }
@@ -54,6 +57,32 @@ export async function getTemplate(
     .maybeSingle()
   if (error) return null
   return (data as WhatsAppTemplate) ?? null
+}
+
+/**
+ * Ativo/inativo por template -- o disparo correspondente não sai quando
+ * desativado. `renderMessage` continua devolvendo o texto normalmente
+ * (é só o TEXTO, não decide se envia); quem decide enviar (a rota de
+ * notify, notifyQuoteDecision) precisa checar isto ANTES de chamar
+ * deliverReliable/sendWhatsAppText. Template inexistente conta como
+ * habilitado (fallback hardcoded sempre dispara, como sempre foi).
+ */
+export async function isTemplateEnabled(key: string, db: Db = createServiceClient()): Promise<boolean> {
+  const tpl = await getTemplate(key, db)
+  return tpl ? tpl.enabled !== false : true
+}
+
+export async function setTemplateEnabled(
+  key: string,
+  enabled: boolean,
+  db: Db = createServiceClient(),
+): Promise<void> {
+  const { error } = await db
+    .from('whatsapp_templates')
+    .update({ enabled, updated_at: new Date().toISOString() })
+    .eq('tenant_id', TENANT_ID)
+    .eq('template_key', key)
+  if (error) throw new TemplateError(`Falha ao alternar template: ${error.message}`, 'validation')
 }
 
 /**

@@ -168,7 +168,6 @@ const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: s
 // de fato em lojas COM deslocamento -- apenasRetirada continua filtrando,
 // só que agora nada some, porque loja de retirada nunca ocupa esses status.
 const GROUP_FILTERS: { key: StatusGroup; label: string }[] = [
-  { key: 'pendente', label: STATUS_GROUP_LABEL.pendente },
   { key: 'em_deslocamento', label: STATUS_GROUP_LABEL.em_deslocamento },
   { key: 'em_diagnostico', label: STATUS_GROUP_LABEL.em_diagnostico },
   { key: 'em_reparo', label: STATUS_GROUP_LABEL.em_reparo },
@@ -188,7 +187,7 @@ export default function DashboardClient({
 }) {
   const [tab, setTab] = useState<'solicitacoes' | 'pedidos'>('solicitacoes')
   const [requests, setRequests] = useState<ServiceRequest[]>(initialRequests)
-  const [groupFilter, setGroupFilter] = useState<StatusGroup>('pendente')
+  const [groupFilter, setGroupFilter] = useState<StatusGroup>('em_deslocamento')
   const [selected, setSelected] = useState<ServiceRequest | null>(null)
 
   // apenasRetirada não precisa mais filtrar baldes -- em_deslocamento (que

@@ -31,7 +31,11 @@ export async function POST(req: NextRequest) {
     address_city:         body.address_city ?? null,
     address_state:        body.address_state ?? null,
     shipping_price:       body.shipping_price ?? null,
-    status:               'pending',
+    // Nasce direto em coleta/deslocamento -- nunca fica "pendente" esperando
+    // aceite manual do lojista (decisão do dono: a solicitação já chega em
+    // trânsito, o lojista preenche orçamento estimado/senha do cliente no
+    // momento físico da coleta, não antes).
+    status:               body.self_pickup ? 'retirada_local' : 'em_busca',
     quote_value:          null,
     owner_notes:          null,
     source:               'storefront_form',

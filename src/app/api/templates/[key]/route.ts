@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/agenda/auth'
-import { getTemplate, updateTemplate, TemplateError } from '@/lib/templates/store'
+import { getTemplate, updateTemplate, setTemplateEnabled, TemplateError } from '@/lib/templates/store'
 
 function errorResponse(e: unknown): NextResponse {
   if (e instanceof TemplateError) {
@@ -40,6 +40,29 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ key: string
     const { key } = await ctx.params
     const body = await req.json().catch(() => ({}))
     const updated = await updateTemplate(key, { content: String(body.content ?? '') })
+    return NextResponse.json(updated)
+  } catch (e) {
+    return errorResponse(e)
+  }
+}
+
+/**
+ * PATCH /api/templates/{key} — só o toggle ativo/inativo, separado do PUT
+ * (que valida conteúdo/variáveis obrigatórias) porque desligar um disparo
+ * não deveria exigir passar por essa validação.
+ */
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ key: string }> }) {
+  const auth = await requireAdmin()
+  if (!auth.ok) return auth.response
+
+  try {
+    const { key } = await ctx.params
+    const body = await req.json().catch(() => ({}))
+    if (typeof body.enabled !== 'boolean') {
+      return NextResponse.json({ error: 'enabled (boolean) é obrigatório' }, { status: 400 })
+    }
+    await setTemplateEnabled(key, body.enabled)
+    const updated = await getTemplate(key)
     return NextResponse.json(updated)
   } catch (e) {
     return errorResponse(e)

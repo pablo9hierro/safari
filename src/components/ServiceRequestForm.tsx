@@ -128,8 +128,13 @@ export default function ServiceRequestForm({
 
   // Marcas do tipo de aparelho escolhido -- "Diagnóstico" (device_type
   // 'outro') nunca aparece aqui, é um serviço avulso, não um aparelho.
+  // Categorias legadas com slug "servicos-*" (ex.: "Serviços - Celular
+  // Motorola") são duplicatas feias de um seed antigo, anteriores ao
+  // rebrand limpo (Motorola/Samsung/Xiaomi/iPhone) -- nunca aparecem no
+  // wizard, mesmo tendo itens (dado legado, não apagado pra não perder
+  // histórico, só escondido da UI nova).
   const brandsForType = useMemo(
-    () => brands.filter((b) => b.device_type === selectedDeviceType),
+    () => brands.filter((b) => b.device_type === selectedDeviceType && !b.slug.startsWith('servicos-')),
     [brands, selectedDeviceType],
   )
 
@@ -296,7 +301,8 @@ export default function ServiceRequestForm({
           address_state:        data.self_pickup ? null : 'PB',
           shipping_price:       shippingPrice,
           image_url,
-          status:               'pending',
+          // status não vai no payload -- a API decide sozinha a partir de
+          // self_pickup (nasce direto em coleta/deslocamento, nunca "pendente").
           quote_value:          null,
           owner_notes:          null,
         }),

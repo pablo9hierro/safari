@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import { ServiceCatalogCategory, ServiceCatalogItem, ServiceDiagnostic, ServiceRequest } from '@/lib/types'
 import { jsPDF } from 'jspdf'
 import { apiPath } from '@/lib/storeProxyLink'
+import { decideQuoteOutcome } from '@/lib/serviceLifecycle/quoteDecision'
+import { computeRepairBusyUntil } from '@/lib/serviceLifecycle/busyUntil'
 import {
   Loader2,
   AlertCircle,
@@ -21,7 +23,7 @@ interface SelectedService {
 
 interface DiagnosticSectionProps {
   request: ServiceRequest
-  onSaved: (newStatus: 'diagnostico_enviado') => void
+  onSaved: (newStatus: 'diagnostico_enviado' | 'in_progress') => void
 }
 
 export default function DiagnosticSection({ request, onSaved }: DiagnosticSectionProps) {
@@ -208,22 +210,32 @@ export default function DiagnosticSection({ request, onSaved }: DiagnosticSectio
         await supabase.from('service_diagnostics').insert([diagPayload])
       }
 
-      // 3. Update service_request: status → diagnostico_enviado + quote_value
+      // 3. Orçamento real (finalTotal) <= orçamento estimado (falado de boca
+      //    na coleta) -> avança sozinho pro reparo, sem perguntar pro
+      //    cliente. Maior -> fica em diagnostico_enviado, espera aprovação.
+      const outcome = decideQuoteOutcome(request.estimated_quote_value, finalTotal)
+      const nextStatus: 'in_progress' | 'diagnostico_enviado' = outcome === 'auto_advance' ? 'in_progress' : 'diagnostico_enviado'
+      const updates: Record<string, unknown> = { status: nextStatus, quote_value: finalTotal }
+      if (nextStatus === 'in_progress') {
+        updates.busy_until = await computeRepairBusyUntil(selectedServices.map((s) => s.id), supabase)
+      }
       const { error: reqErr } = await supabase
         .from('service_requests')
-        .update({ status: 'diagnostico_enviado', quote_value: finalTotal })
+        .update(updates)
         .eq('id', request.id)
       if (reqErr) throw reqErr
 
-      // 4. Notify via WhatsApp (fire-and-forget)
+      // 4. Notify via WhatsApp (fire-and-forget) -- o texto certo (pergunta
+      //    de aprovação vs confirmação com tempo estimado) já vem do
+      //    template correspondente a cada evento.
       fetch(apiPath('/api/whatsapp/notify'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestId: request.id, event: 'diagnostico_enviado' }),
+        body: JSON.stringify({ requestId: request.id, event: nextStatus }),
       }).catch(() => {})
 
       setSaved(true)
-      onSaved('diagnostico_enviado')
+      onSaved(nextStatus)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar diagnóstico')
       setSavingPdf(false)

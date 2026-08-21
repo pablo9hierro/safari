@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import ServiceOrderPanel, { isServiceOrderStatus } from '@/components/ServiceOrderPanel'
 import DiagnosticSection from '@/components/DiagnosticSection'
 import { apiPath } from '@/lib/storeProxyLink'
+import { computeDiagnosisBusyUntil, computeRepairBusyUntil } from '@/lib/serviceLifecycle/busyUntil'
 import {
   X,
   Smartphone,
@@ -57,25 +58,44 @@ function getAdvanceConfig(
   quoteValue: string,
   paymentReady: boolean,
   selfPickup: boolean,
-  diagnosisRequested: boolean
+  diagnosisRequested: boolean,
+  estimatedQuoteValue: string,
 ): AdvanceConfig {
   switch (current) {
+    // "pending" não é mais destino de nenhum fluxo novo (a solicitação já
+    // nasce em retirada_local/em_busca) -- caso só existe pra dado legado
+    // antigo continuar avançável, sem UI própria dedicada.
     case 'pending':
-      if (diagnosisRequested) {
-        return {
-          type: 'single',
-          next: 'aguardando_diagnostico',
-          label: '🔍 Aceitar para diagnóstico físico',
-          ready: true,
-        }
-      }
       return {
         type: 'single',
-        next: 'accepted',
-        label: 'Aceitar orçamento e avançar',
-        ready: !!quoteValue,
-        blockedMessage: 'Preencha o valor do orçamento antes de avançar.',
+        next: diagnosisRequested ? 'aguardando_diagnostico' : 'in_progress',
+        label: diagnosisRequested ? '🔍 Aceitar para diagnóstico físico' : '🔧 Avançar para reparo',
+        ready: true,
       }
+
+    // Card de coleta (self_pickup) ou deslocamento (motoboy): é aqui que o
+    // lojista preenche o orçamento estimado (falado de boca) e a senha do
+    // cliente, no momento físico da coleta/recebimento. Sem orçamento
+    // estimado, não avança -- ele é a referência pra decidir depois, no
+    // diagnóstico, se o atendimento segue sozinho pro reparo ou espera
+    // aprovação do cliente (ver quoteDecision.ts).
+    case 'retirada_local':
+    case 'em_busca':
+      return diagnosisRequested
+        ? {
+            type: 'single',
+            next: 'aguardando_diagnostico',
+            label: '🔍 Enviar para diagnóstico físico',
+            ready: !!estimatedQuoteValue,
+            blockedMessage: 'Preencha o orçamento estimado antes de avançar.',
+          }
+        : {
+            type: 'single',
+            next: 'in_progress',
+            label: '🔧 Avançar para "Em reparo"',
+            ready: !!estimatedQuoteValue,
+            blockedMessage: 'Preencha o orçamento estimado antes de avançar.',
+          }
 
     case 'aguardando_diagnostico':
       return { type: 'diagnostic' }
@@ -84,7 +104,10 @@ function getAdvanceConfig(
       return {
         type: 'choice',
         options: [
-          { next: 'accepted', label: '✅ Cliente aprovou o orçamento' },
+          // Vai direto pro reparo -- "accepted" deixou de ser destino
+          // funcional dessa transição (só o mesmo aprovação-via-IA em
+          // store.ts::approveServiceQuote, mantido em paralelo).
+          { next: 'in_progress', label: '✅ Cliente aprovou o orçamento' },
           { next: 'cancelled', label: '❌ Cliente cancelou' },
         ],
         ready: true,
@@ -102,9 +125,6 @@ function getAdvanceConfig(
         ],
         ready: true,
       }
-    case 'retirada_local':
-    case 'em_busca':
-      return { type: 'single', next: 'in_progress', label: '🔧 Avançar para "Em reparo"', ready: true }
     case 'in_progress':
       return {
         type: 'single',
@@ -160,6 +180,21 @@ export default function RequestDetailModal({
 }) {
   const [status, setStatus] = useState<ServiceStatus>(request.status)
   const [quoteValue, setQuoteValue] = useState(request.quote_value?.toString() ?? '')
+  // Orçamento estimado: falado de boca na coleta -- referência pra decidir,
+  // depois do diagnóstico, se o atendimento segue sozinho pro reparo ou
+  // espera aprovação do cliente (real > estimado). Salvo assim que digitado
+  // (onBlur), não só no clique de avançar -- não fica preso a um submit só.
+  const [estimatedQuoteValue, setEstimatedQuoteValue] = useState(request.estimated_quote_value?.toString() ?? '')
+  const [savingEstimate, setSavingEstimate] = useState(false)
+  // Senha do cliente (PIN ou padrão de desenho) -- colapsável, salva em
+  // service_request_credentials (RLS restrita a authenticated, nunca lida
+  // pelo /consultar nem pela IA).
+  const [credentialsOpen, setCredentialsOpen] = useState(false)
+  const [credentialKind, setCredentialKind] = useState<'pin' | 'pattern'>('pin')
+  const [credentialValue, setCredentialValue] = useState('')
+  const [credentialSaved, setCredentialSaved] = useState(false)
+  const [savingCredential, setSavingCredential] = useState(false)
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -277,28 +312,9 @@ export default function RequestDetailModal({
       // serviços selecionados de verdade). Entrar num desses status recalcula
       // busy_until; sair (avançar além) libera a agenda.
       if (next === 'aguardando_diagnostico') {
-        const { data: diag } = await supabase
-          .from('service_catalog_items')
-          .select('duration_minutes')
-          .eq('repair_type', 'Diagnóstico')
-          .eq('active', true)
-          .limit(1)
-          .maybeSingle()
-        const minutes = diag?.duration_minutes ?? 30
-        updates.busy_until = new Date(Date.now() + minutes * 60_000).toISOString()
+        updates.busy_until = await computeDiagnosisBusyUntil(supabase)
       } else if (next === 'in_progress') {
-        const ids = request.selected_service_ids ?? []
-        let minutes = 60
-        if (ids.length > 0) {
-          const { data: services } = await supabase
-            .from('service_catalog_items')
-            .select('duration_minutes')
-            .in('id', ids)
-          if (services && services.length > 0) {
-            minutes = services.reduce((sum: number, s: { duration_minutes: number }) => sum + s.duration_minutes, 0)
-          }
-        }
-        updates.busy_until = new Date(Date.now() + minutes * 60_000).toISOString()
+        updates.busy_until = await computeRepairBusyUntil(request.selected_service_ids ?? [], supabase)
       } else {
         // Qualquer outra transição libera a bancada -- diagnóstico/reparo
         // não estão mais em andamento neste atendimento.
@@ -327,7 +343,47 @@ export default function RequestDetailModal({
     }
   }
 
-  const advance = getAdvanceConfig(status, osState, quoteValue, paymentSaved, !!request.self_pickup, !!request.diagnosis_requested)
+  const saveEstimatedQuote = async () => {
+    setSavingEstimate(true)
+    setError(null)
+    try {
+      const supabase = createClient()
+      const value = estimatedQuoteValue ? parseFloat(estimatedQuoteValue) : null
+      const { error: updateError } = await supabase
+        .from('service_requests')
+        .update({ estimated_quote_value: value })
+        .eq('id', request.id)
+      if (updateError) throw updateError
+      onUpdate({ ...request, estimated_quote_value: value })
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao salvar orçamento estimado')
+    } finally {
+      setSavingEstimate(false)
+    }
+  }
+
+  const saveCredential = async () => {
+    if (!credentialValue.trim()) return
+    setSavingCredential(true)
+    setError(null)
+    try {
+      const supabase = createClient()
+      const { error: upsertError } = await supabase
+        .from('service_request_credentials')
+        .upsert(
+          { service_request_id: request.id, kind: credentialKind, value: credentialValue.trim() },
+          { onConflict: 'service_request_id' },
+        )
+      if (upsertError) throw upsertError
+      setCredentialSaved(true)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao salvar senha do cliente')
+    } finally {
+      setSavingCredential(false)
+    }
+  }
+
+  const advance = getAdvanceConfig(status, osState, quoteValue, paymentSaved, !!request.self_pickup, !!request.diagnosis_requested, estimatedQuoteValue)
   const fullAddress = request.self_pickup
     ? 'Cliente vai levar/buscar o aparelho — sem coleta/entrega'
     : request.address_label
@@ -425,31 +481,105 @@ export default function RequestDetailModal({
             </div>
           </section>
 
-          {/* Orçamento */}
-          <section className="space-y-2">
-            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Orçamento</h3>
-            {status === 'pending' ? (
+          {/* Orçamento estimado + senha do cliente -- só na coleta/deslocamento,
+              momento físico em que o lojista tem essas informações em mãos. */}
+          {(status === 'retirada_local' || status === 'em_busca') && (
+            <section className="space-y-2">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Coleta do aparelho</h3>
               <div>
-                <label className="label">Valor do orçamento (R$)</label>
+                <label className="label">Orçamento estimado (R$) <span className="font-normal text-gray-400">— falado de boca, confirmado no diagnóstico</span></label>
                 <div className="relative">
                   <span className="absolute left-4 top-3.5 text-gray-400 font-medium">R$</span>
                   <input
                     type="number"
                     step="0.01"
                     min="0"
-                    value={quoteValue}
-                    onChange={(e) => setQuoteValue(e.target.value)}
+                    value={estimatedQuoteValue}
+                    onChange={(e) => setEstimatedQuoteValue(e.target.value)}
+                    onBlur={saveEstimatedQuote}
                     placeholder="0,00"
                     className="input-field pl-10"
                   />
                 </div>
+                {savingEstimate && <p className="text-xs text-gray-400 mt-1 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Salvando...</p>}
                 {!request.self_pickup && request.shipping_price && (
                   <p className="text-xs text-amber-600 mt-1.5">
                     Frete (coleta): R$ {Number(request.shipping_price).toFixed(2)} — será somado automaticamente ao total. A entrega/retirada é decidida e cobrada à parte quando o reparo terminar.
                   </p>
                 )}
               </div>
-            ) : (
+
+              {/* Senha do cliente — colapsável: clique abre o form; ao salvar,
+                  clique de novo revela o que foi cadastrado. */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setCredentialsOpen((v) => !v)}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <span className="flex items-center gap-1.5">🔒 Senha do cliente (PIN ou padrão)</span>
+                  <span className="text-gray-400 text-xs">{credentialsOpen ? '▲' : '▼'}</span>
+                </button>
+                {credentialsOpen && (
+                  <div className="px-3.5 pb-3.5 pt-1 space-y-2 border-t border-gray-100">
+                    {credentialSaved ? (
+                      <div className="bg-slate-50 rounded-xl p-3 flex items-center justify-between">
+                        <div>
+                          <p className="text-xs text-gray-500">{credentialKind === 'pin' ? 'PIN' : 'Padrão'} cadastrado</p>
+                          <p className="text-sm font-mono font-semibold text-gray-900">{credentialValue}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCredentialSaved(false)}
+                          className="text-xs text-gray-400 hover:text-gray-600"
+                        >
+                          Editar
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex gap-2">
+                          {(['pin', 'pattern'] as const).map((k) => (
+                            <button
+                              key={k}
+                              type="button"
+                              onClick={() => setCredentialKind(k)}
+                              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                                credentialKind === k ? 'border-vr-red bg-red-50 text-vr-red' : 'border-gray-200 text-gray-500'
+                              }`}
+                            >
+                              {k === 'pin' ? 'PIN numérico' : 'Padrão de desenho'}
+                            </button>
+                          ))}
+                        </div>
+                        <input
+                          type="text"
+                          value={credentialValue}
+                          onChange={(e) => setCredentialValue(e.target.value)}
+                          placeholder={credentialKind === 'pin' ? 'Ex: 1234' : 'Ex: cima, direita, baixo, esquerda'}
+                          className="input-field"
+                        />
+                        <button
+                          type="button"
+                          onClick={saveCredential}
+                          disabled={savingCredential || !credentialValue.trim()}
+                          className="w-full py-2 rounded-xl text-sm font-semibold bg-gray-900 text-white disabled:opacity-50"
+                        >
+                          {savingCredential ? 'Salvando...' : 'Salvar senha'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* Orçamento — leitura, fora da etapa de coleta (valor já vem do
+              diagnóstico ou de auto-avanço, ver quoteDecision.ts). */}
+          {status !== 'retirada_local' && status !== 'em_busca' && Number(quoteValue) > 0 && (
+            <section className="space-y-2">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Orçamento</h3>
               <div className="bg-slate-50 rounded-2xl p-4">
                 <p className="text-sm text-gray-600">
                   Valor atual: <span className="font-semibold text-gray-900">R$ {Number(quoteValue || 0).toFixed(2)}</span>
@@ -458,8 +588,8 @@ export default function RequestDetailModal({
                   <p className="text-xs text-gray-400 mt-0.5">Inclui frete (coleta): R$ {Number(request.shipping_price).toFixed(2)}</p>
                 )}
               </div>
-            )}
-          </section>
+            </section>
+          )}
 
           {/* Pagamento — formulário só durante o status "em pagamento" */}
           {status === 'em_pagamento' && (
@@ -637,14 +767,40 @@ export default function RequestDetailModal({
               </div>
             )}
 
-            {status === 'pending' && (
+            {(status === 'retirada_local' || status === 'em_busca') && (
               <button
-                onClick={() => handleAdvance('rejected')}
+                onClick={() => setCancelConfirmOpen(true)}
                 disabled={loading}
                 className="w-full text-sm font-medium text-red-600 border border-red-200 rounded-xl py-2 hover:bg-red-50 transition-colors disabled:opacity-50"
               >
-                Recusar orçamento
+                Cancelar solicitação
               </button>
+            )}
+
+            {cancelConfirmOpen && (
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl w-full max-w-sm p-5 space-y-3">
+                  <h3 className="font-bold text-gray-900">Cancelar solicitação?</h3>
+                  <p className="text-sm text-gray-500">
+                    O atendimento vai pro histórico como cancelado. Essa ação não pode ser desfeita.
+                  </p>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => setCancelConfirmOpen(false)}
+                      className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50"
+                    >
+                      Voltar
+                    </button>
+                    <button
+                      onClick={async () => { setCancelConfirmOpen(false); await handleAdvance('cancelled') }}
+                      disabled={loading}
+                      className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-semibold text-sm hover:bg-red-700 disabled:opacity-50"
+                    >
+                      Confirmar cancelamento
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
 
             {waError && (

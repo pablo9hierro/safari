@@ -225,8 +225,8 @@ async function consultarDiagnostico(id: string, telefone: string): Promise<strin
 
 async function aprovarOrcamento(id: string, telefone: string): Promise<string> {
   const s = await approveServiceQuote(id, telefone)
-  await notifyQuoteDecision(id, 'accepted')
-  return `ORÇAMENTO APROVADO: atendimento ${s.id} agora está com status "${STATUS_DESCRIPTION.accepted}". Cliente já foi avisado por WhatsApp.`
+  await notifyQuoteDecision(id, 'in_progress')
+  return `ORÇAMENTO APROVADO: atendimento ${s.id} agora está com status "${STATUS_DESCRIPTION.in_progress}". Cliente já foi avisado por WhatsApp.`
 }
 
 async function recusarOrcamento(id: string, telefone: string): Promise<string> {
