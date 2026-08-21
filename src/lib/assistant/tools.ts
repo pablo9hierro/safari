@@ -54,25 +54,46 @@ async function buscarProdutos(query: string): Promise<string> {
     .limit(8)
 
   if (error) return `Erro ao buscar produtos: ${error.message}`
-  if (!data || data.length === 0) {
-    // Try broader search in description
-    const { data: d2 } = await supabase
-      .from('products')
-      .select('id, name, price, description, quantity, active')
-      .eq('active', true)
-      .ilike('description', `%${query}%`)
-      .gt('quantity', 0)
-      .limit(5)
-    if (!d2 || d2.length === 0) return `Nenhum produto encontrado para "${query}".`
-    return formatProducts(d2)
-  }
-  return formatProducts(data)
+  if (data && data.length > 0) return formatProducts(data)
+
+  // Try broader search in description
+  const { data: d2 } = await supabase
+    .from('products')
+    .select('id, name, price, description, quantity, active')
+    .eq('active', true)
+    .ilike('description', `%${query}%`)
+    .gt('quantity', 0)
+    .limit(5)
+  if (d2 && d2.length > 0) return formatProducts(d2)
+
+  // Cliente descreveu o problema em vez do nome do produto -- tags de
+  // busca (geradas por IA no cadastro) cobrem sinônimo/sintoma. Catálogo é
+  // pequeno, filtra em JS em vez de brigar com operador de array do
+  // PostgREST pra substring parcial dentro de cada tag.
+  const term = query.trim().toLowerCase()
+  const { data: d3 } = await supabase
+    .from('products')
+    .select('id, name, price, description, quantity, active, tags')
+    .eq('active', true)
+    .gt('quantity', 0)
+    .limit(200)
+  const byTag = (d3 ?? []).filter((p) => (p.tags ?? []).some((t: string) => t.includes(term) || term.includes(t)))
+  if (byTag.length > 0) return formatProducts(byTag.slice(0, 8))
+
+  return `Nenhum produto encontrado para "${query}".`
 }
 
 function formatProducts(products: { id: string; name: string; price: number; description: string | null; quantity: number }[]) {
   return products.map((p) =>
     `- ${p.name} | R$ ${Number(p.price).toFixed(2).replace('.', ',')} | Estoque: ${p.quantity} | ID: ${p.id}${p.description ? `\n  ${p.description}` : ''}`
   ).join('\n')
+}
+
+function formatServices(rows: { id: string; model_name: string; repair_type: string; price: number; description: string | null; service_catalog_categories?: unknown }[]) {
+  return rows.map((s) => {
+    const cat = (s.service_catalog_categories as unknown as { name: string } | null)?.name ?? ''
+    return `- ${cat} ${s.model_name} | ${s.repair_type} | R$ ${Number(s.price).toFixed(2).replace('.', ',')} | ID: ${s.id}${s.description ? `\n  ${s.description}` : ''}`
+  }).join('\n')
 }
 
 async function buscarServicos(query: string): Promise<string> {
@@ -86,12 +107,20 @@ async function buscarServicos(query: string): Promise<string> {
     .limit(10)
 
   if (error) return `Erro ao buscar serviços: ${error.message}`
-  if (!data || data.length === 0) return `Nenhum serviço encontrado para "${query}".`
+  if (data && data.length > 0) return formatServices(data)
 
-  return data.map((s) => {
-    const cat = (s.service_catalog_categories as unknown as { name: string } | null)?.name ?? ''
-    return `- ${cat} ${s.model_name} | ${s.repair_type} | R$ ${Number(s.price).toFixed(2).replace('.', ',')} | ID: ${s.id}${s.description ? `\n  ${s.description}` : ''}`
-  }).join('\n')
+  // Mesma lógica de fallback por tags do buscarProdutos -- cliente
+  // descreveu sintoma/problema em vez do nome do serviço.
+  const term = query.trim().toLowerCase()
+  const { data: d2 } = await supabase
+    .from('service_catalog_items')
+    .select('id, model_name, repair_type, price, description, active, tags, service_catalog_categories(name)')
+    .eq('active', true)
+    .limit(200)
+  const byTag = (d2 ?? []).filter((s) => (s.tags ?? []).some((t: string) => t.includes(term) || term.includes(t)))
+  if (byTag.length > 0) return formatServices(byTag.slice(0, 10))
+
+  return `Nenhum serviço encontrado para "${query}".`
 }
 
 async function consultarPedido(phone: string): Promise<string> {

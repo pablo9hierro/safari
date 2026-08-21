@@ -18,6 +18,7 @@ type EcommerceProductDto = {
   active: boolean
   phone_brand: string | null
   phone_model: string | null
+  tags?: string[]
 }
 
 function toProduct(dto: EcommerceProductDto): Product {
@@ -35,6 +36,7 @@ function toProduct(dto: EcommerceProductDto): Product {
     created_at: '',
     updated_at: '',
     product_categories: dto.category_name ? { name: dto.category_name } : null,
+    tags: dto.tags,
   }
 }
 
@@ -60,6 +62,7 @@ type EcommerceServiceDto = {
   available_quantity: number | null
   model_name: string | null
   repair_type: string | null
+  tags?: string[]
 }
 
 export type CatalogCategory = {
@@ -79,6 +82,7 @@ export type CatalogItem = {
   description: string | null
   image_url: string | null
   sort_order: number
+  tags?: string[]
 }
 
 function slugify(s: string) {
@@ -116,6 +120,7 @@ export async function fetchServiceCatalog(): Promise<{ categories: CatalogCatego
       description: s.description || null,
       image_url: null,
       sort_order: i,
+      tags: s.tags,
     }))
 
   return { categories, items }

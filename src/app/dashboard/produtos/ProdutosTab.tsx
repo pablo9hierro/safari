@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { apiPath } from '@/lib/storeProxyLink'
 import { Product, ProductCategory } from '@/lib/types'
 import { Package, Search, X, Pencil, Trash2, Loader2, ImagePlus, ChevronDown, ChevronRight } from 'lucide-react'
 
@@ -192,6 +193,14 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
     setProducts((prev) => [...prev, created as Product].sort((a, b) => a.name.localeCompare(b.name)))
     resetForm()
     setCreating(false)
+
+    // Tags de busca (IA) geram em background -- não trava o cadastro nem
+    // aparecem pro cliente, só alimentam busca/assistente (ver AccordionTags).
+    fetch(apiPath('/api/catalog/tags'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'product', id: created.id }),
+    }).catch(() => {})
   }
 
   const openEdit = (product: Product) => {

@@ -6,6 +6,7 @@ import { Logo } from '@/components/ui'
 import { ShoppingBag, Plus, Minus, Package, ArrowLeft } from 'lucide-react'
 import { useCart } from '@/lib/carrinho/context'
 import { StoreLink, useStoreProxyPrefix } from '@/lib/storeProxyLink'
+import AccordionTags from '@/components/AccordionTags'
 
 function currency(v: number) {
   return `R$ ${v.toFixed(2).replace('.', ',')}`
@@ -167,6 +168,7 @@ export default function LojaClient({ initialProducts }: { initialProducts: Produ
                         Adicionar
                       </button>
                     )}
+                    <AccordionTags tags={product.tags} />
                   </div>
                 </div>
               )

@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { BookOpen, Plus, Trash2, Loader2, Check, ExternalLink, Search, X, Wrench, Pencil, DollarSign } from 'lucide-react'
-import { AdminToStoreLink } from '@/lib/storeProxyLink'
+import { AdminToStoreLink, apiPath } from '@/lib/storeProxyLink'
 import type { StockItem } from '@/lib/types'
 import Dialog from '@/components/ui/Dialog'
 
@@ -254,6 +254,13 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
       .select()
       .single()
     if (error || !data) { setSavingItem(false); return }
+
+    // Tags de busca (IA) geram em background -- ver AccordionTags no card.
+    fetch(apiPath('/api/catalog/tags'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'service', id: data.id }),
+    }).catch(() => {})
 
     let parts: ItemPart[] = []
     if (selectedParts.length > 0) {

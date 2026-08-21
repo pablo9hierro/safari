@@ -205,6 +205,8 @@ export interface Product {
   created_at: string
   updated_at: string
   product_categories?: { name: string } | null
+  /** Tags de busca geradas por IA -- nunca aparecem soltas, só dentro do accordion recolhido do card. */
+  tags?: string[]
 }
 
 export type StoreOrderStatus = 'pendente' | 'vendido' | 'recusado'

@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import type { CatalogCategory, CatalogItem } from './page'
 import { Search, Wrench, ShoppingCart, Check, Battery, Smartphone, Camera, Zap } from 'lucide-react'
 import { useCart } from '@/lib/carrinho/context'
+import AccordionTags from '@/components/AccordionTags'
 
 interface Props {
   categories: CatalogCategory[]
@@ -268,6 +269,7 @@ export default function CatalogoClient({ categories, items }: Props) {
                               <><ShoppingCart className="w-3.5 h-3.5" /> Adicionar ao carrinho</>
                             )}
                           </button>
+                          <AccordionTags tags={item.tags} dark />
                         </div>
                       </div>
                     )
