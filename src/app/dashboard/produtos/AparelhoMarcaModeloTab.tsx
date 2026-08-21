@@ -53,6 +53,10 @@ export default function AparelhoMarcaModeloTab({
   const [modelBrandId, setModelBrandId] = useState('')
   const [savingModel, setSavingModel] = useState(false)
 
+  // Confirmação de exclusão (compartilhada pelos 3 tipos)
+  const [confirmDelete, setConfirmDelete] = useState<{ kind: 'device' | 'brand' | 'model'; id: string; name: string } | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
   const openNewDevice = () => { setEditingDevice(null); setDeviceName(''); setDeviceDialogOpen(true) }
   const openEditDevice = (d: DeviceType) => { setEditingDevice(d); setDeviceName(d.name); setDeviceDialogOpen(true) }
 
@@ -78,7 +82,7 @@ export default function AparelhoMarcaModeloTab({
     setDeviceDialogOpen(false)
   }
 
-  const deleteDevice = async (id: string) => {
+  const confirmDeleteDevice = async (id: string) => {
     const supabase = createClient()
     await supabase.from('device_types').delete().eq('id', id)
     setDeviceTypes((prev) => prev.filter((d) => d.id !== id))
@@ -113,7 +117,7 @@ export default function AparelhoMarcaModeloTab({
     setBrandDialogOpen(false)
   }
 
-  const deleteBrand = async (id: string) => {
+  const confirmDeleteBrand = async (id: string) => {
     const supabase = createClient()
     await supabase.from('service_catalog_categories').delete().eq('id', id)
     setCategories((prev) => prev.filter((c) => c.id !== id))
@@ -149,10 +153,20 @@ export default function AparelhoMarcaModeloTab({
     setModelDialogOpen(false)
   }
 
-  const deleteModel = async (id: string) => {
+  const confirmDeleteModel = async (id: string) => {
     const supabase = createClient()
     await supabase.from('catalog_models').delete().eq('id', id)
     setModels((prev) => prev.filter((m) => m.id !== id))
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!confirmDelete) return
+    setDeleting(true)
+    if (confirmDelete.kind === 'device') await confirmDeleteDevice(confirmDelete.id)
+    else if (confirmDelete.kind === 'brand') await confirmDeleteBrand(confirmDelete.id)
+    else await confirmDeleteModel(confirmDelete.id)
+    setDeleting(false)
+    setConfirmDelete(null)
   }
 
   return (
@@ -175,7 +189,7 @@ export default function AparelhoMarcaModeloTab({
             <div key={d.id} className="flex items-center gap-1 bg-vr-black border border-white/10 rounded-lg px-3 py-1.5">
               <span className="text-sm text-white">{d.name}</span>
               <button onClick={() => openEditDevice(d)} className="text-vr-silver/30 hover:text-vr-red transition-colors ml-1"><Pencil className="w-3 h-3" /></button>
-              <button onClick={() => deleteDevice(d.id)} className="text-vr-silver/30 hover:text-red-400 transition-colors"><Trash2 className="w-3 h-3" /></button>
+              <button onClick={() => setConfirmDelete({ kind: 'device', id: d.id, name: d.name })} className="text-vr-silver/30 hover:text-red-400 transition-colors"><Trash2 className="w-3 h-3" /></button>
             </div>
           ))}
           {deviceTypes.length === 0 && <p className="text-xs text-vr-silver/40">Nenhum aparelho cadastrado.</p>}
@@ -196,7 +210,7 @@ export default function AparelhoMarcaModeloTab({
               <span className="text-sm text-white">{cat.name}</span>
               <span className="text-[10px] text-vr-silver/40">{deviceTypes.find((d) => d.id === cat.device_type_id)?.name ?? '—'}</span>
               <button onClick={() => openEditBrand(cat)} className="text-vr-silver/30 hover:text-vr-red transition-colors ml-1"><Pencil className="w-3 h-3" /></button>
-              <button onClick={() => deleteBrand(cat.id)} className="text-vr-silver/30 hover:text-red-400 transition-colors"><Trash2 className="w-3 h-3" /></button>
+              <button onClick={() => setConfirmDelete({ kind: 'brand', id: cat.id, name: cat.name })} className="text-vr-silver/30 hover:text-red-400 transition-colors"><Trash2 className="w-3 h-3" /></button>
             </div>
           ))}
           {categories.length === 0 && <p className="text-xs text-vr-silver/40">Nenhuma marca cadastrada.</p>}
@@ -217,7 +231,7 @@ export default function AparelhoMarcaModeloTab({
               <span className="text-sm text-white">{m.name}</span>
               <span className="text-[10px] text-vr-silver/40">{categories.find((c) => c.id === m.brand_id)?.name ?? '—'}</span>
               <button onClick={() => openEditModel(m)} className="text-vr-silver/30 hover:text-vr-red transition-colors ml-1"><Pencil className="w-3 h-3" /></button>
-              <button onClick={() => deleteModel(m.id)} className="text-vr-silver/30 hover:text-red-400 transition-colors"><Trash2 className="w-3 h-3" /></button>
+              <button onClick={() => setConfirmDelete({ kind: 'model', id: m.id, name: m.name })} className="text-vr-silver/30 hover:text-red-400 transition-colors"><Trash2 className="w-3 h-3" /></button>
             </div>
           ))}
           {models.length === 0 && <p className="text-xs text-vr-silver/40">Nenhum modelo cadastrado.</p>}
@@ -263,6 +277,27 @@ export default function AparelhoMarcaModeloTab({
             {savingModel ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
             {savingModel ? 'Salvando…' : 'Salvar'}
           </button>
+        </div>
+      </Dialog>
+
+      <Dialog open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Confirmar exclusão">
+        <div className="space-y-3">
+          <p className="text-sm text-vr-silver/70">
+            Tem certeza que deseja excluir <strong className="text-white">{confirmDelete?.name}</strong>?
+            {confirmDelete?.kind === 'brand' && ' Os modelos cadastrados nessa marca também serão removidos.'}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => setConfirmDelete(null)} className="flex-1 text-sm font-semibold text-vr-silver/60 hover:text-white px-3 py-2.5 rounded-xl bg-vr-black border border-white/10">
+              Cancelar
+            </button>
+            <button
+              onClick={handleConfirmDelete}
+              disabled={deleting}
+              className="flex-1 flex items-center justify-center gap-2 text-sm font-semibold bg-red-600 hover:bg-red-700 text-white rounded-xl px-3 py-2.5 disabled:opacity-50"
+            >
+              {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Excluir
+            </button>
+          </div>
         </div>
       </Dialog>
     </div>
