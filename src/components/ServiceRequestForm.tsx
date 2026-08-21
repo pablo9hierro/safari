@@ -5,10 +5,10 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { serviceRequestSchema, ServiceRequestSchema } from '@/lib/validations'
 import { createClient } from '@/lib/supabase/client'
-import { ServiceCatalogCategory, ServiceCatalogItem } from '@/lib/types'
+import { DeviceType, ServiceCatalogCategory, ServiceCatalogItem } from '@/lib/types'
 import dynamic from 'next/dynamic'
 import type { LocationPickerResult } from '@/components/LocationPicker'
-import { apiPath } from '@/lib/storeProxyLink'
+import { apiPath, StoreLink } from '@/lib/storeProxyLink'
 import PickupOnlyNotice from '@/components/PickupOnlyNotice'
 import {
   Smartphone,
@@ -22,14 +22,25 @@ import {
   MessageCircle,
   Truck,
   HelpCircle,
-  Search,
   Battery,
   Camera,
   Zap,
   Check,
+  Tablet,
+  Laptop,
+  Monitor,
+  ChevronLeft,
+  LayoutGrid,
 } from 'lucide-react'
 
 const LocationPicker = dynamic(() => import('@/components/LocationPicker'), { ssr: false })
+
+const DEVICE_TYPES: { key: DeviceType; label: string; icon: React.ReactNode }[] = [
+  { key: 'celular', label: 'Celular', icon: <Smartphone className="w-6 h-6" /> },
+  { key: 'tablet', label: 'Tablet', icon: <Tablet className="w-6 h-6" /> },
+  { key: 'notebook', label: 'Notebook', icon: <Laptop className="w-6 h-6" /> },
+  { key: 'computador', label: 'Computador', icon: <Monitor className="w-6 h-6" /> },
+]
 
 const INPUT = 'w-full px-4 py-3 rounded-xl border border-white/10 bg-vr-black text-white placeholder-white/25 focus:border-vr-red/60 focus:ring-1 focus:ring-vr-red/10 outline-none transition-all duration-200'
 const LABEL = 'block text-sm font-semibold text-vr-silver/80 mb-1.5'
@@ -58,8 +69,13 @@ export default function ServiceRequestForm({
   const [brands, setBrands] = useState<ServiceCatalogCategory[]>([])
   const [catalogItems, setCatalogItems] = useState<ServiceCatalogItem[]>([])
   const [loadingCatalog, setLoadingCatalog] = useState(false)
+  // Wizard sequencial: tipo de aparelho -> marca -> modelo -> serviços do
+  // modelo. Cada etapa some quando a próxima é escolhida (troca de ícone),
+  // com "Voltar" pra revisar -- nunca mostra marca sem tipo escolhido, nem
+  // serviço sem modelo escolhido.
+  const [selectedDeviceType, setSelectedDeviceType] = useState<DeviceType | null>(null)
   const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null)
-  const [catalogSearch, setCatalogSearch] = useState('')
+  const [selectedModelName, setSelectedModelName] = useState<string | null>(null)
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([])
   const [diagnosisMode, setDiagnosisMode] = useState(false)
 
@@ -110,22 +126,32 @@ export default function ServiceRequestForm({
   }
   const repairIcon = (rt: string) => REPAIR_ICONS[rt] ?? <Wrench className="w-4 h-4" />
 
-  // Items por marca + busca, agrupados por modelo (estilo CatalogoClient)
-  const byModel = useMemo(() => {
-    if (!selectedBrandId) return new Map<string, ServiceCatalogItem[]>()
-    const q = catalogSearch.trim().toLowerCase()
-    const brandItems = catalogItems.filter((i) =>
-      i.category_id === selectedBrandId &&
-      (!q || i.model_name.toLowerCase().includes(q) || i.repair_type.toLowerCase().includes(q))
-    )
-    const map = new Map<string, ServiceCatalogItem[]>()
-    for (const item of brandItems) {
-      const list = map.get(item.model_name) ?? []
-      list.push(item)
-      map.set(item.model_name, list)
-    }
-    return map
-  }, [catalogItems, selectedBrandId, catalogSearch])
+  // Marcas do tipo de aparelho escolhido -- "Diagnóstico" (device_type
+  // 'outro') nunca aparece aqui, é um serviço avulso, não um aparelho.
+  const brandsForType = useMemo(
+    () => brands.filter((b) => b.device_type === selectedDeviceType),
+    [brands, selectedDeviceType],
+  )
+
+  // Modelos únicos da marca escolhida (estilo CatalogoClient).
+  const modelList = useMemo(() => {
+    if (!selectedBrandId) return []
+    const seen = new Set<string>()
+    return catalogItems
+      .filter((i) => i.category_id === selectedBrandId)
+      .reduce<string[]>((acc, i) => {
+        if (!seen.has(i.model_name)) { seen.add(i.model_name); acc.push(i.model_name) }
+        return acc
+      }, [])
+      .sort()
+  }, [catalogItems, selectedBrandId])
+
+  // Serviços só aparecem depois de aparelho+marca+modelo escolhidos --
+  // nunca lista serviço sem saber do que é.
+  const servicesForModel = useMemo(() => {
+    if (!selectedBrandId || !selectedModelName) return []
+    return catalogItems.filter((i) => i.category_id === selectedBrandId && i.model_name === selectedModelName)
+  }, [catalogItems, selectedBrandId, selectedModelName])
 
   // Running total of selected services
   const estimatedTotal = useMemo(
@@ -321,7 +347,7 @@ export default function ServiceRequestForm({
           onClick={() => {
             setSubmitted(false); setStep(1); setImageFile(null); setImagePreview(null)
             setLocation(null); setSubmittedPhone(''); setSelectedServiceIds([])
-            setSelectedBrandId(null); setCatalogSearch(''); setDiagnosisMode(false)
+            setSelectedDeviceType(null); setSelectedBrandId(null); setSelectedModelName(null); setDiagnosisMode(false)
           }}
           className="text-sm text-vr-silver/40 hover:text-vr-silver/70 transition-colors"
         >
@@ -404,8 +430,9 @@ export default function ServiceRequestForm({
                   setDiagnosisMode(checked)
                   setValue('diagnosis_requested', checked)
                   if (checked) {
+                    setSelectedDeviceType(null)
                     setSelectedBrandId(null)
-                    setCatalogSearch('')
+                    setSelectedModelName(null)
                     setSelectedServiceIds([])
                     setValue('phone_model', undefined)
                   }
@@ -421,7 +448,7 @@ export default function ServiceRequestForm({
               </div>
             </label>
 
-            {/* Seletor de marca → modelo → serviços (oculto no modo diagnóstico) */}
+            {/* Wizard sequencial: tipo -> marca -> modelo -> serviços (oculto no modo diagnóstico) */}
             {!diagnosisMode && (
               <>
                 {loadingCatalog ? (
@@ -431,113 +458,185 @@ export default function ServiceRequestForm({
                   </div>
                 ) : brands.length > 0 ? (
                   <>
-                    {/* Tabs de marca — estilo idêntico ao catálogo */}
-                    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                      {brands.map((b) => (
-                        <button
-                          key={b.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedBrandId(b.id)
-                            setSelectedServiceIds([])
-                            setCatalogSearch('')
-                            setValue('phone_model', undefined)
-                          }}
-                          className={`shrink-0 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all
-                            ${selectedBrandId === b.id
-                              ? 'bg-vr-red text-white shadow-lg shadow-vr-red/20'
-                              : 'bg-vr-graphite border border-white/5 text-vr-silver hover:border-vr-red/30'
-                            }`}
-                        >
-                          {b.name}
-                        </button>
-                      ))}
-                    </div>
+                    {/* Etapa 1: tipo de aparelho */}
+                    {!selectedDeviceType && (
+                      <div>
+                        <p className="text-xs font-semibold text-vr-silver/60 mb-2">Que tipo de aparelho é?</p>
+                        <div className="grid grid-cols-4 gap-2">
+                          {DEVICE_TYPES.map((d) => (
+                            <button
+                              key={d.key}
+                              type="button"
+                              onClick={() => setSelectedDeviceType(d.key)}
+                              className="flex flex-col items-center gap-1.5 py-4 rounded-xl bg-vr-graphite border border-white/5 text-vr-silver hover:border-vr-red/40 hover:text-white transition-all"
+                            >
+                              {d.icon}
+                              <span className="text-[11px] font-semibold">{d.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
-                    {/* Busca + serviços agrupados por modelo */}
-                    {selectedBrandId && (
+                    {/* Etapa 2: marca (só depois do tipo escolhido) */}
+                    {selectedDeviceType && !selectedBrandId && (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDeviceType(null)}
+                          className="flex items-center gap-1 text-xs text-vr-silver/50 hover:text-white mb-2"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" /> Trocar tipo de aparelho
+                        </button>
+                        {brandsForType.length === 0 ? (
+                          <p className="text-center text-vr-silver/40 text-sm py-4">
+                            Ainda não temos marcas cadastradas pra esse tipo de aparelho.
+                          </p>
+                        ) : (
+                          <>
+                            <p className="text-xs font-semibold text-vr-silver/60 mb-2">Qual a marca?</p>
+                            <div className="grid grid-cols-3 gap-2">
+                              {brandsForType.map((b) => (
+                                <button
+                                  key={b.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedBrandId(b.id)
+                                    setSelectedModelName(null)
+                                    setSelectedServiceIds([])
+                                    setValue('phone_model', undefined)
+                                  }}
+                                  className="flex flex-col items-center gap-1.5 py-4 rounded-xl bg-vr-graphite border border-white/5 text-vr-silver hover:border-vr-red/40 hover:text-white transition-all"
+                                >
+                                  <Smartphone className="w-5 h-5" />
+                                  <span className="text-[11px] font-semibold">{b.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Etapa 3: modelo (só depois da marca escolhida) */}
+                    {selectedBrandId && !selectedModelName && (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => { setSelectedBrandId(null); setSelectedServiceIds([]) }}
+                          className="flex items-center gap-1 text-xs text-vr-silver/50 hover:text-white mb-2"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" /> Trocar marca
+                        </button>
+                        {modelList.length === 0 ? (
+                          <p className="text-center text-vr-silver/40 text-sm py-4">Nenhum modelo cadastrado pra essa marca ainda.</p>
+                        ) : (
+                          <>
+                            <p className="text-xs font-semibold text-vr-silver/60 mb-2">Qual o modelo?</p>
+                            <div className="flex flex-wrap gap-2">
+                              {modelList.map((m) => (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedModelName(m)
+                                    setValue('phone_model', m)
+                                  }}
+                                  className="px-3.5 py-2 rounded-xl text-sm font-semibold bg-vr-graphite border border-white/5 text-vr-silver hover:border-vr-red/40 hover:text-white transition-all"
+                                >
+                                  {m}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Etapa 4: serviços sugeridos pro modelo escolhido */}
+                    {selectedBrandId && selectedModelName && (
                       <>
-                        <div className="relative">
-                          <Search className="w-4 h-4 text-vr-silver/40 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                          <input
-                            value={catalogSearch}
-                            onChange={(e) => setCatalogSearch(e.target.value)}
-                            placeholder="Buscar modelo ou tipo de reparo..."
-                            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-vr-graphite border border-white/5 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red/40 transition-colors"
-                          />
+                        <button
+                          type="button"
+                          onClick={() => { setSelectedModelName(null); setSelectedServiceIds([]); setValue('phone_model', undefined) }}
+                          className="flex items-center gap-1 text-xs text-vr-silver/50 hover:text-white"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" /> Trocar modelo
+                        </button>
+
+                        <div className="flex items-center gap-2">
+                          <div className="w-10 h-10 rounded-xl bg-vr-graphite border border-white/10 shrink-0 flex items-center justify-center">
+                            <Smartphone className="w-5 h-5 text-vr-silver/30" />
+                          </div>
+                          <div>
+                            <h4 className="text-white font-bold text-sm">{selectedModelName}</h4>
+                            <p className="text-vr-silver/40 text-xs">
+                              {servicesForModel.length} serviço{servicesForModel.length !== 1 ? 's' : ''} sugerido{servicesForModel.length !== 1 ? 's' : ''}
+                            </p>
+                          </div>
                         </div>
 
-                        {byModel.size === 0 ? (
-                          <p className="text-center text-vr-silver/40 text-sm py-4">Nenhum serviço encontrado.</p>
+                        {servicesForModel.length === 0 ? (
+                          <p className="text-center text-vr-silver/40 text-sm py-4">Nenhum serviço cadastrado pra esse modelo ainda.</p>
                         ) : (
-                          <div className="space-y-6 max-h-[420px] overflow-y-auto pr-0.5">
-                            {Array.from(byModel.entries()).map(([modelName, modelItems]) => (
-                              <section key={modelName}>
-                                {/* Cabeçalho do modelo */}
-                                <div className="flex items-center gap-2 mb-3">
-                                  <div className="w-10 h-10 rounded-xl bg-vr-graphite border border-white/10 shrink-0 flex items-center justify-center">
-                                    <Smartphone className="w-5 h-5 text-vr-silver/30" />
+                          <div className="grid grid-cols-2 gap-2.5">
+                            {servicesForModel.map((item) => {
+                              const sel = selectedServiceIds.includes(item.id)
+                              return (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() => toggleService(item)}
+                                  className={`bg-vr-graphite border rounded-2xl p-3.5 text-left transition-all group
+                                    ${sel
+                                      ? 'border-vr-red'
+                                      : 'border-white/5 hover:border-vr-red/30'
+                                    }`}
+                                >
+                                  <div className="flex items-start justify-between gap-2 mb-2">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <span className="text-vr-red shrink-0">{repairIcon(item.repair_type)}</span>
+                                      <span className="text-xs font-bold text-white leading-tight line-clamp-2">
+                                        {item.repair_type}
+                                      </span>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <h4 className="text-white font-bold text-sm">{modelName}</h4>
-                                    <p className="text-vr-silver/40 text-xs">
-                                      {modelItems.length} serviço{modelItems.length !== 1 ? 's' : ''}
+                                  {item.description && (
+                                    <p className="text-[10px] text-vr-silver/55 leading-snug mb-2 line-clamp-2">
+                                      {item.description}
                                     </p>
+                                  )}
+                                  <div className="flex items-center justify-between mt-auto">
+                                    <span className="text-vr-red font-black text-sm whitespace-nowrap">
+                                      R$ {Number(item.price).toFixed(2).replace('.', ',')}
+                                    </span>
                                   </div>
-                                </div>
-
-                                {/* Cards de reparo em grade */}
-                                <div className="grid grid-cols-2 gap-2.5">
-                                  {modelItems.map((item) => {
-                                    const sel = selectedServiceIds.includes(item.id)
-                                    return (
-                                      <button
-                                        key={item.id}
-                                        type="button"
-                                        onClick={() => toggleService(item)}
-                                        className={`bg-vr-graphite border rounded-2xl p-3.5 text-left transition-all group
-                                          ${sel
-                                            ? 'border-vr-red'
-                                            : 'border-white/5 hover:border-vr-red/30'
-                                          }`}
-                                      >
-                                        <div className="flex items-start justify-between gap-2 mb-2">
-                                          <div className="flex items-center gap-1.5 min-w-0">
-                                            <span className="text-vr-red shrink-0">{repairIcon(item.repair_type)}</span>
-                                            <span className="text-xs font-bold text-white leading-tight line-clamp-2">
-                                              {item.repair_type}
-                                            </span>
-                                          </div>
-                                        </div>
-                                        {item.description && (
-                                          <p className="text-[10px] text-vr-silver/55 leading-snug mb-2 line-clamp-2">
-                                            {item.description}
-                                          </p>
-                                        )}
-                                        <div className="flex items-center justify-between mt-auto">
-                                          <span className="text-vr-red font-black text-sm whitespace-nowrap">
-                                            R$ {Number(item.price).toFixed(2).replace('.', ',')}
-                                          </span>
-                                        </div>
-                                        <div className={`w-full flex items-center justify-center gap-1 py-2 rounded-xl text-[11px] font-semibold mt-2 transition-all
-                                          ${sel
-                                            ? 'bg-vr-red text-white'
-                                            : 'bg-vr-black border border-white/10 text-vr-silver hover:border-vr-red/40 hover:text-white'
-                                          }`}
-                                        >
-                                          {sel
-                                            ? <><Check className="w-3.5 h-3.5" /> Selecionado</>
-                                            : 'Selecionar'
-                                          }
-                                        </div>
-                                      </button>
-                                    )
-                                  })}
-                                </div>
-                              </section>
-                            ))}
+                                  <div className={`w-full flex items-center justify-center gap-1 py-2 rounded-xl text-[11px] font-semibold mt-2 transition-all
+                                    ${sel
+                                      ? 'bg-vr-red text-white'
+                                      : 'bg-vr-black border border-white/10 text-vr-silver hover:border-vr-red/40 hover:text-white'
+                                    }`}
+                                  >
+                                    {sel
+                                      ? <><Check className="w-3.5 h-3.5" /> Selecionado</>
+                                      : 'Selecionar'
+                                    }
+                                  </div>
+                                </button>
+                              )
+                            })}
                           </div>
                         )}
+
+                        {/* Link pro catálogo de serviços completo -- caso o cliente
+                            queira ver mais opções fora do que foi sugerido aqui. */}
+                        <StoreLink
+                          href="/catalogo-servico"
+                          className="flex items-center justify-center gap-1.5 text-xs font-semibold text-vr-silver/60 border border-white/10 rounded-xl py-2.5 hover:border-vr-red/40 hover:text-white transition-colors"
+                        >
+                          <LayoutGrid className="w-3.5 h-3.5" />
+                          Ver catálogo de serviços completo
+                        </StoreLink>
 
                         {/* Total estimado */}
                         {selectedServiceIds.length > 0 && (

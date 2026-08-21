@@ -277,14 +277,14 @@ export default function ServiceOrderPanel({
       .channel(`service_order_${order.id}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'service_order_updates', filter: `service_order_id=eq.${order.id}` },
+        { event: 'INSERT', schema: 'vrtech', table: 'service_order_updates', filter: `service_order_id=eq.${order.id}` },
         ({ new: row }) => {
           setUpdates((prev) => (prev.some((u) => u.id === row.id) ? prev : [...prev, row as ServiceOrderUpdate]))
         }
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'service_orders', filter: `id=eq.${order.id}` },
+        { event: 'UPDATE', schema: 'vrtech', table: 'service_orders', filter: `id=eq.${order.id}` },
         ({ new: row }) => {
           setOrder(row as ServiceOrder)
         }

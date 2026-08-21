@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import type { AnchorHTMLAttributes } from 'react'
 
 /**
@@ -86,13 +87,23 @@ export function AdminLink({
   onClick,
   ...rest
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
+  // Achado real: calcular o prefixo só dentro do onClick tem uma janela de
+  // corrida genuína -- se o clique acontece antes do React terminar de
+  // hidratar (comum em conexão lenta, ou simplesmente um clique rápido
+  // logo após a página aparecer), o listener ainda não está anexado e o
+  // navegador segue o href CRU (sem prefixo), aterrissando na página
+  // errada da plataforma (tela em branco). Inicializador preguiçoso do
+  // useState roda de forma síncrona já na primeira renderização do
+  // cliente -- não elimina 100% (impossível sem o servidor saber o path
+  // externo por trás do rewrite), mas fecha a janela quase inteira.
+  const [prefix] = useState(currentAdminPrefix)
+  const resolvedHref = prefix ? resolveAdminHref(prefix, href) : href
   return (
     <a
-      href={href}
+      href={resolvedHref}
       onClick={(e) => {
         onClick?.(e)
         if (e.defaultPrevented) return
-        const prefix = currentAdminPrefix()
         if (!prefix) return
         e.preventDefault()
         window.location.href = resolveAdminHref(prefix, href)
@@ -121,16 +132,20 @@ export function AdminToStoreLink({
   onClick,
   ...rest
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
+  const [adminPrefix] = useState(currentAdminPrefix)
   return (
     <a
-      href={href}
+      href={adminPrefix ? resolveHref(STORE_PREFIX, href) : href}
+      target={adminPrefix ? '_blank' : undefined}
+      rel={adminPrefix ? 'noreferrer' : undefined}
       onClick={(e) => {
         onClick?.(e)
         if (e.defaultPrevented) return
-        if (!currentAdminPrefix()) return
-        e.preventDefault()
-        const target = window.open(resolveHref(STORE_PREFIX, href), '_blank', 'noreferrer')
-        void target
+        if (!adminPrefix) return
+        // href já aponta pro destino certo (resolvido no render) -- só
+        // deixa o comportamento padrão de <a target="_blank"> acontecer,
+        // sem window.open manual (evita popup-blocker em alguns browsers
+        // quando a chamada não está mais no mesmo tick síncrono do clique).
       }}
       {...rest}
     />
@@ -163,13 +178,23 @@ export function StoreLink({
   onClick,
   ...rest
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
+  // Achado real (confirmado com clique de verdade em produção): resolver
+  // só no onClick tem uma janela de corrida com a HIDRATAÇÃO -- clicar
+  // antes do React terminar de anexar os listeners faz o navegador seguir
+  // o href CRU (sem prefixo), aterrissando em branco na página errada da
+  // plataforma. Inicializador preguiçoso do useState roda de forma
+  // síncrona já na primeira renderização do cliente, ANTES de qualquer
+  // clique possível -- fecha essa janela (o useEffect antigo, comentado
+  // abaixo como "já testado", tinha o problema oposto: só setava depois
+  // do primeiro paint, tarde demais pra um clique rápido também).
+  const [prefix] = useState(currentPrefix)
+  const resolvedHref = prefix ? resolveHref(prefix, href) : href
   return (
     <a
-      href={href}
+      href={resolvedHref}
       onClick={(e) => {
         onClick?.(e)
         if (e.defaultPrevented) return
-        const prefix = currentPrefix()
         if (!prefix) return
         e.preventDefault()
         window.location.href = resolveHref(prefix, href)

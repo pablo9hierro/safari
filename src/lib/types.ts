@@ -51,12 +51,15 @@ export interface ServiceRequest {
   busy_until?: string | null
 }
 
+export type DeviceType = 'celular' | 'tablet' | 'notebook' | 'computador' | 'outro'
+
 export interface ServiceCatalogCategory {
   id: string
   name: string
   slug: string
   sort_order: number
   image_url?: string | null
+  device_type: DeviceType
 }
 
 export interface ServiceCatalogItem {
