@@ -36,7 +36,10 @@ async function adminFetch(path: string, init?: RequestInit) {
     headers: { ...init?.headers, Authorization: `Bearer ${token}` },
   })
   if (res.status === 401) throw new AdminAuthError('Sessão de admin expirada — saia e entre de novo.')
-  if (!res.ok) throw new Error(`Erro ${res.status} ao consultar ${path}`)
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.message ?? body?.error ?? `Erro ${res.status} ao consultar ${path}`)
+  }
   return res.json()
 }
 

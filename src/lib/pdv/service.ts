@@ -234,6 +234,54 @@ async function concludeSale(saleId: string, db: Db): Promise<void> {
     .from('pdv_sales')
     .update({ status: 'concluida', concluded_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq('id', saleId)
+
+  await syncSaleToFinanceiro(saleId, db)
+}
+
+/**
+ * Espelha a venda concluída pro Financeiro da plataforma (ecommerce-api,
+ * orders/order_items com delivery_type='balcao') -- vrtech continua sendo a
+ * fonte de verdade da venda em si, isso só alimenta o relatório. Best-effort
+ * de propósito: uma falha aqui (rede, serviço fora do ar) não pode reverter
+ * uma venda já concluída e paga -- fica pra tentar de novo depois, nunca
+ * bloqueia o caixa.
+ */
+async function syncSaleToFinanceiro(saleId: string, db: Db): Promise<void> {
+  try {
+    const sale = await getSale(saleId, db)
+    const tenantSlug = process.env.ECOMMERCE_TENANT_SLUG ?? 'vrtech'
+    const internalKey = process.env.INTERNAL_API_KEY
+    const apiUrl = process.env.ECOMMERCE_API_URL
+    if (!internalKey || !apiUrl) return
+
+    const paymentTotals = new Map<string, number>()
+    for (const p of sale.payments) {
+      if (p.status !== 'confirmado') continue
+      paymentTotals.set(p.method, (paymentTotals.get(p.method) ?? 0) + p.amount)
+    }
+    const primaryMethod = [...paymentTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'dinheiro'
+    const methodMap: Record<string, string> = { pix: 'pix', cartao: 'cartao', dinheiro: 'dinheiro' }
+
+    await fetch(`${apiUrl}/internal/pdv-order-sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-internal-key': internalKey },
+      body: JSON.stringify({
+        tenant_slug: tenantSlug,
+        sale_id: sale.id,
+        customer_name: 'Cliente balcão',
+        payment_method: methodMap[primaryMethod] ?? 'dinheiro',
+        total: sale.total_value,
+        items: sale.items.map((i) => ({
+          item_id: i.product_id ?? i.service_id ?? i.id,
+          label: i.label,
+          unit_price: i.unit_price,
+          quantity: i.quantity,
+        })),
+      }),
+    })
+  } catch (e) {
+    console.error('[pdv] falha ao sincronizar venda com o financeiro da plataforma:', e)
+  }
 }
 
 export async function cancelSale(saleId: string, db: Db = createServiceClient()): Promise<void> {
