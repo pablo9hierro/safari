@@ -20,9 +20,25 @@ import { NextResponse, type NextRequest } from 'next/server'
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request })
 
+  // Este middleware existe SÓ pra renovar a sessão da plataforma. Sem as
+  // credenciais (build sem env inlinado, deploy de prebuilt antigo, etc),
+  // `createServerClient` lança "Invalid supabaseUrl" e, por rodar no
+  // matcher de TODAS as rotas, derrubava o site inteiro com
+  // MIDDLEWARE_INVOCATION_FAILED -- inclusive a vitrine pública, que nem
+  // usa sessão. Degradar aqui é sempre melhor que 500 global: quem depende
+  // de sessão cai no /login normalmente, o resto do site continua de pé.
+  const platformUrl = process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_URL
+  const platformKey = process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_ANON_KEY
+  if (!platformUrl?.startsWith('http') || !platformKey) {
+    console.error(
+      '[middleware] NEXT_PUBLIC_RESOLUTOO_SUPABASE_URL/ANON_KEY ausentes ou inválidas — pulando refresh de sessão desta request.',
+    )
+    return response
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_ANON_KEY!,
+    platformUrl,
+    platformKey,
     {
       cookies: {
         getAll() {
@@ -101,7 +117,14 @@ export async function middleware(request: NextRequest) {
   }
 
   // getUser() (não getSession()) força a validação/refresh real do token.
-  await supabase.auth.getUser()
+  // Instabilidade de rede com o Supabase não pode virar 500 no site inteiro
+  // (mesmo motivo do guard de env acima) — pior caso a sessão não renova
+  // nesta request e o usuário revalida na próxima.
+  try {
+    await supabase.auth.getUser()
+  } catch (e) {
+    console.error('[middleware] refresh de sessão falhou (seguindo sem renovar):', e)
+  }
 
   return response
 }
