@@ -8,6 +8,7 @@ const TENANT_SLUG = process.env.NEXT_PUBLIC_ECOMMERCE_TENANT_SLUG ?? 'vrtech'
 // Preferência "pagamento na entrega" é configurada na plataforma (/meu-plano),
 // não no ecommerce-api — ver platformConfig.ts (versão server-safe, sem 'use client').
 export { fetchPaymentOnDeliveryEnabledServer as fetchPaymentOnDeliveryEnabled } from './platformConfig'
+export { fetchPlatformStoreConfig } from './platformConfig'
 
 export type EstimateDeliveryResult = { km: number; price: number; within_range: boolean }
 

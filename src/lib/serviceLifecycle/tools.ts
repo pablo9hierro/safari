@@ -16,6 +16,7 @@ import { createAppointment, type DeviceAppointmentType } from '@/lib/agenda/serv
 import { AgendaError } from '@/lib/agenda/types'
 import { bookingWindowDays, dateKeyToBr, formatStoreDateTime, parseStoreDateTime } from '@/lib/agenda/slots'
 import { createServiceClient } from '@/lib/supabase/service'
+import { fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
 import { buscarEnderecos } from '@/lib/mapa/geocodificacao'
 
 /**
@@ -269,19 +270,17 @@ const DEVICE_ACTION_LABEL: Record<DeviceAppointmentType, string> = {
 }
 
 /**
- * Preço de uma perna de entrega, honrando o toggle `cobrar_entrega` de
- * `shipping_settings` (a mesma base de cálculo de /dashboard/servicodeslocamento).
+ * Preço de uma perna de entrega, honrando `entrega_reparado_gratis` da
+ * PLATAFORMA (/meu-plano) -- fonte de verdade única pra essa cortesia
+ * (substituiu o antigo `shipping_settings.cobrar_entrega` local, que
+ * divergia da tela onde o lojista realmente edita essa preferência hoje).
  * `null` de coordenadas = não deu pra calcular (endereço não encontrado) —
  * cai pra 0 em vez de travar o agendamento.
  */
 async function calcularPrecoEntrega(lat: number, lng: number): Promise<number> {
+  const { entrega_reparado_gratis: entregaGratis } = await fetchPlatformStoreConfig()
+  if (entregaGratis) return 0
   const db = createServiceClient()
-  const { data: settings } = await db
-    .from('shipping_settings')
-    .select('cobrar_entrega')
-    .eq('id', 1)
-    .maybeSingle()
-  if (settings?.cobrar_entrega === false) return 0
   const { data: est } = await db.rpc('estimate_shipping', { p_lat: lat, p_lng: lng })
   if (est && typeof est === 'object' && 'price' in est) return Number((est as { price: number }).price)
   return 0

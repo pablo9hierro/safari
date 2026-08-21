@@ -9,6 +9,7 @@ import { ServiceCatalogCategory, ServiceCatalogItem } from '@/lib/types'
 import dynamic from 'next/dynamic'
 import type { LocationPickerResult } from '@/components/LocationPicker'
 import { apiPath } from '@/lib/storeProxyLink'
+import PickupOnlyNotice from '@/components/PickupOnlyNotice'
 import {
   Smartphone,
   MapPin,
@@ -34,7 +35,13 @@ const INPUT = 'w-full px-4 py-3 rounded-xl border border-white/10 bg-vr-black te
 const LABEL = 'block text-sm font-semibold text-vr-silver/80 mb-1.5'
 const ERR = 'text-red-400 text-xs mt-1'
 
-export default function ServiceRequestForm() {
+export default function ServiceRequestForm({
+  apenasRetirada = false,
+  coletaGratis = false,
+}: {
+  apenasRetirada?: boolean
+  coletaGratis?: boolean
+}) {
   const [step, setStep] = useState(1)
   const [submitted, setSubmitted] = useState(false)
   const [submittedPhone, setSubmittedPhone] = useState('')
@@ -72,6 +79,13 @@ export default function ServiceRequestForm() {
   })
 
   const selfPickup = watch('self_pickup')
+
+  // Loja sem deslocamento: força retirada (schema já dispensa endereço
+  // quando self_pickup=true, ver validations.ts) e nunca deixa o usuário
+  // desmarcar -- não existe UI pra isso quando apenasRetirada.
+  useEffect(() => {
+    if (apenasRetirada) setValue('self_pickup', true)
+  }, [apenasRetirada, setValue])
 
   // Fetch catalog when entering step 2 for the first time
   useEffect(() => {
@@ -218,7 +232,7 @@ export default function ServiceRequestForm() {
       // de volta (entrega/retirada) é decidida depois, quando o reparo fica
       // pronto, e cobrada separadamente ali.
       let shippingPrice: number | null = null
-      if (!data.self_pickup && data.address_lat && data.address_lng) {
+      if (!coletaGratis && !data.self_pickup && data.address_lat && data.address_lng) {
         const { data: cobrarColeta } = await supabase
           .from('shipping_settings')
           .select('cobrar_coleta')
@@ -619,14 +633,18 @@ export default function ServiceRequestForm() {
               <h3 className="font-semibold text-white">Coleta e entrega</h3>
             </div>
 
-            <label className="flex items-start gap-2.5 bg-vr-black border border-white/10 rounded-xl p-3 cursor-pointer">
-              <input type="checkbox" {...register('self_pickup')} className="w-4 h-4 mt-0.5 accent-vr-red" />
-              <span className="text-sm text-vr-silver/80">
-                Vou levar/buscar o aparelho eu mesmo (não preciso de coleta/entrega)
-              </span>
-            </label>
+            {apenasRetirada ? (
+              <PickupOnlyNotice variant="servico" />
+            ) : (
+              <label className="flex items-start gap-2.5 bg-vr-black border border-white/10 rounded-xl p-3 cursor-pointer">
+                <input type="checkbox" {...register('self_pickup')} className="w-4 h-4 mt-0.5 accent-vr-red" />
+                <span className="text-sm text-vr-silver/80">
+                  Vou levar/buscar o aparelho eu mesmo (não preciso de coleta/entrega)
+                </span>
+              </label>
+            )}
 
-            {!selfPickup && (
+            {!apenasRetirada && !selfPickup && (
               <div className="flex flex-col gap-3">
                 {location ? (
                   <div className="flex items-start gap-3 bg-vr-graphite border border-white/10 rounded-xl p-3.5">

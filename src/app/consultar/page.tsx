@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import Logo from '@/components/ui/Logo'
 import {StoreLink, apiPath } from '@/lib/storeProxyLink'
+import { fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   pending:        { label: 'Aguardando avaliação',      color: 'text-yellow-700', bg: 'bg-yellow-100', icon: <Clock className="w-3.5 h-3.5" /> },
@@ -88,7 +89,7 @@ function TimelineStep({
   )
 }
 
-function RequestStatusTimeline({ request }: { request: ServiceRequest }) {
+function RequestStatusTimeline({ request, apenasRetirada }: { request: ServiceRequest; apenasRetirada: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
 
@@ -105,7 +106,19 @@ function RequestStatusTimeline({ request }: { request: ServiceRequest }) {
   const current = STATUS_MAP[request.status] ?? STATUS_MAP.pending
   const isInterrupted = request.status === 'rejected' || request.status === 'cancelled'
   const currentIdx = stageIndexForStatus(request.status)
-  const visibleStages = isInterrupted ? [] : STAGES.slice(0, currentIdx + 1)
+  // Loja "apenas retirada": self_pickup é sempre true na criação, então
+  // em_busca/em_entrega (motoboy) nunca acontecem de verdade -- não faz
+  // sentido a etapa mencionar essa opção que não existe pra esta loja.
+  const stages = apenasRetirada
+    ? STAGES.map((s) =>
+        s.key === 'pickup'
+          ? { ...s, label: 'Cliente leva o aparelho na loja' }
+          : s.key === 'delivery'
+            ? { ...s, label: 'Cliente retira o aparelho na loja' }
+            : s,
+      )
+    : STAGES
+  const visibleStages = isInterrupted ? [] : stages.slice(0, currentIdx + 1)
 
   return (
     <div className="border border-gray-100 rounded-xl overflow-hidden">
@@ -222,6 +235,11 @@ function ConsultarContent() {
   const [error, setError] = useState<string | null>(null)
   const [cancelTargetId, setCancelTargetId] = useState<string | null>(null)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
+  const [apenasRetirada, setApenasRetirada] = useState(false)
+
+  useEffect(() => {
+    fetchPlatformStoreConfig().then((c) => setApenasRetirada(c.apenas_retirada))
+  }, [])
 
   const doSearch = useCallback(async (rawPhone: string) => {
     const digits = rawPhone.replace(/\D/g, '')
@@ -333,7 +351,7 @@ function ConsultarContent() {
                     <div key={req.id} className="bg-white rounded-2xl p-5 shadow">
                       <div className="flex items-start justify-between gap-2 mb-3">
                         <div className="flex-1 min-w-0">
-                          <RequestStatusTimeline request={req} />
+                          <RequestStatusTimeline request={req} apenasRetirada={apenasRetirada} />
                         </div>
                         <span className="text-xs text-gray-400 flex-shrink-0 pt-2.5">
                           {new Date(req.created_at).toLocaleDateString('pt-BR')}

@@ -9,8 +9,9 @@ import {StoreLink, apiPath } from '@/lib/storeProxyLink'
 import { useCart } from '@/lib/carrinho/context'
 import dynamic from 'next/dynamic'
 import type { LocationPickerResult } from './LocationPicker'
-import { estimateDelivery, createAssistantOrder, fetchPaymentOnDeliveryEnabled } from '@/lib/resolutoo/checkout'
+import { estimateDelivery, createAssistantOrder, fetchPaymentOnDeliveryEnabled, fetchPlatformStoreConfig } from '@/lib/resolutoo/checkout'
 import AgendamentoPicker from './AgendamentoPicker'
+import PickupOnlyNotice from './PickupOnlyNotice'
 
 const LocationPicker = dynamic(() => import('./LocationPicker'), { ssr: false })
 
@@ -43,10 +44,15 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
   const [agendamento, setAgendamento] = useState<{ date: string; time: string } | null>(null)
   const [paymentOnDeliveryAllowed, setPaymentOnDeliveryAllowed] = useState(false)
   const [paymentOnDelivery, setPaymentOnDelivery] = useState(false)
+  const [apenasRetirada, setApenasRetirada] = useState(false)
 
   useEffect(() => {
     if (!open) return
     fetchPaymentOnDeliveryEnabled().then(setPaymentOnDeliveryAllowed)
+    fetchPlatformStoreConfig().then((c) => {
+      setApenasRetirada(c.apenas_retirada)
+      if (c.apenas_retirada) setPickupAtStore(true)
+    })
   }, [open])
 
   const productItems = items.filter((i) => i.type === 'product')
@@ -358,21 +364,25 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
               />
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-vr-silver/70 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={pickupAtStore}
-                onChange={(e) => {
-                  setPickupAtStore(e.target.checked)
-                  if (e.target.checked) { setAddress(null); setShippingPrice(null); setShippingErr(null) }
-                }}
-                className="w-4 h-4 accent-vr-red"
-              />
-              <Home className="w-3.5 h-3.5 text-vr-red" />
-              Retirar no local
-            </label>
+            {apenasRetirada ? (
+              <PickupOnlyNotice variant="produto" />
+            ) : (
+              <label className="flex items-center gap-2 text-sm text-vr-silver/70 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pickupAtStore}
+                  onChange={(e) => {
+                    setPickupAtStore(e.target.checked)
+                    if (e.target.checked) { setAddress(null); setShippingPrice(null); setShippingErr(null) }
+                  }}
+                  className="w-4 h-4 accent-vr-red"
+                />
+                <Home className="w-3.5 h-3.5 text-vr-red" />
+                Retirar no local
+              </label>
+            )}
 
-            {!pickupAtStore && (
+            {!apenasRetirada && !pickupAtStore && (
               <div>
                 <label className="block text-xs font-semibold text-vr-silver/70 mb-1.5">
                   Endereço de entrega *

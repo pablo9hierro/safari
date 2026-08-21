@@ -178,11 +178,24 @@ const FILTERS: { key: ServiceStatus; label: string }[] = [
   { key: 'cancelled',              label: 'Cancelados' },
 ]
 
-export default function DashboardClient({ initialRequests }: { initialRequests: ServiceRequest[] }) {
+export default function DashboardClient({
+  initialRequests,
+  apenasRetirada = false,
+}: {
+  initialRequests: ServiceRequest[]
+  /** Loja sem deslocamento: self_pickup é sempre true na criação, então
+   * em_busca/em_entrega nunca acontecem de verdade -- os chips somem em
+   * vez de ficar mostrando uma fila que nunca vai ter nada. */
+  apenasRetirada?: boolean
+}) {
   const [tab, setTab] = useState<'solicitacoes' | 'pedidos'>('solicitacoes')
   const [requests, setRequests] = useState<ServiceRequest[]>(initialRequests)
   const [filter, setFilter] = useState<ServiceStatus>('pending')
   const [selected, setSelected] = useState<ServiceRequest | null>(null)
+
+  const visibleFilters = apenasRetirada
+    ? FILTERS.filter((f) => f.key !== 'em_busca' && f.key !== 'em_entrega')
+    : FILTERS
 
   const filtered = requests.filter((r) => r.status === filter)
 
@@ -242,7 +255,7 @@ export default function DashboardClient({ initialRequests }: { initialRequests: 
 
         {/* Filters */}
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {FILTERS.map((f) => (
+          {visibleFilters.map((f) => (
             <button
               key={f.key}
               onClick={() => setFilter(f.key)}

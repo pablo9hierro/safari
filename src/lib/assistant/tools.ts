@@ -2,6 +2,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import type { ToolDef, ToolCallRecord } from './aiClient'
 import { AGENDA_TOOLS, agendaToolsEnabled, executeAgendaTool } from '@/lib/agenda/tools'
 import { SERVICE_TOOLS, DEVICE_TOOLS, executeServiceTool } from '@/lib/serviceLifecycle/tools'
+import { fetchApenasRetiradaServer } from '@/lib/resolutoo/platformConfig'
 
 export const TOOLS: ToolDef[] = [
   {
@@ -216,7 +217,15 @@ export async function consultarAtendimentoEmAndamento(phone: string): Promise<st
  */
 export async function resolveTools(): Promise<ToolDef[]> {
   const base = [...TOOLS, ...SERVICE_TOOLS]
-  return (await agendaToolsEnabled()) ? [...base, ...AGENDA_TOOLS, ...DEVICE_TOOLS] : base
+  if (!(await agendaToolsEnabled())) return base
+  // Loja "apenas retirada" (preferência da plataforma, /meu-plano) não faz
+  // deslocamento nenhum -- a IA nunca deve oferecer coleta/entrega
+  // motorizada, só a retirada na loja (agendar_retirada_aparelho continua).
+  const apenasRetirada = await fetchApenasRetiradaServer()
+  const deviceTools = apenasRetirada
+    ? DEVICE_TOOLS.filter((t) => t.name !== 'agendar_coleta_aparelho' && t.name !== 'agendar_entrega_aparelho')
+    : DEVICE_TOOLS
+  return [...base, ...AGENDA_TOOLS, ...deviceTools]
 }
 
 export async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {

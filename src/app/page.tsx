@@ -18,6 +18,7 @@ import Image from 'next/image'
 import { CartProvider } from '@/lib/carrinho/context'
 import CarrinhoFlutuante from '@/components/CarrinhoFlutuante'
 import { StoreLink } from '@/lib/storeProxyLink'
+import { fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
 
 const SERVICES = [
   { icon: Smartphone, title: 'Troca de tela', desc: 'Telas originais com garantia para todas as marcas.' },
@@ -33,7 +34,8 @@ const HIGHLIGHTS = [
   { icon: CheckCircle2, label: 'Acabamento confiável' },
 ]
 
-export default function Home() {
+export default async function Home() {
+  const { apenas_retirada: apenasRetirada, coleta_gratis: coletaGratis } = await fetchPlatformStoreConfig()
   return (
     <CartProvider>
       <main className="min-h-screen bg-vr-black text-white">
@@ -142,7 +144,7 @@ export default function Home() {
           <div className="max-w-lg mx-auto bg-vr-graphite border border-white/8 rounded-3xl shadow-2xl p-6">
             <h2 className="text-lg font-bold text-white mb-1">Solicitar orçamento</h2>
             <p className="text-vr-silver/50 text-sm mb-6">Preencha os dados abaixo e responderemos em até 2h</p>
-            <ServiceRequestForm />
+            <ServiceRequestForm apenasRetirada={apenasRetirada} coletaGratis={coletaGratis} />
           </div>
         </section>
 
