@@ -7,16 +7,21 @@ import ServicosTab from './ServicosTab'
 import EstoqueTab from './EstoqueTab'
 import type { Product, ProductCategory, StockItem, StockMovement } from '@/lib/types'
 
-interface CatalogCategory { id: string; name: string; slug: string; sort_order: number }
+interface CatalogCategory { id: string; name: string; slug: string; sort_order: number; device_type_id: string | null }
 interface CatalogItemPart { id: string; quantity: number; stock_item_id: string; stock_items: { name: string; unit: string } | null }
 interface CatalogItemExtraCost { id: string; name: string; value: number }
 interface CatalogItem {
-  id: string; category_id: string; model_name: string; repair_type: string
+  id: string; category_id: string; model_name: string | null; repair_type: string
   price: number; cost_price: number; duration_minutes: number
   description: string | null; sort_order: number; active: boolean
   service_catalog_item_parts?: CatalogItemPart[]
   service_catalog_item_extra_costs?: CatalogItemExtraCost[]
 }
+interface DeviceType { id: string; name: string; slug: string; icon_key: string; sort_order: number }
+interface CatalogModel { id: string; brand_id: string; name: string; sort_order: number }
+interface ItemDeviceLink { service_catalog_item_id: string; device_type_id: string }
+interface ItemBrandLink { service_catalog_item_id: string; brand_id: string }
+interface ItemModelLink { service_catalog_item_id: string; model_id: string }
 
 type Tab = 'produtos' | 'servicos' | 'estoque'
 
@@ -33,6 +38,11 @@ interface Props {
   initialStockMovements: StockMovement[]
   initialCatalogCategories: CatalogCategory[]
   initialCatalogItems: CatalogItem[]
+  initialDeviceTypes: DeviceType[]
+  initialCatalogModels: CatalogModel[]
+  initialItemDevices: ItemDeviceLink[]
+  initialItemBrands: ItemBrandLink[]
+  initialItemModels: ItemModelLink[]
 }
 
 export default function ProdutosClient(props: Props) {
@@ -68,6 +78,11 @@ export default function ProdutosClient(props: Props) {
         <ServicosTab
           initialCategories={props.initialCatalogCategories}
           initialItems={props.initialCatalogItems}
+          initialDeviceTypes={props.initialDeviceTypes}
+          initialCatalogModels={props.initialCatalogModels}
+          initialItemDevices={props.initialItemDevices}
+          initialItemBrands={props.initialItemBrands}
+          initialItemModels={props.initialItemModels}
           stockItems={stockItems}
         />
       )}

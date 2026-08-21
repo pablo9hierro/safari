@@ -2,12 +2,19 @@
 
 import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { BookOpen, Plus, Trash2, Loader2, Check, ExternalLink, Search, X, Wrench, Pencil, DollarSign } from 'lucide-react'
+import { BookOpen, Plus, Trash2, Loader2, Check, ExternalLink, Search, X, Wrench, Pencil, DollarSign, Smartphone } from 'lucide-react'
 import { AdminToStoreLink, apiPath } from '@/lib/storeProxyLink'
 import type { StockItem } from '@/lib/types'
 import Dialog from '@/components/ui/Dialog'
+import SearchCreateMultiSelect from '@/components/ui/SearchCreateMultiSelect'
+import { capitalizeFirst } from '@/lib/utils/text'
 
-interface Category { id: string; name: string; slug: string; sort_order: number }
+interface Category { id: string; name: string; slug: string; sort_order: number; device_type_id: string | null }
+interface DeviceType { id: string; name: string; slug: string; icon_key: string; sort_order: number }
+interface CatalogModel { id: string; brand_id: string; name: string; sort_order: number }
+interface ItemDeviceLink { service_catalog_item_id: string; device_type_id: string }
+interface ItemBrandLink { service_catalog_item_id: string; brand_id: string }
+interface ItemModelLink { service_catalog_item_id: string; model_id: string }
 interface ItemPart { id: string; quantity: number; stock_item_id: string; stock_items: { name: string; unit: string } | null }
 interface ItemExtraCost { id: string; name: string; value: number }
 interface Item {
@@ -23,25 +30,53 @@ const INPUT = 'w-full px-3 py-2 rounded-lg border border-white/10 bg-vr-black te
 interface Props {
   initialCategories: Category[]
   initialItems: Item[]
+  initialDeviceTypes: DeviceType[]
+  initialCatalogModels: CatalogModel[]
+  initialItemDevices: ItemDeviceLink[]
+  initialItemBrands: ItemBrandLink[]
+  initialItemModels: ItemModelLink[]
   stockItems: StockItem[]
 }
 
 type SelectedPart = { stock_item_id: string; name: string; unit: string; price: number; quantity: number }
 type ExtraCost = { name: string; value: number }
 
-export default function ServicosTab({ initialCategories, initialItems, stockItems }: Props) {
+export default function ServicosTab({
+  initialCategories, initialItems, initialDeviceTypes, initialCatalogModels,
+  initialItemDevices, initialItemBrands, initialItemModels, stockItems,
+}: Props) {
   const [categories, setCategories] = useState<Category[]>(initialCategories)
   const [items, setItems] = useState<Item[]>(initialItems)
   const [activeCatId, setActiveCatId] = useState<string | null>(initialCategories[0]?.id ?? null)
 
+  const [deviceTypes, setDeviceTypes] = useState<DeviceType[]>(initialDeviceTypes)
+  const [models, setModels] = useState<CatalogModel[]>(initialCatalogModels)
+  const [itemDevices, setItemDevices] = useState<ItemDeviceLink[]>(initialItemDevices)
+  const [itemBrands, setItemBrands] = useState<ItemBrandLink[]>(initialItemBrands)
+  const [itemModels, setItemModels] = useState<ItemModelLink[]>(initialItemModels)
+
+  // Cadastro de aparelho (dialog criar/editar)
+  const [deviceDialogOpen, setDeviceDialogOpen] = useState(false)
+  const [editingDevice, setEditingDevice] = useState<DeviceType | null>(null)
+  const [deviceName, setDeviceName] = useState('')
+  const [savingDevice, setSavingDevice] = useState(false)
+
+  // Edição de marca (rename + trocar aparelho)
+  const [editingBrand, setEditingBrand] = useState<Category | null>(null)
+  const [editBrandName, setEditBrandName] = useState('')
+  const [editBrandDeviceId, setEditBrandDeviceId] = useState('')
+  const [savingBrand, setSavingBrand] = useState(false)
+
+  // Serviço: aparelho(s)/marca(s)/modelo(s) via busca multi-select em vez
+  // de "categoria ativa" fixa -- um serviço agora pode se aplicar a
+  // múltiplos aparelhos/marcas/modelos ao mesmo tempo.
+  const [newDeviceIds, setNewDeviceIds] = useState<string[]>([])
+  const [newBrandIds, setNewBrandIds] = useState<string[]>([])
+  const [newModelIds, setNewModelIds] = useState<string[]>([])
+
   const [newCatName, setNewCatName] = useState('')
   const [savingCat, setSavingCat] = useState(false)
 
-  const [newModel, setNewModel] = useState('')
-  // Serviço universal pra marca (aparelho+marca já vêm da categoria ativa):
-  // modelo em branco = vale pra qualquer modelo dessa marca, não precisa
-  // dos 3 preenchidos, só os 2 mínimos.
-  const [newUniversal, setNewUniversal] = useState(false)
   const [newRepair, setNewRepair] = useState('')
   const [newPrice, setNewPrice] = useState('')
   // Duração cobre o atendimento inteiro: coleta + manutenção + entrega.
@@ -108,7 +143,6 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
   // Editar serviço já cadastrado — mesmas regras de custo/preço final do
   // cadastro: custo sempre recalculado pela soma das peças selecionadas.
   const [editingItem, setEditingItem] = useState<Item | null>(null)
-  const [editModel, setEditModel] = useState('')
   const [editRepair, setEditRepair] = useState('')
   const [editPrice, setEditPrice] = useState('')
   const [editDuration, setEditDuration] = useState('')
@@ -116,9 +150,16 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
   const [editPartsQuery, setEditPartsQuery] = useState('')
   const [editSelectedParts, setEditSelectedParts] = useState<SelectedPart[]>([])
   const [editExtraCosts, setEditExtraCosts] = useState<ExtraCost[]>([])
-  const [editUniversal, setEditUniversal] = useState(false)
+  const [editDeviceIds, setEditDeviceIds] = useState<string[]>([])
+  const [editBrandIds, setEditBrandIds] = useState<string[]>([])
+  const [editModelIds, setEditModelIds] = useState<string[]>([])
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+
+  const modelOptionsForEditItem = useMemo(
+    () => (editBrandIds.length > 0 ? models.filter((m) => editBrandIds.includes(m.brand_id)) : models),
+    [models, editBrandIds],
+  )
 
   const editPartMatches = useMemo(() => {
     const q = editPartsQuery.trim().toLowerCase()
@@ -138,8 +179,9 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
 
   const openEditItem = (item: Item) => {
     setEditingItem(item)
-    setEditModel(item.model_name ?? '')
-    setEditUniversal(item.model_name == null)
+    setEditDeviceIds(itemDevices.filter((l) => l.service_catalog_item_id === item.id).map((l) => l.device_type_id))
+    setEditBrandIds(itemBrands.filter((l) => l.service_catalog_item_id === item.id).map((l) => l.brand_id))
+    setEditModelIds(itemModels.filter((l) => l.service_catalog_item_id === item.id).map((l) => l.model_id))
     setEditRepair(item.repair_type)
     setEditPrice(String(item.price))
     setEditDuration(String(item.duration_minutes))
@@ -160,18 +202,23 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
   const saveEditItem = async () => {
     if (!editingItem) return
     const duration = Number(editDuration)
-    if ((!editUniversal && !editModel.trim()) || !editRepair.trim() || !editPrice || !(duration > 0)) {
-      setEditError('Preencha o modelo (ou marque "universal"), tipo de reparo, preço final e duração.')
+    if (editBrandIds.length === 0 || !editRepair.trim() || !editPrice || !(duration > 0)) {
+      setEditError('Selecione ao menos uma marca, e preencha tipo de reparo, preço final e duração.')
       return
     }
     setSavingEdit(true)
     setEditError(null)
     const supabase = createClient()
 
+    const legacyModelName = editModelIds.length === 1
+      ? models.find((m) => m.id === editModelIds[0])?.name ?? null
+      : null
+
     const { data: updated, error } = await supabase
       .from('service_catalog_items')
       .update({
-        model_name: editUniversal ? null : editModel.trim(),
+        category_id: editBrandIds[0],
+        model_name: legacyModelName,
         repair_type: editRepair.trim(),
         price: parseFloat(editPrice),
         cost_price: editCostPrice,
@@ -187,6 +234,20 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
       setSavingEdit(false)
       return
     }
+
+    await supabase.from('service_item_devices').delete().eq('service_catalog_item_id', editingItem.id)
+    await supabase.from('service_item_brands').delete().eq('service_catalog_item_id', editingItem.id)
+    await supabase.from('service_item_models').delete().eq('service_catalog_item_id', editingItem.id)
+    if (editDeviceIds.length > 0) {
+      await supabase.from('service_item_devices').insert(editDeviceIds.map((device_type_id) => ({ service_catalog_item_id: editingItem.id, device_type_id })))
+    }
+    await supabase.from('service_item_brands').insert(editBrandIds.map((brand_id) => ({ service_catalog_item_id: editingItem.id, brand_id })))
+    if (editModelIds.length > 0) {
+      await supabase.from('service_item_models').insert(editModelIds.map((model_id) => ({ service_catalog_item_id: editingItem.id, model_id })))
+    }
+    setItemDevices((prev) => [...prev.filter((l) => l.service_catalog_item_id !== editingItem.id), ...editDeviceIds.map((device_type_id) => ({ service_catalog_item_id: editingItem.id, device_type_id }))])
+    setItemBrands((prev) => [...prev.filter((l) => l.service_catalog_item_id !== editingItem.id), ...editBrandIds.map((brand_id) => ({ service_catalog_item_id: editingItem.id, brand_id }))])
+    setItemModels((prev) => [...prev.filter((l) => l.service_catalog_item_id !== editingItem.id), ...editModelIds.map((model_id) => ({ service_catalog_item_id: editingItem.id, model_id }))])
 
     await supabase.from('service_catalog_item_parts').delete().eq('service_catalog_item_id', editingItem.id)
     let parts: ItemPart[] = []
@@ -213,15 +274,16 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
     setEditingItem(null)
   }
 
-  const addCategory = async () => {
+const slugify = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+
+  const addCategory = async (deviceTypeId?: string) => {
     const name = newCatName.trim()
     if (!name) return
     setSavingCat(true)
-    const slug = name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
     const supabase = createClient()
     const { data, error } = await supabase
       .from('service_catalog_categories')
-      .insert({ name, slug, sort_order: categories.length })
+      .insert({ name, slug: slugify(name), sort_order: categories.length, device_type_id: deviceTypeId ?? deviceTypes[0]?.id ?? null })
       .select()
       .single()
     setSavingCat(false)
@@ -229,6 +291,7 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
     setCategories((prev) => [...prev, data as Category])
     setActiveCatId(data.id)
     setNewCatName('')
+    return data as Category
   }
 
   const deleteCategory = async (id: string) => {
@@ -236,20 +299,134 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
     await supabase.from('service_catalog_categories').delete().eq('id', id)
     setCategories((prev) => prev.filter((c) => c.id !== id))
     setItems((prev) => prev.filter((i) => i.category_id !== id))
+    setModels((prev) => prev.filter((m) => m.brand_id !== id))
     if (activeCatId === id) setActiveCatId(categories.find((c) => c.id !== id)?.id ?? null)
   }
 
+  const openEditBrand = (cat: Category) => {
+    setEditingBrand(cat)
+    setEditBrandName(cat.name)
+    setEditBrandDeviceId(cat.device_type_id ?? deviceTypes[0]?.id ?? '')
+  }
+
+  const saveEditBrand = async () => {
+    if (!editingBrand || !editBrandName.trim()) return
+    setSavingBrand(true)
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('service_catalog_categories')
+      .update({ name: editBrandName.trim(), slug: slugify(editBrandName.trim()), device_type_id: editBrandDeviceId || null })
+      .eq('id', editingBrand.id)
+      .select()
+      .single()
+    setSavingBrand(false)
+    if (error || !data) return
+    setCategories((prev) => prev.map((c) => (c.id === editingBrand.id ? (data as Category) : c)))
+    setEditingBrand(null)
+  }
+
+  // ─── Aparelho (device_types) ────────────────────────────────────────────
+  const openNewDevice = () => { setEditingDevice(null); setDeviceName(''); setDeviceDialogOpen(true) }
+  const openEditDevice = (d: DeviceType) => { setEditingDevice(d); setDeviceName(d.name); setDeviceDialogOpen(true) }
+
+  const saveDevice = async () => {
+    const name = capitalizeFirst(deviceName)
+    if (!name) return
+    setSavingDevice(true)
+    const supabase = createClient()
+    if (editingDevice) {
+      const { data, error } = await supabase
+        .from('device_types')
+        .update({ name })
+        .eq('id', editingDevice.id)
+        .select()
+        .single()
+      setSavingDevice(false)
+      if (error || !data) return
+      setDeviceTypes((prev) => prev.map((d) => (d.id === editingDevice.id ? (data as DeviceType) : d)))
+    } else {
+      const { data, error } = await supabase
+        .from('device_types')
+        .insert({ name, slug: slugify(name) || crypto.randomUUID(), icon_key: 'generic', sort_order: deviceTypes.length })
+        .select()
+        .single()
+      setSavingDevice(false)
+      if (error || !data) return
+      setDeviceTypes((prev) => [...prev, data as DeviceType])
+    }
+    setDeviceDialogOpen(false)
+  }
+
+  const deleteDevice = async (id: string) => {
+    const supabase = createClient()
+    await supabase.from('device_types').delete().eq('id', id)
+    setDeviceTypes((prev) => prev.filter((d) => d.id !== id))
+  }
+
+  // Cria uma marca nova a partir da busca (SearchCreateMultiSelect) --
+  // precisa de um aparelho pra existir; usa o primeiro aparelho já
+  // selecionado no form de serviço, senão o primeiro aparelho cadastrado.
+  const createBrandInline = async (name: string) => {
+    const deviceId = newDeviceIds[0] ?? deviceTypes[0]?.id
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('service_catalog_categories')
+      .insert({ name, slug: slugify(name) || crypto.randomUUID(), sort_order: categories.length, device_type_id: deviceId ?? null })
+      .select()
+      .single()
+    if (error || !data) throw new Error('Não foi possível cadastrar a marca.')
+    setCategories((prev) => [...prev, data as Category])
+    return { id: data.id as string, name: data.name as string }
+  }
+
+  const createDeviceInline = async (name: string) => {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('device_types')
+      .insert({ name, slug: slugify(name) || crypto.randomUUID(), icon_key: 'generic', sort_order: deviceTypes.length })
+      .select()
+      .single()
+    if (error || !data) throw new Error('Não foi possível cadastrar o aparelho.')
+    setDeviceTypes((prev) => [...prev, data as DeviceType])
+    return { id: data.id as string, name: data.name as string }
+  }
+
+  const createModelInline = async (name: string) => {
+    const brandId = newBrandIds[0]
+    if (!brandId) throw new Error('Selecione ao menos uma marca antes de cadastrar um modelo.')
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('catalog_models')
+      .insert({ brand_id: brandId, name, sort_order: models.length })
+      .select()
+      .single()
+    if (error || !data) throw new Error('Não foi possível cadastrar o modelo.')
+    setModels((prev) => [...prev, data as CatalogModel])
+    return { id: data.id as string, name: data.name as string }
+  }
+
+  const modelOptionsForNewItem = newBrandIds.length > 0
+    ? models.filter((m) => newBrandIds.includes(m.brand_id))
+    : models
+
   const addItem = async () => {
     const duration = Number(newDuration)
-    if (!activeCatId || (!newUniversal && !newModel.trim()) || !newRepair.trim() || !newPrice) return
+    if (newBrandIds.length === 0 || !newRepair.trim() || !newPrice) return
     if (!Number.isFinite(duration) || duration <= 0) return
     setSavingItem(true)
     const supabase = createClient()
+    // Colunas legadas (category_id/model_name) sincronizadas a partir da
+    // primeira marca/modelo selecionado -- mantém PDV, assistente de IA e
+    // tags funcionando sem precisar migrar todos de uma vez (ver plano).
+    // Múltiplas marcas ou nenhum modelo selecionado = universal (null).
+    const legacyModelName = newModelIds.length === 1
+      ? models.find((m) => m.id === newModelIds[0])?.name ?? null
+      : null
     const { data, error } = await supabase
       .from('service_catalog_items')
       .insert({
-        category_id: activeCatId,
-        model_name: newUniversal ? null : newModel.trim(),
+        category_id: newBrandIds[0],
+        model_name: legacyModelName,
         repair_type: newRepair.trim(),
         price: parseFloat(newPrice),
         cost_price: costPrice,
@@ -260,6 +437,18 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
       .select()
       .single()
     if (error || !data) { setSavingItem(false); return }
+
+    const itemId = data.id as string
+    if (newDeviceIds.length > 0) {
+      await supabase.from('service_item_devices').insert(newDeviceIds.map((device_type_id) => ({ service_catalog_item_id: itemId, device_type_id })))
+      setItemDevices((prev) => [...prev, ...newDeviceIds.map((device_type_id) => ({ service_catalog_item_id: itemId, device_type_id }))])
+    }
+    await supabase.from('service_item_brands').insert(newBrandIds.map((brand_id) => ({ service_catalog_item_id: itemId, brand_id })))
+    setItemBrands((prev) => [...prev, ...newBrandIds.map((brand_id) => ({ service_catalog_item_id: itemId, brand_id }))])
+    if (newModelIds.length > 0) {
+      await supabase.from('service_item_models').insert(newModelIds.map((model_id) => ({ service_catalog_item_id: itemId, model_id })))
+      setItemModels((prev) => [...prev, ...newModelIds.map((model_id) => ({ service_catalog_item_id: itemId, model_id }))])
+    }
 
     // Tags de busca (IA) geram em background -- ver AccordionTags no card.
     fetch(apiPath('/api/catalog/tags'), {
@@ -288,7 +477,8 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
 
     setSavingItem(false)
     setItems((prev) => [...prev, { ...(data as Item), service_catalog_item_parts: parts, service_catalog_item_extra_costs: extras }])
-    setNewModel(''); setNewUniversal(false); setNewRepair(''); setNewPrice(''); setNewDuration(''); setNewDesc('')
+    setNewDeviceIds([]); setNewBrandIds([]); setNewModelIds([])
+    setNewRepair(''); setNewPrice(''); setNewDuration(''); setNewDesc('')
     setSelectedParts([]); setExtraCosts([])
     setSavedItem(true); setTimeout(() => setSavedItem(false), 1500)
   }
@@ -318,9 +508,36 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
         </AdminToStoreLink>
       </div>
 
-      {/* Marcas */}
+      {/* 1. Aparelhos */}
       <div className="bg-vr-graphite border border-white/5 rounded-2xl p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-vr-silver/70">Marcas / Categorias</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-vr-silver/70">1. Aparelhos</h2>
+          <button
+            onClick={openNewDevice}
+            className="flex items-center gap-1 text-xs font-semibold bg-vr-black border border-white/10 text-white px-2.5 py-1.5 rounded-lg hover:border-vr-red/40 transition-colors"
+          >
+            <Plus className="w-3 h-3" /> Aparelho
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {deviceTypes.map((d) => (
+            <div key={d.id} className="flex items-center gap-1 bg-vr-black border border-white/10 rounded-lg px-3 py-1.5">
+              <Smartphone className="w-3.5 h-3.5 text-vr-silver/40" />
+              <span className="text-sm text-white">{d.name}</span>
+              <button onClick={() => openEditDevice(d)} className="text-vr-silver/30 hover:text-vr-red transition-colors ml-1">
+                <Pencil className="w-3 h-3" />
+              </button>
+              <button onClick={() => deleteDevice(d.id)} className="text-vr-silver/30 hover:text-red-400 transition-colors">
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 2. Marcas */}
+      <div className="bg-vr-graphite border border-white/5 rounded-2xl p-4 space-y-3">
+        <h2 className="text-sm font-semibold text-vr-silver/70">2. Marcas</h2>
         <div className="flex flex-wrap gap-2">
           {categories.map((cat) => (
             <div key={cat.id} className="flex items-center gap-1">
@@ -330,6 +547,12 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
                   ${activeCatId === cat.id ? 'bg-vr-red text-white' : 'bg-vr-black border border-white/10 text-vr-silver hover:border-vr-red/30'}`}
               >
                 {cat.name}
+              </button>
+              <button
+                onClick={() => openEditBrand(cat)}
+                className="w-5 h-5 rounded flex items-center justify-center text-vr-silver/30 hover:text-vr-red transition-colors"
+              >
+                <Pencil className="w-3 h-3" />
               </button>
               <button
                 onClick={() => deleteCategory(cat.id)}
@@ -348,7 +571,7 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
               className={`${INPUT} w-32`}
             />
             <button
-              onClick={addCategory}
+              onClick={() => addCategory()}
               disabled={savingCat || !newCatName.trim()}
               className="w-8 h-8 rounded-lg bg-vr-red text-white flex items-center justify-center disabled:opacity-40"
             >
@@ -358,30 +581,40 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
         </div>
       </div>
 
-      {activeCatId && (
-        <>
+      {/* 3. Cadastro de serviço */}
+      <>
           <div className="bg-vr-graphite border border-white/5 rounded-2xl p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-vr-silver/70">
-              Adicionar serviço em <span className="text-white">{categories.find((c) => c.id === activeCatId)?.name}</span>
-            </h2>
-            <label className="flex items-center gap-2 text-xs text-vr-silver/60 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={newUniversal}
-                onChange={(e) => { setNewUniversal(e.target.checked); if (e.target.checked) setNewModel('') }}
-                className="w-3.5 h-3.5 accent-vr-red"
+            <h2 className="text-sm font-semibold text-vr-silver/70">3. Cadastro de serviço</h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <SearchCreateMultiSelect
+                label="Aparelho(s)"
+                placeholder="Buscar aparelho..."
+                options={deviceTypes}
+                selectedIds={newDeviceIds}
+                onChange={setNewDeviceIds}
+                onCreate={createDeviceInline}
               />
-              Serviço universal — vale pra qualquer modelo desta marca (não precisa informar modelo)
-            </label>
+              <SearchCreateMultiSelect
+                label="Marca(s)"
+                placeholder="Buscar marca..."
+                options={categories}
+                selectedIds={newBrandIds}
+                onChange={(ids) => { setNewBrandIds(ids); setNewModelIds([]) }}
+                onCreate={createBrandInline}
+              />
+              <SearchCreateMultiSelect
+                label="Modelo(s) — opcional, vazio = universal"
+                placeholder="Buscar modelo..."
+                options={modelOptionsForNewItem}
+                selectedIds={newModelIds}
+                onChange={setNewModelIds}
+                onCreate={createModelInline}
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-2">
-              <input
-                value={newModel}
-                onChange={(e) => setNewModel(e.target.value)}
-                placeholder="Modelo (ex: iPhone 14 Pro)"
-                disabled={newUniversal}
-                className={`${INPUT} disabled:opacity-40`}
-              />
-              <input value={newRepair} onChange={(e) => setNewRepair(e.target.value)} placeholder="Tipo de reparo (ex: Troca de tela)" className={INPUT} />
+              <input value={newRepair} onChange={(e) => setNewRepair(e.target.value)} placeholder="Tipo de reparo (ex: Troca de tela)" className={`${INPUT} col-span-2`} />
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-vr-silver/40 text-xs">R$</span>
                 <input type="number" step="0.01" min="0" value={newPrice} onChange={(e) => setNewPrice(e.target.value)} placeholder="Preço final 0,00" className={`${INPUT} pl-8`} />
@@ -506,7 +739,7 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
 
             <button
               onClick={addItem}
-              disabled={savingItem || !newModel.trim() || !newRepair.trim() || !newPrice || !(Number(newDuration) > 0)}
+              disabled={savingItem || newBrandIds.length === 0 || !newRepair.trim() || !newPrice || !(Number(newDuration) > 0)}
               className={`w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all
                 ${savedItem ? 'bg-green-600 text-white' : 'bg-vr-red text-white hover:bg-vr-red/90 disabled:opacity-40'}`}
             >
@@ -564,28 +797,37 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
             <p className="text-center text-sm text-vr-silver/40 py-6">Nenhum serviço cadastrado nesta categoria.</p>
           )}
         </>
-      )}
 
       <Dialog open={!!editingItem} onClose={() => setEditingItem(null)} title="Editar serviço">
         <div className="space-y-3">
-          <label className="flex items-center gap-2 text-xs text-vr-silver/60 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={editUniversal}
-              onChange={(e) => { setEditUniversal(e.target.checked); if (e.target.checked) setEditModel('') }}
-              className="w-3.5 h-3.5 accent-vr-red"
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <SearchCreateMultiSelect
+              label="Aparelho(s)"
+              placeholder="Buscar aparelho..."
+              options={deviceTypes}
+              selectedIds={editDeviceIds}
+              onChange={setEditDeviceIds}
+              onCreate={createDeviceInline}
             />
-            Serviço universal — vale pra qualquer modelo desta marca
-          </label>
+            <SearchCreateMultiSelect
+              label="Marca(s)"
+              placeholder="Buscar marca..."
+              options={categories}
+              selectedIds={editBrandIds}
+              onChange={(ids) => { setEditBrandIds(ids); setEditModelIds([]) }}
+              onCreate={createBrandInline}
+            />
+            <SearchCreateMultiSelect
+              label="Modelo(s) — opcional, vazio = universal"
+              placeholder="Buscar modelo..."
+              options={modelOptionsForEditItem}
+              selectedIds={editModelIds}
+              onChange={setEditModelIds}
+              onCreate={createModelInline}
+            />
+          </div>
           <div className="grid grid-cols-2 gap-2">
-            <input
-              value={editModel}
-              onChange={(e) => setEditModel(e.target.value)}
-              placeholder="Modelo"
-              disabled={editUniversal}
-              className={`${INPUT} disabled:opacity-40`}
-            />
-            <input value={editRepair} onChange={(e) => setEditRepair(e.target.value)} placeholder="Tipo de reparo" className={INPUT} />
+            <input value={editRepair} onChange={(e) => setEditRepair(e.target.value)} placeholder="Tipo de reparo" className={`${INPUT} col-span-2`} />
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-vr-silver/40 text-xs">R$</span>
               <input type="number" step="0.01" min="0" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} placeholder="Preço final 0,00" className={`${INPUT} pl-8`} />
@@ -739,6 +981,56 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
             className="w-full bg-vr-red text-white font-semibold py-2.5 rounded-xl hover:bg-vr-red/90 transition-colors text-sm disabled:opacity-40 flex items-center justify-center gap-2"
           >
             <Plus className="w-4 h-4" /> Adicionar custo
+          </button>
+        </div>
+      </Dialog>
+
+      <Dialog open={deviceDialogOpen} onClose={() => setDeviceDialogOpen(false)} title={editingDevice ? 'Editar aparelho' : 'Novo aparelho'}>
+        <div className="space-y-3">
+          <input
+            value={deviceName}
+            onChange={(e) => setDeviceName(e.target.value)}
+            placeholder="Nome (ex: Smartwatch)"
+            className={INPUT}
+          />
+          <button
+            onClick={saveDevice}
+            disabled={savingDevice || !deviceName.trim()}
+            className="w-full bg-vr-red text-white font-semibold py-2.5 rounded-xl hover:bg-vr-red/90 transition-colors text-sm disabled:opacity-40 flex items-center justify-center gap-2"
+          >
+            {savingDevice ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            {savingDevice ? 'Salvando…' : 'Salvar'}
+          </button>
+        </div>
+      </Dialog>
+
+      <Dialog open={!!editingBrand} onClose={() => setEditingBrand(null)} title="Editar marca">
+        <div className="space-y-3">
+          <input
+            value={editBrandName}
+            onChange={(e) => setEditBrandName(e.target.value)}
+            placeholder="Nome da marca"
+            className={INPUT}
+          />
+          <div>
+            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Aparelho</label>
+            <select
+              value={editBrandDeviceId}
+              onChange={(e) => setEditBrandDeviceId(e.target.value)}
+              className={`${INPUT} mt-1`}
+            >
+              {deviceTypes.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={saveEditBrand}
+            disabled={savingBrand || !editBrandName.trim()}
+            className="w-full bg-vr-red text-white font-semibold py-2.5 rounded-xl hover:bg-vr-red/90 transition-colors text-sm disabled:opacity-40 flex items-center justify-center gap-2"
+          >
+            {savingBrand ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            {savingBrand ? 'Salvando…' : 'Salvar'}
           </button>
         </div>
       </Dialog>
