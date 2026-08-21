@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { Product } from '@/lib/types'
 import { Logo } from '@/components/ui'
-import { ShoppingBag, Plus, Minus, Package, ArrowLeft } from 'lucide-react'
+import { ShoppingBag, Plus, Minus, Package, ArrowLeft, Search } from 'lucide-react'
 import { useCart } from '@/lib/carrinho/context'
 import { StoreLink, useStoreProxyPrefix } from '@/lib/storeProxyLink'
 import AccordionTags from '@/components/AccordionTags'
@@ -15,6 +15,7 @@ function currency(v: number) {
 export default function LojaClient({ initialProducts }: { initialProducts: Product[] }) {
   const [products] = useState<Product[]>(initialProducts)
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [search, setSearch] = useState('')
   const { items, add, updateQty, count } = useCart()
   const proxyPrefix = useStoreProxyPrefix()
 
@@ -25,9 +26,16 @@ export default function LojaClient({ initialProducts }: { initialProducts: Produ
   }, [products])
 
   const filteredProducts = useMemo(() => {
-    if (categoryFilter === 'all') return products
-    return products.filter((p) => p.product_categories?.name === categoryFilter)
-  }, [products, categoryFilter])
+    let base = categoryFilter === 'all' ? products : products.filter((p) => p.product_categories?.name === categoryFilter)
+    const q = search.trim().toLowerCase()
+    if (!q) return base
+    return base.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.description ?? '').toLowerCase().includes(q) ||
+        (p.tags ?? []).some((t) => t.toLowerCase().includes(q)),
+    )
+  }, [products, categoryFilter, search])
 
   const qtyInCart = (productId: string) => items.find((i) => i.id === productId)?.quantity ?? 0
 
@@ -74,6 +82,17 @@ export default function LojaClient({ initialProducts }: { initialProducts: Produ
         <p className="text-vr-silver/60 text-sm mb-6">
           Escolha os produtos e finalize pela sacola.
         </p>
+
+        <div className="relative mb-4">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-vr-silver/40" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar produto..."
+            className="w-full pl-10 pr-4 py-3 rounded-xl bg-vr-graphite border border-white/10 text-white placeholder-vr-silver/40 text-sm focus:outline-none focus:border-vr-red/50"
+          />
+        </div>
 
         {categories.length > 0 && (
           <div className="flex gap-2 overflow-x-auto pb-1 mb-6 scrollbar-hide">

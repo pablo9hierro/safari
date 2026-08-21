@@ -40,6 +40,55 @@ export const STATUS_DESCRIPTION: Record<ServiceStatus, string> = {
 /** Status em que o reparo já terminou — a partir daqui dá pra agendar a entrega. */
 export const REPAIR_DONE_STATUSES: ServiceStatus[] = ['completed', 'em_pagamento']
 
+/**
+ * Agrupamento pra exibição no painel enxuto (7 baldes). O enum granular
+ * acima continua sendo a fonte de verdade real (histórico, IA, WhatsApp,
+ * agenda) -- isto é só a camada de UI, nunca gravado no banco. `Record`
+ * sem `Partial` força o TypeScript a recusar o build se um status novo
+ * for adicionado ao enum sem ganhar um balde aqui.
+ */
+export type StatusGroup =
+  | 'pendente'
+  | 'em_deslocamento'
+  | 'em_diagnostico'
+  | 'em_reparo'
+  | 'retiradas'
+  | 'concluidos'
+
+export const STATUS_GROUP: Record<ServiceStatus, StatusGroup> = {
+  pending: 'pendente',
+  accepted: 'pendente',
+  aguardando_diagnostico: 'em_diagnostico',
+  diagnostico_enviado: 'em_diagnostico',
+  retirada_local: 'em_deslocamento',
+  em_busca: 'em_deslocamento',
+  in_progress: 'em_reparo',
+  completed: 'retiradas',
+  em_pagamento: 'retiradas',
+  em_entrega: 'retiradas',
+  delivered: 'concluidos',
+  finished: 'concluidos',
+  // Recusado/cancelado não desaparecem do painel -- entram em "concluidos"
+  // (encerrados), mas o card se distingue visualmente (selo/cor própria,
+  // ver STATUS_GROUP_ENDED) pra nunca parecer um atendimento bem-sucedido.
+  rejected: 'concluidos',
+  cancelled: 'concluidos',
+}
+
+/** Dentro do balde "concluidos", quais status são encerramento negativo
+ * (recusado/cancelado) -- usado só pra estilizar o card diferente, nunca
+ * pra filtrar/esconder. */
+export const ENDED_NEGATIVE_STATUSES: ServiceStatus[] = ['rejected', 'cancelled']
+
+export const STATUS_GROUP_LABEL: Record<StatusGroup, string> = {
+  pendente: 'Pendente',
+  em_deslocamento: 'Em deslocamento',
+  em_diagnostico: 'Em diagnóstico',
+  em_reparo: 'Em reparo',
+  retiradas: 'Retiradas',
+  concluidos: 'Concluídos',
+}
+
 export type ServiceSummary = {
   id: string
   status: ServiceStatus

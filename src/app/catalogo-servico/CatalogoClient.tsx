@@ -68,7 +68,8 @@ export default function CatalogoClient({ categories, items }: Props) {
       (i) =>
         i.model_name.toLowerCase().includes(q) ||
         i.repair_type.toLowerCase().includes(q) ||
-        (i.description ?? '').toLowerCase().includes(q)
+        (i.description ?? '').toLowerCase().includes(q) ||
+        (i.tags ?? []).some((t) => t.toLowerCase().includes(q))
     )
   }, [categoryItems, selectedRepairTypes, search])
 

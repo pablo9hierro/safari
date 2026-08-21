@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { ServiceRequest, ServiceStatus } from '@/lib/types'
+import { STATUS_GROUP, STATUS_GROUP_LABEL, type StatusGroup } from '@/lib/serviceLifecycle/types'
 import {
   Smartphone,
   MapPin,
@@ -161,21 +162,18 @@ const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: s
   diagnostico_enviado:     { label: 'Diagnóstico enviado',          color: 'text-violet-700',  bg: 'bg-violet-100'  },
 }
 
-const FILTERS: { key: ServiceStatus; label: string }[] = [
-  { key: 'pending',                label: 'Pendentes' },
-  { key: 'aguardando_diagnostico', label: 'Diagnóstico' },
-  { key: 'diagnostico_enviado',    label: 'Diagnóstico enviado' },
-  { key: 'accepted',               label: 'Aceitos' },
-  { key: 'rejected',               label: 'Recusados' },
-  { key: 'retirada_local',         label: 'Retirada/entrega' },
-  { key: 'em_busca',               label: 'Em recolhimento' },
-  { key: 'in_progress',            label: 'Em reparo' },
-  { key: 'completed',              label: 'Concluídos' },
-  { key: 'em_pagamento',           label: 'Em pagamento' },
-  { key: 'em_entrega',             label: 'Em entrega' },
-  { key: 'delivered',              label: 'Entregues' },
-  { key: 'finished',               label: 'Concluídos (final)' },
-  { key: 'cancelled',              label: 'Cancelados' },
+// Painel enxuto: 6 baldes de exibição (o enum granular acima continua sendo
+// a fonte de verdade real -- ver STATUS_GROUP em serviceLifecycle/types.ts).
+// "em_busca"/"em_entrega" (dentro de em_deslocamento/retiradas) só existem
+// de fato em lojas COM deslocamento -- apenasRetirada continua filtrando,
+// só que agora nada some, porque loja de retirada nunca ocupa esses status.
+const GROUP_FILTERS: { key: StatusGroup; label: string }[] = [
+  { key: 'pendente', label: STATUS_GROUP_LABEL.pendente },
+  { key: 'em_deslocamento', label: STATUS_GROUP_LABEL.em_deslocamento },
+  { key: 'em_diagnostico', label: STATUS_GROUP_LABEL.em_diagnostico },
+  { key: 'em_reparo', label: STATUS_GROUP_LABEL.em_reparo },
+  { key: 'retiradas', label: STATUS_GROUP_LABEL.retiradas },
+  { key: 'concluidos', label: STATUS_GROUP_LABEL.concluidos },
 ]
 
 export default function DashboardClient({
@@ -190,14 +188,15 @@ export default function DashboardClient({
 }) {
   const [tab, setTab] = useState<'solicitacoes' | 'pedidos'>('solicitacoes')
   const [requests, setRequests] = useState<ServiceRequest[]>(initialRequests)
-  const [filter, setFilter] = useState<ServiceStatus>('pending')
+  const [groupFilter, setGroupFilter] = useState<StatusGroup>('pendente')
   const [selected, setSelected] = useState<ServiceRequest | null>(null)
 
-  const visibleFilters = apenasRetirada
-    ? FILTERS.filter((f) => f.key !== 'em_busca' && f.key !== 'em_entrega')
-    : FILTERS
+  // apenasRetirada não precisa mais filtrar baldes -- em_deslocamento (que
+  // engloba em_busca) e retiradas (que engloba em_entrega) nunca são
+  // ocupados por essa loja de qualquer forma (self_pickup sempre true).
+  const visibleFilters = GROUP_FILTERS
 
-  const filtered = requests.filter((r) => r.status === filter)
+  const filtered = requests.filter((r) => STATUS_GROUP[r.status] === groupFilter)
 
   const handleUpdate = (updated: ServiceRequest) => {
     setRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
@@ -221,7 +220,7 @@ export default function DashboardClient({
         <div className="flex gap-2 border-b border-white/5">
           {[
             { key: 'solicitacoes' as const, label: 'Solicitações' },
-            { key: 'pedidos' as const, label: 'Pedidos' },
+            { key: 'pedidos' as const, label: 'Vendas' },
           ].map((t) => (
             <button
               key={t.key}
@@ -258,13 +257,13 @@ export default function DashboardClient({
           {visibleFilters.map((f) => (
             <button
               key={f.key}
-              onClick={() => setFilter(f.key)}
+              onClick={() => setGroupFilter(f.key)}
               className={`shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-all
-                ${filter === f.key ? 'bg-vr-red text-white' : 'bg-vr-graphite border border-white/5 text-vr-silver hover:bg-vr-graphite-light'}`}
+                ${groupFilter === f.key ? 'bg-vr-red text-white' : 'bg-vr-graphite border border-white/5 text-vr-silver hover:bg-vr-graphite-light'}`}
             >
               {f.label}
-              <span className={`ml-1.5 px-1.5 rounded-full text-xs ${filter === f.key ? 'bg-white/20 text-white' : 'bg-white/5 text-vr-silver/60'}`}>
-                {requests.filter((r) => r.status === f.key).length}
+              <span className={`ml-1.5 px-1.5 rounded-full text-xs ${groupFilter === f.key ? 'bg-white/20 text-white' : 'bg-white/5 text-vr-silver/60'}`}>
+                {requests.filter((r) => STATUS_GROUP[r.status] === f.key).length}
               </span>
             </button>
           ))}
