@@ -46,6 +46,9 @@ export interface ServiceRequest {
   selected_service_ids?: string[]
   diagnosis_requested?: boolean
   estimated_quote?: number | null
+  /** Bancada ocupada até este instante (diagnóstico/reparo em andamento) --
+   * bloqueia a agenda enquanto vigente. Ver src/lib/agenda/service.ts. */
+  busy_until?: string | null
 }
 
 export interface ServiceCatalogCategory {

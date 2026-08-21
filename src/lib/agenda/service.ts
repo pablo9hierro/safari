@@ -123,6 +123,31 @@ async function blocksInRange(db: Db, from: Date, to: Date): Promise<Interval[]> 
 }
 
 /**
+ * Atendimentos com bancada ocupada agora (diagnóstico ou reparo em
+ * andamento, `service_requests.busy_until` calculado a partir do
+ * `duration_minutes` do serviço no catálogo — ver
+ * `serviceLifecycle/store.ts::startOccupation`). Ninguém consegue agendar
+ * um horário que colida com essa janela: o intervalo vai de "agora" até
+ * `busy_until`, já que o que importa pra disponibilidade futura é só o
+ * fim, não quando o atendimento realmente começou.
+ */
+async function dynamicOccupationInRange(db: Db, from: Date, to: Date): Promise<Interval[]> {
+  // NULL nunca satisfaz .gt()/.lt() em SQL -- exclui linhas sem busy_until
+  // sem precisar de um .not('is', null) explícito (que os fakes de teste
+  // não implementam de qualquer forma).
+  const { data, error } = await db
+    .from('service_requests')
+    .select('busy_until')
+    .gt('busy_until', from.toISOString())
+    .lt('busy_until', to.toISOString())
+  if (error) throw new AgendaError(`Falha ao consultar ocupação dinâmica: ${error.message}`, 'validation')
+  const now = new Date()
+  return (data ?? [])
+    .map((r: { busy_until: string }) => ({ start: now, end: new Date(r.busy_until) }))
+    .filter((i) => i.end > now)
+}
+
+/**
  * Próximos horários livres a partir de um instante, varrendo dia a dia.
  * Usado tanto pra sugerir alternativa quanto pra listar disponibilidade.
  */
@@ -181,13 +206,15 @@ export async function getFreeRangesForDay(
 
   const dayStart = parseDateKeyStartOfDayUtc(dateKey)
   const dayEnd = new Date(dayStart.getTime() + 2 * 86_400_000) // janela generosa, corta no fuso da loja abaixo
-  const [appointments, blocks] = await Promise.all([
+  const [appointments, blocks, occupation] = await Promise.all([
     liveAppointmentsInRange(db, dayStart, dayEnd),
     blocksInRange(db, dayStart, dayEnd),
+    dynamicOccupationInRange(db, dayStart, dayEnd),
   ])
   const busy: Interval[] = [
     ...appointments.map((a) => ({ start: new Date(a.starts_at), end: new Date(a.ends_at) })),
     ...blocks,
+    ...occupation,
   ]
 
   const minLeadMs = Math.max(settings.lead_time_minutes, settings.buffer_minutes) * 60_000
@@ -277,6 +304,16 @@ export async function checkAvailability(
         settings.buffer_minutes > 0
           ? `Esse horário fica muito perto de outro atendimento já marcado — é preciso pelo menos ${settings.buffer_minutes} minutos de intervalo.`
           : 'Já existe um atendimento marcado nesse horário.',
+      alternatives: await alternatives(),
+    }
+  }
+
+  const occupation = await dynamicOccupationInRange(db, expanded.start, expanded.end)
+  if (occupation.some((o) => overlaps(interval, o))) {
+    return {
+      available: false,
+      reason: 'ocupado',
+      detail: 'A bancada está ocupada com outro atendimento (diagnóstico/reparo em andamento) até esse horário.',
       alternatives: await alternatives(),
     }
   }

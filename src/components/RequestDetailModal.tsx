@@ -266,9 +266,43 @@ export default function RequestDetailModal({
     setLoading(true)
     try {
       const supabase = createClient()
-      const updates = {
+      const updates: Record<string, unknown> = {
         status: next,
         quote_value: quoteValue ? parseFloat(quoteValue) : null,
+      }
+
+      // Timer de ocupação da bancada: dois relógios (diagnóstico e reparo
+      // são fases distintas, com durações próprias -- diagnóstico usa o
+      // serviço "Diagnóstico" cadastrado no catálogo; reparo usa a soma dos
+      // serviços selecionados de verdade). Entrar num desses status recalcula
+      // busy_until; sair (avançar além) libera a agenda.
+      if (next === 'aguardando_diagnostico') {
+        const { data: diag } = await supabase
+          .from('service_catalog_items')
+          .select('duration_minutes')
+          .eq('repair_type', 'Diagnóstico')
+          .eq('active', true)
+          .limit(1)
+          .maybeSingle()
+        const minutes = diag?.duration_minutes ?? 30
+        updates.busy_until = new Date(Date.now() + minutes * 60_000).toISOString()
+      } else if (next === 'in_progress') {
+        const ids = request.selected_service_ids ?? []
+        let minutes = 60
+        if (ids.length > 0) {
+          const { data: services } = await supabase
+            .from('service_catalog_items')
+            .select('duration_minutes')
+            .in('id', ids)
+          if (services && services.length > 0) {
+            minutes = services.reduce((sum: number, s: { duration_minutes: number }) => sum + s.duration_minutes, 0)
+          }
+        }
+        updates.busy_until = new Date(Date.now() + minutes * 60_000).toISOString()
+      } else {
+        // Qualquer outra transição libera a bancada -- diagnóstico/reparo
+        // não estão mais em andamento neste atendimento.
+        updates.busy_until = null
       }
       const { data, error: updateError } = await supabase
         .from('service_requests')
