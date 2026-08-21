@@ -1,10 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { Package, Wrench, Boxes } from 'lucide-react'
+import { Package, Wrench, Boxes, Smartphone } from 'lucide-react'
 import ProdutosTab from './ProdutosTab'
 import ServicosTab from './ServicosTab'
 import EstoqueTab from './EstoqueTab'
+import AparelhoMarcaModeloTab from './AparelhoMarcaModeloTab'
 import type { Product, ProductCategory, StockItem, StockMovement } from '@/lib/types'
 
 interface CatalogCategory { id: string; name: string; slug: string; sort_order: number; device_type_id: string | null }
@@ -23,12 +24,13 @@ interface ItemDeviceLink { service_catalog_item_id: string; device_type_id: stri
 interface ItemBrandLink { service_catalog_item_id: string; brand_id: string }
 interface ItemModelLink { service_catalog_item_id: string; model_id: string }
 
-type Tab = 'produtos' | 'servicos' | 'estoque'
+type Tab = 'produtos' | 'servicos' | 'estoque' | 'aparelho_marca_modelo'
 
 const TABS: { key: Tab; label: string; icon: React.ElementType }[] = [
   { key: 'produtos', label: 'Produtos', icon: Package },
   { key: 'servicos', label: 'Serviços', icon: Wrench },
   { key: 'estoque', label: 'Estoque', icon: Boxes },
+  { key: 'aparelho_marca_modelo', label: 'Aparelho/Marca/Modelo', icon: Smartphone },
 ]
 
 interface Props {
@@ -51,6 +53,14 @@ export default function ProdutosClient(props: Props) {
   // enxergar item de estoque cadastrado na mesma sessão, sem precisar
   // recarregar a página — as duas abas compartilham a mesma lista viva.
   const [stockItems, setStockItems] = useState<StockItem[]>(props.initialStockItems)
+
+  // Aparelhos/marcas/modelos são compartilhados entre a aba de Serviços
+  // (cadastro dinâmico via busca) e a aba dedicada Aparelho/Marca/Modelo
+  // (cadastro individual) -- elevados aqui pra uma aba refletir criação
+  // feita pela outra sem precisar recarregar a página.
+  const [categories, setCategories] = useState<CatalogCategory[]>(props.initialCatalogCategories)
+  const [deviceTypes, setDeviceTypes] = useState<DeviceType[]>(props.initialDeviceTypes)
+  const [models, setModels] = useState<CatalogModel[]>(props.initialCatalogModels)
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
@@ -76,10 +86,13 @@ export default function ProdutosClient(props: Props) {
       )}
       {tab === 'servicos' && (
         <ServicosTab
-          initialCategories={props.initialCatalogCategories}
+          categories={categories}
+          setCategories={setCategories}
+          deviceTypes={deviceTypes}
+          setDeviceTypes={setDeviceTypes}
+          models={models}
+          setModels={setModels}
           initialItems={props.initialCatalogItems}
-          initialDeviceTypes={props.initialDeviceTypes}
-          initialCatalogModels={props.initialCatalogModels}
           initialItemDevices={props.initialItemDevices}
           initialItemBrands={props.initialItemBrands}
           initialItemModels={props.initialItemModels}
@@ -91,6 +104,16 @@ export default function ProdutosClient(props: Props) {
           items={stockItems}
           setItems={setStockItems}
           initialMovements={props.initialStockMovements}
+        />
+      )}
+      {tab === 'aparelho_marca_modelo' && (
+        <AparelhoMarcaModeloTab
+          categories={categories}
+          setCategories={setCategories}
+          deviceTypes={deviceTypes}
+          setDeviceTypes={setDeviceTypes}
+          models={models}
+          setModels={setModels}
         />
       )}
     </div>
