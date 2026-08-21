@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { platformSupabaseUrl, platformSupabaseAnonKey } from './platformCredentials'
 
 // Versão server-side do resolutooAuthClient — usada no DashboardLayout pra
 // checar sessão via cookie (SSR). Ver resolutooAuthClient.ts pro porquê.
@@ -7,8 +8,8 @@ export async function createResolutooAuthServerClient() {
   const cookieStore = await cookies()
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_ANON_KEY!,
+    platformSupabaseUrl(),
+    platformSupabaseAnonKey(),
     {
       cookies: {
         getAll() {

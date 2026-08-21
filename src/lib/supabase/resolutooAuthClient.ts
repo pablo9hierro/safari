@@ -1,4 +1,5 @@
 import { createBrowserClient } from '@supabase/ssr'
+import { platformSupabaseUrl, platformSupabaseAnonKey } from './platformCredentials'
 
 // Login único do Resolutoo — projeto Supabase da PLATAFORMA (Rodoletas),
 // não o do vrtech. Usado SÓ pra auth (signInWithPassword/getSession) — o
@@ -8,7 +9,7 @@ import { createBrowserClient } from '@supabase/ssr'
 // nesse client — não tem o schema `vrtech`, é outro projeto.
 export function createResolutooAuthClient() {
   return createBrowserClient(
-    process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_ANON_KEY!,
+    platformSupabaseUrl(),
+    platformSupabaseAnonKey(),
   )
 }

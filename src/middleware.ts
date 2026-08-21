@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { logError } from '@/lib/logging/logError'
+import { platformSupabaseUrl, platformSupabaseAnonKey } from '@/lib/supabase/platformCredentials'
 
 /**
  * O login de /dashboard (DashboardLayout) é validado contra o projeto
@@ -18,21 +19,6 @@ import { logError } from '@/lib/logging/logError'
  * 20260816000001_fix_dashboard_rls_anon.sql pro fix disso (as policies
  * exigiam `authenticated`, que nunca existia, daí o 401 ao cadastrar item).
  */
-// Fallback hardcoded pra quando `process.env.NEXT_PUBLIC_*` vem vazio em
-// produção mesmo configurado no dashboard da Vercel -- causa raiz real
-// (confirmada via `vercel ls --prod`): deploys automáticos por push reusam
-// cache remoto de build por padrão, e esse cache não garante invalidação
-// determinística quando SÓ uma env var muda sem nenhum arquivo-fonte mudar
-// junto -- o bundle (inclusive o de Edge Runtime, que o middleware usa) pode
-// reinlinar o valor antigo/vazio de uma var criada depois do cache existir.
-// Não é segredo: são NEXT_PUBLIC_* (anon key pública por design, protegida
-// por RLS do lado do Supabase, já visível em qualquer bundle client-side de
-// qualquer forma). Se a plataforma rotacionar essas credenciais, atualizar
-// os DOIS lugares -- a env var na Vercel E esta constante.
-const PLATFORM_SUPABASE_URL_FALLBACK = 'https://migkkrwzykpztrakbfij.supabase.co'
-const PLATFORM_SUPABASE_ANON_KEY_FALLBACK =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pZ2trcnd6eWtwenRyYWtiZmlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5NjI2OTQsImV4cCI6MjA5MTUzODY5NH0.0bEy_WikqnfPU9eV7wusSb757dhiTiK5D2KeDSWyJTo'
-
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request })
 
@@ -46,10 +32,8 @@ export async function middleware(request: NextRequest) {
   // extremo de o fallback também estar inválido -- degradar aqui é sempre
   // melhor que 500 global: quem depende de sessão cai no /login
   // normalmente, o resto do site continua de pé.
-  const platformUrl = process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_URL?.startsWith('http')
-    ? process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_URL
-    : PLATFORM_SUPABASE_URL_FALLBACK
-  const platformKey = process.env.NEXT_PUBLIC_RESOLUTOO_SUPABASE_ANON_KEY || PLATFORM_SUPABASE_ANON_KEY_FALLBACK
+  const platformUrl = platformSupabaseUrl()
+  const platformKey = platformSupabaseAnonKey()
   if (!platformUrl?.startsWith('http') || !platformKey) {
     const msg = '[middleware] NEXT_PUBLIC_RESOLUTOO_SUPABASE_URL/ANON_KEY ausentes ou inválidas mesmo com fallback — pulando refresh de sessão desta request.'
     console.error(msg)
