@@ -14,6 +14,9 @@ export type PdvSaleItem = {
   unit_price: number
   service_request_id: string | null
   stock_deducted: boolean
+  /** Horário escolhido pelo lojista pro serviço -- null = próximo horário livre automático. */
+  requested_scheduled_at: string | null
+  appointment_id: string | null
 }
 
 export type PdvPayment = {

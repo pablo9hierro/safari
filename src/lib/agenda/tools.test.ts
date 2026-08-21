@@ -107,7 +107,7 @@ describe('feature flag por loja', () => {
     expect(await agendaToolsEnabled()).toBe(false)
     const tools = (await resolveTools()).map((t) => t.name)
     expect(tools).toEqual([
-      'buscar_produtos', 'buscar_servicos', 'consultar_pedido', ...SERVICE_TOOL_NAMES,
+      'buscar_produtos', 'buscar_servicos', 'consultar_pedido', 'consultar_atendimento_em_andamento', ...SERVICE_TOOL_NAMES,
     ])
   })
 })

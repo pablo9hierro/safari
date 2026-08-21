@@ -4,12 +4,13 @@ import { usePathname } from 'next/navigation'
 import { createResolutooAuthClient } from '@/lib/supabase/resolutooAuthClient'
 import Logo from '@/components/ui/Logo'
 import { AdminLink, adminAwareHref } from '@/lib/storeProxyLink'
-import { ClipboardList, Truck, Package, Wallet, LogOut, UserCog, CalendarDays, MessageSquare, ShoppingCart } from 'lucide-react'
+import { ClipboardList, Truck, Package, Wallet, LogOut, UserCog, CalendarDays, MessageSquare, ShoppingCart, MessageCircle } from 'lucide-react'
 
 // Pedidos foi absorvido pra dentro de Solicitações (aba própria, mesma
 // rota /dashboard) — não é mais uma página/item de menu separado.
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Solicitações', icon: ClipboardList },
+  { href: '/dashboard/chat', label: 'Chat', icon: MessageCircle },
   { href: '/dashboard/pdv', label: 'PDV', icon: ShoppingCart },
   { href: '/dashboard/agenda', label: 'Agenda', icon: CalendarDays },
   { href: '/dashboard/produtos', label: 'Produtos/Serviços', icon: Package },

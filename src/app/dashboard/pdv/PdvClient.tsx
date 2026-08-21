@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Search, Loader2, Plus, Minus, X, ShoppingCart, CreditCard, Banknote, QrCode, Check } from 'lucide-react'
+import { Search, Loader2, Plus, Minus, X, ShoppingCart, CreditCard, Banknote, QrCode, Check, Calendar } from 'lucide-react'
 import { apiPath } from '@/lib/storeProxyLink'
 import { createClient } from '@/lib/supabase/client'
 import { createPdvPix, getPdvPixStatus, AdminAuthError } from '@/lib/resolutoo/adminApi'
@@ -28,6 +28,8 @@ type CartItem = {
   unit_price: number
   quantity: number
   stock?: number
+  /** Só serviço -- null = próximo horário livre automático ao concluir a venda. */
+  scheduledAt?: string | null
 }
 
 type PdvPayment = {
@@ -290,6 +292,7 @@ export default function PdvClient() {
       return [...prev, {
         key, item_type: item.item_type, id: item.id, label: item.label,
         unit_price: item.price, quantity: 1, stock: item.stock,
+        scheduledAt: item.item_type === 'service' ? null : undefined,
       }]
     })
   }
@@ -298,6 +301,10 @@ export default function PdvClient() {
     setCart((prev) => prev
       .map((c) => (c.key === key ? { ...c, quantity: Math.max(1, Math.min(c.stock ?? Infinity, c.quantity + delta)) } : c))
     )
+  }
+
+  const setScheduledAt = (key: string, value: string) => {
+    setCart((prev) => prev.map((c) => (c.key === key ? { ...c, scheduledAt: value || null } : c)))
   }
 
   const removeFromCart = (key: string) => setCart((prev) => prev.filter((c) => c.key !== key))
@@ -319,6 +326,7 @@ export default function PdvClient() {
             product_id: c.item_type === 'product' ? c.id : undefined,
             service_id: c.item_type === 'service' ? c.id : undefined,
             quantity: c.quantity,
+            scheduled_at: c.item_type === 'service' && c.scheduledAt ? new Date(c.scheduledAt).toISOString() : undefined,
           })),
         }),
       })
@@ -445,30 +453,60 @@ export default function PdvClient() {
               <p className="p-6 text-center text-sm text-vr-silver/40">Carrinho vazio — busque um produto ou serviço acima.</p>
             ) : (
               cart.map((item) => (
-                <div key={item.key} className="flex items-center gap-3 p-3.5">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white truncate">{item.label}</p>
-                    <p className="text-xs text-vr-silver/50">
-                      {money(item.unit_price)} {item.item_type === 'product' ? `· estoque ${item.stock}` : '· serviço'}
-                    </p>
-                  </div>
-                  {item.item_type === 'product' ? (
-                    <div className="flex items-center gap-1.5">
-                      <button onClick={() => changeQty(item.key, -1)} className="p-1.5 rounded-lg bg-vr-black text-vr-silver/60 hover:text-white transition-colors">
-                        <Minus className="w-3.5 h-3.5" />
-                      </button>
-                      <span className="w-6 text-center text-sm text-white">{item.quantity}</span>
-                      <button onClick={() => changeQty(item.key, 1)} className="p-1.5 rounded-lg bg-vr-black text-vr-silver/60 hover:text-white transition-colors">
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
+                <div key={item.key} className="p-3.5 space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white truncate">{item.label}</p>
+                      <p className="text-xs text-vr-silver/50">
+                        {money(item.unit_price)} {item.item_type === 'product' ? `· estoque ${item.stock}` : '· serviço'}
+                      </p>
                     </div>
-                  ) : (
-                    <span className="text-xs text-vr-silver/40 px-2">qtd. 1</span>
+                    {item.item_type === 'product' ? (
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={() => changeQty(item.key, -1)} className="p-1.5 rounded-lg bg-vr-black text-vr-silver/60 hover:text-white transition-colors">
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="w-6 text-center text-sm text-white">{item.quantity}</span>
+                        <button onClick={() => changeQty(item.key, 1)} className="p-1.5 rounded-lg bg-vr-black text-vr-silver/60 hover:text-white transition-colors">
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-vr-silver/40 px-2">qtd. 1</span>
+                    )}
+                    <span className="text-sm font-semibold text-white w-20 text-right">{money(item.unit_price * item.quantity)}</span>
+                    <button onClick={() => removeFromCart(item.key)} className="p-1.5 rounded-lg text-vr-silver/40 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  {item.item_type === 'service' && (
+                    <div className="flex items-center gap-2 pl-0.5">
+                      <Calendar className="w-3.5 h-3.5 text-vr-silver/40 shrink-0" />
+                      {item.scheduledAt ? (
+                        <>
+                          <input
+                            type="datetime-local"
+                            value={item.scheduledAt}
+                            onChange={(e) => setScheduledAt(item.key, e.target.value)}
+                            className="text-xs bg-vr-black border border-white/8 rounded-lg px-2 py-1 text-white"
+                          />
+                          <button
+                            onClick={() => setScheduledAt(item.key, '')}
+                            className="text-xs text-vr-silver/40 hover:text-white transition-colors"
+                          >
+                            usar próximo horário livre
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setScheduledAt(item.key, new Date(Date.now() + 3600_000).toISOString().slice(0, 16))}
+                          className="text-xs text-vr-silver/50 hover:text-vr-red transition-colors underline decoration-dotted"
+                        >
+                          Agenda automática pro próximo horário livre — escolher outro horário
+                        </button>
+                      )}
+                    </div>
                   )}
-                  <span className="text-sm font-semibold text-white w-20 text-right">{money(item.unit_price * item.quantity)}</span>
-                  <button onClick={() => removeFromCart(item.key)} className="p-1.5 rounded-lg text-vr-silver/40 hover:text-red-400 hover:bg-red-500/10 transition-colors">
-                    <X className="w-4 h-4" />
-                  </button>
                 </div>
               ))
             )}

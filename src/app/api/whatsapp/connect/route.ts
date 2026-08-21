@@ -9,7 +9,12 @@ import {
 import { setWhatsAppState } from '@/lib/whatsapp/state'
 import { SITE_URL } from '@/lib/constants'
 
-const WEBHOOK_EVENTS = ['QRCODE_UPDATED', 'CONNECTION_UPDATE']
+// MESSAGES_UPSERT incluído explicitamente mesmo já funcionando sem estar
+// na lista antes (Evolution parece tratar lista vazia/config antiga como
+// "todos os eventos") -- listar tudo evita que uma reconexão futura
+// restrinja sem querer o que já funciona. PRESENCE_UPDATE novo: alimenta
+// "cliente está digitando/gravando áudio" pra IA esperar antes de responder.
+const WEBHOOK_EVENTS = ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'PRESENCE_UPDATE']
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 

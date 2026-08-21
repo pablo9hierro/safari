@@ -91,18 +91,71 @@ export async function POST(req: NextRequest) {
   }
 
   // Save inbound message
-  await supabase.from('assistant_messages').insert({
-    conversation_id: conversation.id,
-    direction: 'inbound',
-    sender_type: 'cliente',
-    content: text,
-  })
+  const { data: insertedMsg } = await supabase
+    .from('assistant_messages')
+    .insert({
+      conversation_id: conversation.id,
+      direction: 'inbound',
+      sender_type: 'cliente',
+      content: text,
+    })
+    .select('id')
+    .single()
 
   // Update last_message_at
   await supabase
     .from('assistant_conversations')
     .update({ last_message_at: new Date().toISOString(), customer_name: customerName ?? conversation.customer_name })
     .eq('id', conversation.id)
+
+  // Espera o cliente parar de digitar/gravar (presence do WhatsApp) e/ou o
+  // lojista parar de digitar em /chat, respeitando message_batch_window_seconds
+  // -- junta mensagens em sequência numa resposta só, em vez de responder
+  // fragmento por fragmento. Poll simples porque a função roda numa única
+  // invocação serverless (sem processo de fundo pra debounce de verdade).
+  const windowMs = (config.message_batch_window_seconds || 8) * 1000
+  const hardCapMs = windowMs * 2.5
+  const waitStarted = Date.now()
+  for (;;) {
+    const { data: conv } = await supabase
+      .from('assistant_conversations')
+      .select('customer_typing_until, lojista_typing_until, human_override')
+      .eq('id', conversation.id)
+      .single()
+    if (!conv || conv.human_override) {
+      return NextResponse.json({ ok: true, skipped: 'human_override_during_wait' })
+    }
+    const now = Date.now()
+    const stillTyping =
+      (conv.customer_typing_until && new Date(conv.customer_typing_until).getTime() > now) ||
+      (conv.lojista_typing_until && new Date(conv.lojista_typing_until).getTime() > now)
+    if (!stillTyping) break
+    if (now - waitStarted > hardCapMs) {
+      // Lojista ainda digitando mesmo no limite máximo de espera — deixa
+      // ele terminar, a IA não entra por cima.
+      if (conv.lojista_typing_until && new Date(conv.lojista_typing_until).getTime() > now) {
+        return NextResponse.json({ ok: true, skipped: 'lojista_typing_timeout' })
+      }
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+
+  // Se chegou outra mensagem do cliente durante a espera, é ela quem vai
+  // responder pelo lote inteiro -- essa invocação aborta pra não duplicar.
+  if (insertedMsg) {
+    const { data: latest } = await supabase
+      .from('assistant_messages')
+      .select('id')
+      .eq('conversation_id', conversation.id)
+      .eq('direction', 'inbound')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+    if (latest && latest.id !== insertedMsg.id) {
+      return NextResponse.json({ ok: true, skipped: 'superseded_by_newer_message' })
+    }
+  }
 
   // Load recent history (last 20 messages for context)
   const { data: historyRows } = await supabase

@@ -404,6 +404,8 @@ export async function ensureServiceRequestForAppointment(
     problem_description?: string | null
     service_label: string
     source: ServiceRequestSource
+    /** 'pending' pro fluxo normal (triagem pendente); PDV usa 'accepted' -- orçamento já foi acordado no balcão, pula a negociação. */
+    status?: string
   },
   db: Db = createServiceClient(),
 ): Promise<string> {
@@ -418,7 +420,7 @@ export async function ensureServiceRequestForAppointment(
       diagnosis_requested: false,
       self_pickup: false,
       payment_methods: [],
-      status: 'pending',
+      status: input.status ?? 'pending',
       source: input.source,
     })
     .select('id')

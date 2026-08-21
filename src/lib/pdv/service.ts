@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { PdvError, type PdvItemType, type PdvPayment, type PdvPaymentMethod, type PdvSale, type PdvSaleItem, type PdvSaleWithDetails } from './types'
+import { createAppointment, ensureServiceRequestForAppointment, findAvailableSlots, resolveService } from '@/lib/agenda/service'
 
 type Db = ReturnType<typeof createServiceClient>
 
@@ -8,6 +9,8 @@ export type CreateSaleItemInput = {
   product_id?: string | null
   service_id?: string | null
   quantity: number
+  /** Só pra serviço -- horário escolhido pelo lojista. Omitido = próximo horário livre automático ao concluir a venda. */
+  scheduled_at?: string | null
 }
 
 /**
@@ -31,6 +34,7 @@ export async function createSale(
     label: string
     quantity: number
     unit_price: number
+    requested_scheduled_at: string | null
   }> = []
 
   for (const item of items) {
@@ -55,6 +59,7 @@ export async function createSale(
         label: data.name,
         quantity: item.quantity,
         unit_price: Number(data.price),
+        requested_scheduled_at: null,
       })
     } else {
       if (!item.service_id) throw new PdvError('Serviço não informado.', 'validation')
@@ -72,6 +77,7 @@ export async function createSale(
         label: `${data.model_name} — ${data.repair_type}`,
         quantity: item.quantity,
         unit_price: Number(data.price),
+        requested_scheduled_at: item.scheduled_at ?? null,
       })
     }
   }
@@ -208,25 +214,49 @@ async function concludeSale(saleId: string, db: Db): Promise<void> {
     }
 
     if (item.item_type === 'service' && !item.service_request_id) {
-      const { data: req, error } = await db
-        .from('service_requests')
-        .insert({
+      // Orçamento já foi acordado no balcão -- entra direto como 'accepted'
+      // (pula a etapa de negociação/diagnóstico remoto) e vira um
+      // agendamento de verdade na mesma agenda do WhatsApp/vitrine, não
+      // uma solicitação "fake" já concluída.
+      const serviceRequestId = await ensureServiceRequestForAppointment(
+        {
           customer_name: 'Cliente balcão',
           customer_phone: '00000000000',
           problem_description: `Venda PDV: ${item.label}`,
-          selected_service_ids: item.service_id ? [item.service_id] : [],
-          diagnosis_requested: false,
-          self_pickup: true,
-          payment_methods: [],
-          status: 'finished',
+          service_label: item.label,
           source: 'pdv',
-          quote_value: item.unit_price * item.quantity,
-        })
-        .select('id')
-        .single()
-      if (!error && req) {
-        await db.from('pdv_sale_items').update({ service_request_id: req.id }).eq('id', item.id)
+          status: 'accepted',
+        },
+        db,
+      )
+
+      let startsAt: Date
+      if (item.requested_scheduled_at) {
+        startsAt = new Date(item.requested_scheduled_at)
+      } else {
+        const service = await resolveService(item.service_id, item.label, db)
+        const [nextSlot] = await findAvailableSlots(new Date(), service.duration_minutes, 1, db)
+        if (!nextSlot) throw new PdvError(`Sem horário livre pra agendar "${item.label}" -- escolha um horário manualmente.`, 'conflict')
+        startsAt = nextSlot.start
       }
+
+      const appointment = await createAppointment(
+        {
+          service_id: item.service_id,
+          service_label: item.label,
+          customer_name: 'Cliente balcão',
+          customer_phone: '00000000000',
+          starts_at: startsAt,
+          actor_type: 'admin',
+          service_request_id: serviceRequestId,
+        },
+        db,
+      )
+
+      await db
+        .from('pdv_sale_items')
+        .update({ service_request_id: serviceRequestId, appointment_id: appointment.id })
+        .eq('id', item.id)
     }
   }
 
