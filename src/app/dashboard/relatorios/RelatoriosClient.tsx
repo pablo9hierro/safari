@@ -6,6 +6,7 @@ import MercadoPagoSection from '@/components/MercadoPagoSection'
 import { fetchOrders, AdminAuthError, type Order } from '@/lib/resolutoo/adminApi'
 import { adminAwareHref } from '@/lib/storeProxyLink'
 import StockActivitySection from './StockActivitySection'
+import ErrorLogSection from './ErrorLogSection'
 
 export type ServiceOrderRow = {
   id: string
@@ -363,6 +364,7 @@ export default function RelatoriosClient({ serviceOrders }: { serviceOrders: Ser
       </div>
 
       <StockActivitySection />
+      <ErrorLogSection />
     </div>
   )
 }
