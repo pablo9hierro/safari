@@ -71,9 +71,11 @@ export default function DiagnosticSection({ request, onSaved }: DiagnosticSectio
     if (!selectedBrandId) return []
     const seen = new Set<string>()
     return catalogItems
-      .filter((i) => i.category_id === selectedBrandId)
+      // model_name null = serviço universal da marca, não é um modelo
+      // selecionável (ver serviceCards, que inclui os universais de volta).
+      .filter((i) => i.category_id === selectedBrandId && i.model_name)
       .reduce<string[]>((acc, i) => {
-        if (!seen.has(i.model_name)) { seen.add(i.model_name); acc.push(i.model_name) }
+        if (!seen.has(i.model_name!)) { seen.add(i.model_name!); acc.push(i.model_name!) }
         return acc
       }, [])
       .sort()
@@ -82,7 +84,7 @@ export default function DiagnosticSection({ request, onSaved }: DiagnosticSectio
   const serviceCards = useMemo(() => {
     if (!selectedBrandId || !selectedModelPill) return []
     return catalogItems.filter(
-      (i) => i.category_id === selectedBrandId && i.model_name === selectedModelPill
+      (i) => i.category_id === selectedBrandId && (i.model_name === selectedModelPill || i.model_name === null)
     )
   }, [catalogItems, selectedBrandId, selectedModelPill])
 

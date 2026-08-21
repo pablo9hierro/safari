@@ -69,7 +69,8 @@ export interface ServiceCatalogCategory {
 export interface ServiceCatalogItem {
   id: string
   category_id: string
-  model_name: string
+  /** null = serviço universal da marca -- vale pra qualquer modelo. */
+  model_name: string | null
   repair_type: string
   price: number
   description: string | null

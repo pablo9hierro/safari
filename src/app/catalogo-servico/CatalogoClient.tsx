@@ -71,19 +71,22 @@ export default function CatalogoClient({ categories: rawCategories, items }: Pro
     if (!q) return base
     return base.filter(
       (i) =>
-        i.model_name.toLowerCase().includes(q) ||
+        (i.model_name ?? '').toLowerCase().includes(q) ||
         i.repair_type.toLowerCase().includes(q) ||
         (i.description ?? '').toLowerCase().includes(q) ||
         (i.tags ?? []).some((t) => t.toLowerCase().includes(q))
     )
   }, [categoryItems, selectedRepairTypes, search])
 
+  // model_name null = serviço universal da marca -- agrupado num bucket
+  // próprio em vez de sumir da listagem.
   const byModel = useMemo(() => {
     const map = new Map<string, CatalogItem[]>()
     for (const item of filtered) {
-      const list = map.get(item.model_name) ?? []
+      const key = item.model_name ?? 'Universal (todos os modelos)'
+      const list = map.get(key) ?? []
       list.push(item)
-      map.set(item.model_name, list)
+      map.set(key, list)
     }
     return map
   }, [filtered])
@@ -93,7 +96,7 @@ export default function CatalogoClient({ categories: rawCategories, items }: Pro
       id: item.id,
       type: 'service',
       name: item.repair_type,
-      subtitle: `${activeCategory?.name ?? ''} ${item.model_name}`.trim(),
+      subtitle: `${activeCategory?.name ?? ''} ${item.model_name ?? ''}`.trim(),
       price: Number(item.price),
     })
     setRecentlyAdded((prev) => {

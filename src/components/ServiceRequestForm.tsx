@@ -143,9 +143,12 @@ export default function ServiceRequestForm({
     if (!selectedBrandId) return []
     const seen = new Set<string>()
     return catalogItems
-      .filter((i) => i.category_id === selectedBrandId)
+      // model_name null = serviço universal da marca, não é um modelo
+      // selecionável -- some da lista de pills, mas continua valendo pra
+      // qualquer modelo escolhido (ver servicesForModel).
+      .filter((i) => i.category_id === selectedBrandId && i.model_name)
       .reduce<string[]>((acc, i) => {
-        if (!seen.has(i.model_name)) { seen.add(i.model_name); acc.push(i.model_name) }
+        if (!seen.has(i.model_name!)) { seen.add(i.model_name!); acc.push(i.model_name!) }
         return acc
       }, [])
       .sort()
@@ -155,7 +158,11 @@ export default function ServiceRequestForm({
   // nunca lista serviço sem saber do que é.
   const servicesForModel = useMemo(() => {
     if (!selectedBrandId || !selectedModelName) return []
-    return catalogItems.filter((i) => i.category_id === selectedBrandId && i.model_name === selectedModelName)
+    // Inclui os universais da marca (model_name null) junto dos específicos
+    // do modelo escolhido -- um serviço universal vale pra qualquer modelo.
+    return catalogItems.filter(
+      (i) => i.category_id === selectedBrandId && (i.model_name === selectedModelName || i.model_name === null),
+    )
   }, [catalogItems, selectedBrandId, selectedModelName])
 
   // Running total of selected services
@@ -177,7 +184,10 @@ export default function ServiceRequestForm({
     if (newIds.length > 0) {
       const lastId = newIds[newIds.length - 1]
       const lastItem = catalogItems.find((i) => i.id === lastId)
-      setValue('phone_model', lastItem?.model_name)
+      // Serviço universal (model_name null) não tem modelo próprio -- usa o
+      // modelo já escolhido no wizard (o cliente selecionou antes de chegar
+      // nos serviços, ver Etapa 3).
+      setValue('phone_model', lastItem?.model_name ?? selectedModelName ?? undefined)
     } else {
       setValue('phone_model', undefined)
     }
@@ -489,7 +499,18 @@ export default function ServiceRequestForm({
                       <div>
                         <button
                           type="button"
-                          onClick={() => setSelectedDeviceType(null)}
+                          onClick={() => {
+                            // Achado real: resetar só o próprio nível deixava marca/modelo
+                            // "presos" -- a etapa de serviços continuava satisfazendo sua
+                            // própria condição e renderizava JUNTO com a de tipo de aparelho
+                            // (um card de serviço aparecendo no meio dos ícones). Voltar
+                            // sempre limpa tudo que vem depois.
+                            setSelectedDeviceType(null)
+                            setSelectedBrandId(null)
+                            setSelectedModelName(null)
+                            setSelectedServiceIds([])
+                            setValue('phone_model', undefined)
+                          }}
                           className="flex items-center gap-1 text-xs text-vr-silver/50 hover:text-white mb-2"
                         >
                           <ChevronLeft className="w-3.5 h-3.5" /> Trocar tipo de aparelho
@@ -529,7 +550,12 @@ export default function ServiceRequestForm({
                       <div>
                         <button
                           type="button"
-                          onClick={() => { setSelectedBrandId(null); setSelectedServiceIds([]) }}
+                          onClick={() => {
+                            setSelectedBrandId(null)
+                            setSelectedModelName(null)
+                            setSelectedServiceIds([])
+                            setValue('phone_model', undefined)
+                          }}
                           className="flex items-center gap-1 text-xs text-vr-silver/50 hover:text-white mb-2"
                         >
                           <ChevronLeft className="w-3.5 h-3.5" /> Trocar marca

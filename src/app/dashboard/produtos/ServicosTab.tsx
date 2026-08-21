@@ -11,7 +11,7 @@ interface Category { id: string; name: string; slug: string; sort_order: number 
 interface ItemPart { id: string; quantity: number; stock_item_id: string; stock_items: { name: string; unit: string } | null }
 interface ItemExtraCost { id: string; name: string; value: number }
 interface Item {
-  id: string; category_id: string; model_name: string; repair_type: string
+  id: string; category_id: string; model_name: string | null; repair_type: string
   price: number; cost_price: number; duration_minutes: number
   description: string | null; sort_order: number; active: boolean
   service_catalog_item_parts?: ItemPart[]
@@ -38,6 +38,10 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
   const [savingCat, setSavingCat] = useState(false)
 
   const [newModel, setNewModel] = useState('')
+  // Serviço universal pra marca (aparelho+marca já vêm da categoria ativa):
+  // modelo em branco = vale pra qualquer modelo dessa marca, não precisa
+  // dos 3 preenchidos, só os 2 mínimos.
+  const [newUniversal, setNewUniversal] = useState(false)
   const [newRepair, setNewRepair] = useState('')
   const [newPrice, setNewPrice] = useState('')
   // Duração cobre o atendimento inteiro: coleta + manutenção + entrega.
@@ -112,6 +116,7 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
   const [editPartsQuery, setEditPartsQuery] = useState('')
   const [editSelectedParts, setEditSelectedParts] = useState<SelectedPart[]>([])
   const [editExtraCosts, setEditExtraCosts] = useState<ExtraCost[]>([])
+  const [editUniversal, setEditUniversal] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
@@ -133,7 +138,8 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
 
   const openEditItem = (item: Item) => {
     setEditingItem(item)
-    setEditModel(item.model_name)
+    setEditModel(item.model_name ?? '')
+    setEditUniversal(item.model_name == null)
     setEditRepair(item.repair_type)
     setEditPrice(String(item.price))
     setEditDuration(String(item.duration_minutes))
@@ -154,8 +160,8 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
   const saveEditItem = async () => {
     if (!editingItem) return
     const duration = Number(editDuration)
-    if (!editModel.trim() || !editRepair.trim() || !editPrice || !(duration > 0)) {
-      setEditError('Preencha modelo, tipo de reparo, preço final e duração.')
+    if ((!editUniversal && !editModel.trim()) || !editRepair.trim() || !editPrice || !(duration > 0)) {
+      setEditError('Preencha o modelo (ou marque "universal"), tipo de reparo, preço final e duração.')
       return
     }
     setSavingEdit(true)
@@ -165,7 +171,7 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
     const { data: updated, error } = await supabase
       .from('service_catalog_items')
       .update({
-        model_name: editModel.trim(),
+        model_name: editUniversal ? null : editModel.trim(),
         repair_type: editRepair.trim(),
         price: parseFloat(editPrice),
         cost_price: editCostPrice,
@@ -235,7 +241,7 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
 
   const addItem = async () => {
     const duration = Number(newDuration)
-    if (!activeCatId || !newModel.trim() || !newRepair.trim() || !newPrice) return
+    if (!activeCatId || (!newUniversal && !newModel.trim()) || !newRepair.trim() || !newPrice) return
     if (!Number.isFinite(duration) || duration <= 0) return
     setSavingItem(true)
     const supabase = createClient()
@@ -243,7 +249,7 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
       .from('service_catalog_items')
       .insert({
         category_id: activeCatId,
-        model_name: newModel.trim(),
+        model_name: newUniversal ? null : newModel.trim(),
         repair_type: newRepair.trim(),
         price: parseFloat(newPrice),
         cost_price: costPrice,
@@ -282,7 +288,7 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
 
     setSavingItem(false)
     setItems((prev) => [...prev, { ...(data as Item), service_catalog_item_parts: parts, service_catalog_item_extra_costs: extras }])
-    setNewModel(''); setNewRepair(''); setNewPrice(''); setNewDuration(''); setNewDesc('')
+    setNewModel(''); setNewUniversal(false); setNewRepair(''); setNewPrice(''); setNewDuration(''); setNewDesc('')
     setSelectedParts([]); setExtraCosts([])
     setSavedItem(true); setTimeout(() => setSavedItem(false), 1500)
   }
@@ -358,8 +364,23 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
             <h2 className="text-sm font-semibold text-vr-silver/70">
               Adicionar serviço em <span className="text-white">{categories.find((c) => c.id === activeCatId)?.name}</span>
             </h2>
+            <label className="flex items-center gap-2 text-xs text-vr-silver/60 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={newUniversal}
+                onChange={(e) => { setNewUniversal(e.target.checked); if (e.target.checked) setNewModel('') }}
+                className="w-3.5 h-3.5 accent-vr-red"
+              />
+              Serviço universal — vale pra qualquer modelo desta marca (não precisa informar modelo)
+            </label>
             <div className="grid grid-cols-2 gap-2">
-              <input value={newModel} onChange={(e) => setNewModel(e.target.value)} placeholder="Modelo (ex: iPhone 14 Pro)" className={INPUT} />
+              <input
+                value={newModel}
+                onChange={(e) => setNewModel(e.target.value)}
+                placeholder="Modelo (ex: iPhone 14 Pro)"
+                disabled={newUniversal}
+                className={`${INPUT} disabled:opacity-40`}
+              />
               <input value={newRepair} onChange={(e) => setNewRepair(e.target.value)} placeholder="Tipo de reparo (ex: Troca de tela)" className={INPUT} />
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-vr-silver/40 text-xs">R$</span>
@@ -500,7 +521,9 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
                 <div key={item.id} className="flex items-center gap-3 px-4 py-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm text-white font-medium">{item.model_name}</span>
+                      <span className="text-sm text-white font-medium">
+                        {item.model_name ?? <span className="text-vr-red/80 italic">Universal (todos os modelos)</span>}
+                      </span>
                       <span className="text-xs bg-vr-red/15 text-vr-red px-2 py-0.5 rounded-full">{item.repair_type}</span>
                       <span className="text-sm font-bold text-white">R$ {Number(item.price).toFixed(2)}</span>
                       {item.cost_price > 0 && (
@@ -545,8 +568,23 @@ export default function ServicosTab({ initialCategories, initialItems, stockItem
 
       <Dialog open={!!editingItem} onClose={() => setEditingItem(null)} title="Editar serviço">
         <div className="space-y-3">
+          <label className="flex items-center gap-2 text-xs text-vr-silver/60 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={editUniversal}
+              onChange={(e) => { setEditUniversal(e.target.checked); if (e.target.checked) setEditModel('') }}
+              className="w-3.5 h-3.5 accent-vr-red"
+            />
+            Serviço universal — vale pra qualquer modelo desta marca
+          </label>
           <div className="grid grid-cols-2 gap-2">
-            <input value={editModel} onChange={(e) => setEditModel(e.target.value)} placeholder="Modelo" className={INPUT} />
+            <input
+              value={editModel}
+              onChange={(e) => setEditModel(e.target.value)}
+              placeholder="Modelo"
+              disabled={editUniversal}
+              className={`${INPUT} disabled:opacity-40`}
+            />
             <input value={editRepair} onChange={(e) => setEditRepair(e.target.value)} placeholder="Tipo de reparo" className={INPUT} />
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-vr-silver/40 text-xs">R$</span>
