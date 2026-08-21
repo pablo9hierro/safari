@@ -90,38 +90,61 @@ function formatProducts(products: { id: string; name: string; price: number; des
   ).join('\n')
 }
 
-function formatServices(rows: { id: string; model_name: string; repair_type: string; price: number; description: string | null; service_catalog_categories?: unknown }[]) {
+function formatServices(rows: { id: string; model_name: string | null; repair_type: string; price: number; description: string | null; service_catalog_categories?: unknown }[]) {
   return rows.map((s) => {
     const cat = (s.service_catalog_categories as unknown as { name: string } | null)?.name ?? ''
-    return `- ${cat} ${s.model_name} | ${s.repair_type} | R$ ${Number(s.price).toFixed(2).replace('.', ',')} | ID: ${s.id}${s.description ? `\n  ${s.description}` : ''}`
+    const modelo = s.model_name ?? 'qualquer modelo'
+    return `- ${cat} ${modelo} | ${s.repair_type} | R$ ${Number(s.price).toFixed(2).replace('.', ',')} | ID: ${s.id}${s.description ? `\n  ${s.description}` : ''}`
   }).join('\n')
 }
 
+// Query da IA costuma vir com marca + tipo de reparo juntos (ex: "Xiaomi
+// trocar bateria") -- a marca só existe na categoria (JOIN), nunca em
+// model_name/repair_type/description, e model_name agora é NULL pra
+// serviço universal (many-to-many de aparelho/marca/modelo). Um .ilike()
+// contra a string inteira nunca bateria com a marca nem com um universal
+// sem modelo, então filtra em JS por token, casando qualquer palavra da
+// busca contra marca, modelo, tipo de reparo, descrição ou tags.
 async function buscarServicos(query: string): Promise<string> {
   const supabase = createServiceClient()
+  // FK explícita obrigatória: desde a reformulação many-to-many do catálogo
+  // (service_item_brands) existem DUAS relações entre service_catalog_items
+  // e service_catalog_categories -- um embed simples "service_catalog_categories(name)"
+  // fica ambíguo pro PostgREST (erro PGRST201) e a busca inteira quebra.
   const { data, error } = await supabase
     .from('service_catalog_items')
-    .select('id, model_name, repair_type, price, description, active, service_catalog_categories(name)')
+    .select('id, model_name, repair_type, price, description, active, tags, service_catalog_categories!service_catalog_items_category_id_fkey(name)')
     .eq('active', true)
-    .or(`model_name.ilike.%${query}%,repair_type.ilike.%${query}%,description.ilike.%${query}%`)
-    .order('model_name')
-    .limit(10)
+    .limit(300)
 
   if (error) return `Erro ao buscar serviços: ${error.message}`
-  if (data && data.length > 0) return formatServices(data)
 
-  // Mesma lógica de fallback por tags do buscarProdutos -- cliente
-  // descreveu sintoma/problema em vez do nome do serviço.
-  const term = query.trim().toLowerCase()
-  const { data: d2 } = await supabase
-    .from('service_catalog_items')
-    .select('id, model_name, repair_type, price, description, active, tags, service_catalog_categories(name)')
-    .eq('active', true)
-    .limit(200)
-  const byTag = (d2 ?? []).filter((s) => (s.tags ?? []).some((t: string) => t.includes(term) || term.includes(t)))
-  if (byTag.length > 0) return formatServices(byTag.slice(0, 10))
+  const tokens = query.toLowerCase().split(/[\s,;]+/).filter(Boolean)
+  if (tokens.length === 0) return `Nenhum serviço encontrado para "${query}".`
 
-  return `Nenhum serviço encontrado para "${query}".`
+  const searchable = (s: (typeof data)[number]) => {
+    const cat = (s.service_catalog_categories as unknown as { name: string } | null)?.name ?? ''
+    return [cat, s.model_name ?? '', s.repair_type, s.description ?? '', ...(s.tags ?? [])].join(' ').toLowerCase()
+  }
+
+  const matches = (data ?? []).filter((s) => {
+    const text = searchable(s)
+    return tokens.some((t) => text.includes(t))
+  })
+
+  if (matches.length === 0) return `Nenhum serviço encontrado para "${query}".`
+
+  // Prioriza itens que batem com mais tokens (mais relevantes primeiro).
+  const scored = matches
+    .map((s) => {
+      const text = searchable(s)
+      return { s, score: tokens.filter((t) => text.includes(t)).length }
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10)
+    .map((x) => x.s)
+
+  return formatServices(scored)
 }
 
 async function consultarPedido(phone: string): Promise<string> {
