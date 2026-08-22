@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MessageCircle, Send, Loader2, Bot, UserCog } from 'lucide-react'
+import { MessageCircle, Send, Loader2, Bot, UserCog, FlaskConical, Plus } from 'lucide-react'
 import { apiPath } from '@/lib/storeProxyLink'
 import { createClient } from '@/lib/supabase/client'
+import Dialog from '@/components/ui/Dialog'
 
 type ConversationSummary = {
   id: string
@@ -11,6 +12,7 @@ type ConversationSummary = {
   customer_name: string | null
   status: 'aberta' | 'fechada'
   human_override: boolean
+  is_test: boolean
   started_at: string
   last_message_at: string
   closed_at: string | null
@@ -46,6 +48,16 @@ export default function ChatClient() {
   const [error, setError] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // "Novo chat" -- simula um atendimento de WhatsApp de dentro do painel,
+  // passando pelo mesmo pipeline de IA de uma mensagem real (ver
+  // /api/chat/test-message), pra validar o assistente sem depender do
+  // WhatsApp real conectado.
+  const [newChatOpen, setNewChatOpen] = useState(false)
+  const [newChatName, setNewChatName] = useState('')
+  const [newChatMessage, setNewChatMessage] = useState('')
+  const [startingChat, setStartingChat] = useState(false)
+  const [newChatError, setNewChatError] = useState<string | null>(null)
 
   const loadConversations = async () => {
     const res = await fetch(apiPath('/api/chat/conversations'))
@@ -124,27 +136,77 @@ export default function ChatClient() {
 
   const send = async () => {
     const content = draft.trim()
-    if (!content || !activeId) return
+    if (!content || !activeId || !active) return
     setSending(true)
     setError(null)
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     notifyTyping(false)
     try {
-      const res = await fetch(apiPath(`/api/chat/conversations/${activeId}/send`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? 'Falha ao enviar mensagem')
-      setMessages((prev) => (prev.some((m) => m.id === json.id) ? prev : [...prev, json]))
-      setDraft('')
+      if (active.is_test) {
+        // Conversa de teste: digitar aqui simula a MENSAGEM DO CLIENTE,
+        // não uma resposta do lojista -- passa pelo pipeline de IA de
+        // verdade. Inbound e outbound chegam via realtime (assistant_messages
+        // INSERT), não precisa (nem deve) appendar otimista aqui.
+        const res = await fetch(apiPath('/api/chat/test-message'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: active.phone, text: content, customerName: active.customer_name }),
+        })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.error ?? 'Falha ao enviar mensagem de teste')
+        setDraft('')
+      } else {
+        const res = await fetch(apiPath(`/api/chat/conversations/${activeId}/send`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.error ?? 'Falha ao enviar mensagem')
+        setMessages((prev) => (prev.some((m) => m.id === json.id) ? prev : [...prev, json]))
+        setDraft('')
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao enviar mensagem.')
     } finally {
       setSending(false)
     }
   }
+
+  const startTestChat = async () => {
+    const firstMessage = newChatMessage.trim()
+    if (!firstMessage) return
+    setStartingChat(true)
+    setNewChatError(null)
+    try {
+      // Prefixo "0000" deixa óbvio que é sintético (nunca colide com um
+      // DDD real de 2 dígitos) e único o bastante pra não bater com
+      // conversas de teste anteriores na mesma sessão.
+      const testPhone = `0000${Date.now().toString().slice(-9)}`
+      const res = await fetch(apiPath('/api/chat/test-message'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: testPhone, text: firstMessage, customerName: newChatName.trim() || null }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Falha ao iniciar chat de teste')
+      if (json.skipped === 'no active conversation and no start keyword') {
+        throw new Error('A primeira mensagem precisa bater com uma palavra-chave de início configurada em Assistente IA (ex: "oi", "olá").')
+      }
+      if (!json.conversation_id) throw new Error('Não foi possível iniciar a conversa de teste.')
+      setNewChatOpen(false)
+      setNewChatName('')
+      setNewChatMessage('')
+      await loadConversations()
+      await openConversation(json.conversation_id)
+    } catch (e) {
+      setNewChatError(e instanceof Error ? e.message : 'Falha ao iniciar chat de teste.')
+    } finally {
+      setStartingChat(false)
+    }
+  }
+
+  const openNewChat = () => { setNewChatName(''); setNewChatMessage(''); setNewChatError(null); setNewChatOpen(true) }
 
   const toggleOverride = async () => {
     if (!activeId || !active) return
@@ -165,12 +227,21 @@ export default function ChatClient() {
     <div className="h-[calc(100vh-4rem)] flex">
       {/* Lista de conversas */}
       <div className="w-80 shrink-0 border-r border-white/5 flex flex-col">
-        <div className="p-4 border-b border-white/5">
-          <h1 className="text-lg font-bold text-white flex items-center gap-2">
-            <MessageCircle className="w-5 h-5 text-vr-red" />
-            Chat
-          </h1>
-          <p className="text-xs text-vr-silver/50 mt-0.5">Conversas do WhatsApp com a assistente.</p>
+        <div className="p-4 border-b border-white/5 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="text-lg font-bold text-white flex items-center gap-2">
+              <MessageCircle className="w-5 h-5 text-vr-red" />
+              Chat
+            </h1>
+            <button
+              onClick={openNewChat}
+              className="flex items-center gap-1 text-xs font-semibold bg-vr-graphite border border-white/10 text-white px-2.5 py-1.5 rounded-lg hover:border-vr-red/40 transition-colors shrink-0"
+              title="Simular atendimento pra testar a IA sem depender do WhatsApp real"
+            >
+              <Plus className="w-3 h-3" /> Novo chat
+            </button>
+          </div>
+          <p className="text-xs text-vr-silver/50">Conversas do WhatsApp com a assistente.</p>
         </div>
         <div className="flex-1 overflow-y-auto">
           {loadingList ? (
@@ -197,6 +268,11 @@ export default function ChatClient() {
                     <span className="text-[10px] text-vr-silver/40 shrink-0">{timeLabel(c.last_message_at)}</span>
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
+                    {c.is_test && (
+                      <span className="flex items-center gap-0.5 text-[10px] bg-yellow-500/15 text-yellow-400 px-1.5 py-0.5 rounded-full">
+                        <FlaskConical className="w-2.5 h-2.5" /> teste
+                      </span>
+                    )}
                     {c.human_override && (
                       <span className="text-[10px] bg-vr-red/20 text-vr-red px-1.5 py-0.5 rounded-full">Você assumiu</span>
                     )}
@@ -225,7 +301,14 @@ export default function ChatClient() {
           <>
             <div className="p-4 border-b border-white/5 flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-white">{active?.customer_name || active?.phone}</p>
+                <p className="text-sm font-semibold text-white flex items-center gap-1.5">
+                  {active?.customer_name || active?.phone}
+                  {active?.is_test && (
+                    <span className="flex items-center gap-0.5 text-[10px] bg-yellow-500/15 text-yellow-400 px-1.5 py-0.5 rounded-full">
+                      <FlaskConical className="w-2.5 h-2.5" /> teste interno
+                    </span>
+                  )}
+                </p>
                 <p className="text-xs text-vr-silver/40">{active?.phone}</p>
               </div>
               <button
@@ -269,7 +352,7 @@ export default function ChatClient() {
                 value={draft}
                 onChange={(e) => onDraftChange(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-                placeholder="Escreva uma mensagem..."
+                placeholder={active?.is_test ? 'Digite como se fosse o cliente...' : 'Escreva uma mensagem...'}
                 className="flex-1 px-3.5 py-2.5 rounded-xl bg-vr-black border border-white/8 text-white text-sm placeholder-vr-silver/30 outline-none focus:border-vr-red/50 transition-colors"
               />
               <button
@@ -283,6 +366,44 @@ export default function ChatClient() {
           </>
         )}
       </div>
+
+      <Dialog open={newChatOpen} onClose={() => setNewChatOpen(false)} title="Novo chat de teste">
+        <div className="space-y-3">
+          <p className="text-xs text-vr-silver/50">
+            Simula um atendimento como se viesse do WhatsApp de um cliente, passando pelo mesmo pipeline de IA
+            real -- só não chega de verdade no WhatsApp (número sintético). Use pra validar mudanças no
+            assistente antes de operar com clientes reais.
+          </p>
+          <div>
+            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Nome do cliente (opcional)</label>
+            <input
+              value={newChatName}
+              onChange={(e) => setNewChatName(e.target.value)}
+              placeholder="Ex: Cliente teste"
+              className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Primeira mensagem</label>
+            <input
+              value={newChatMessage}
+              onChange={(e) => setNewChatMessage(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); startTestChat() } }}
+              placeholder='Ex: "Oi" -- precisa bater com uma palavra-chave de início'
+              className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red"
+            />
+          </div>
+          {newChatError && <p className="text-xs text-red-400">{newChatError}</p>}
+          <button
+            onClick={startTestChat}
+            disabled={startingChat || !newChatMessage.trim()}
+            className="w-full bg-vr-red text-white font-semibold py-2.5 rounded-xl hover:bg-vr-red/90 transition-colors text-sm disabled:opacity-40 flex items-center justify-center gap-2"
+          >
+            {startingChat ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
+            {startingChat ? 'Iniciando…' : 'Iniciar atendimento de teste'}
+          </button>
+        </div>
+      </Dialog>
     </div>
   )
 }

@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const { phone, text, customerName } = await req.json().catch(() => ({}))
+  const { phone, text, customerName, isTest } = await req.json().catch(() => ({}))
   if (!phone || !text) return NextResponse.json({ ok: true, skipped: 'no phone or text' })
 
   const supabase = createServiceClient()
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
     }
     const { data: newConv } = await supabase
       .from('assistant_conversations')
-      .insert({ phone: cleanPhone, customer_name: customerName ?? null, status: 'aberta' })
+      .insert({ phone: cleanPhone, customer_name: customerName ?? null, status: 'aberta', is_test: !!isTest })
       .select()
       .single()
     conversation = newConv as ConversationRow
