@@ -150,6 +150,24 @@ export async function completeWithTools(
       return { reply: assistantMsg.content ?? '', toolCalls: allToolCalls }
     }
 
-    return { reply: 'Não consegui processar sua solicitação agora.', toolCalls: allToolCalls }
+    // Estourou o limite de rounds chamando tools sem nunca fechar com texto
+    // (ex: ficou tentando a mesma ação repetidas vezes porque faltava uma
+    // informação do cliente) -- em vez de devolver uma mensagem morta sem
+    // explicação, força uma resposta final SEM tools: o modelo já tem todo
+    // o resultado das tentativas no histórico e consegue resumir o que
+    // descobriu ou pedir o que falta pro cliente.
+    const finalBody: Record<string, unknown> = {
+      messages: [...messages, { role: 'user', content: 'Responda ao cliente agora com base no que você já sabe, sem chamar mais ferramentas.' }],
+      max_tokens: config.max_response_chars ? Math.max(config.max_response_chars * 4, 512) : 1024,
+      temperature: 0.3,
+    }
+    const finalData = (await callProvider(model, finalBody)) as {
+      choices: { message: { content: string | null } }[]
+    }
+    const finalReply = finalData.choices[0]?.message?.content?.trim()
+    return {
+      reply: finalReply || 'Desculpe, não consegui concluir agora -- pode repetir o que você precisa?',
+      toolCalls: allToolCalls,
+    }
   })
 }
