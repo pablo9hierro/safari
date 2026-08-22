@@ -445,6 +445,13 @@ export async function ensureServiceRequestForAppointment(
      * deslocamento -- nunca fica "pendente" esperando aceite manual); PDV
      * usa 'accepted' -- orçamento já foi acordado no balcão, pula a coleta. */
     status?: string
+    /** false (padrão) = loja busca o aparelho (coleta); true = cliente leva
+     * até a loja. A IA pergunta isso explicitamente antes de agendar (ver
+     * criar_agendamento em agenda/tools.ts). */
+    self_pickup?: boolean
+    /** Cliente não sabe o que há de errado -- vira diagnóstico em vez de um
+     * serviço específico já escolhido. */
+    diagnosis_requested?: boolean
   },
   db: Db = createServiceClient(),
 ): Promise<string> {
@@ -456,8 +463,8 @@ export async function ensureServiceRequestForAppointment(
       customer_email: input.customer_email?.trim() || null,
       problem_description: input.problem_description?.trim() || `Agendamento: ${input.service_label}`,
       selected_service_ids: [],
-      diagnosis_requested: false,
-      self_pickup: false,
+      diagnosis_requested: input.diagnosis_requested ?? false,
+      self_pickup: input.self_pickup ?? false,
       payment_methods: [],
       status: input.status ?? 'em_busca',
       source: input.source,

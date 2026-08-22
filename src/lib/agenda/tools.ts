@@ -57,21 +57,24 @@ export const AGENDA_TOOLS: ToolDef[] = [
   {
     name: 'criar_agendamento',
     description:
-      'Cria o agendamento do serviço na agenda da loja, para quando o CLIENTE MESMO vai levar o aparelho até a loja (sem coleta). Todo serviço de assistência técnica EXIGE agendamento, inclusive quando o cliente quer ser atendido agora — nesse caso, ofereça o primeiro horário livre. O tempo que o agendamento ocupa vem da duração cadastrada do serviço (coleta + manutenção + entrega). ' +
-      'ANTES de chamar esta tool pra um reparo, pergunte se o cliente quer que a loja busque o aparelho — se ele quiser coleta, use agendar_coleta_aparelho em vez desta (quando essa ferramenta estiver disponível). ' +
+      'Cria o agendamento E o atendimento do cliente na loja (é esta tool que abre um atendimento novo -- use pra QUALQUER cliente que ainda não tem um atendimento em andamento, mesmo que ele não saiba o que há de errado com o aparelho). Todo serviço de assistência técnica EXIGE agendamento, inclusive quando o cliente quer ser atendido agora — nesse caso, ofereça o primeiro horário livre. O tempo que o agendamento ocupa vem da duração cadastrada do serviço (coleta + manutenção + entrega). ' +
+      'OBRIGATÓRIO perguntar ANTES de agendar: o cliente quer que a loja busque o aparelho (coleta) ou ele mesmo vai levar até a loja? Preencha "coleta" com a resposta. ' +
+      'DIAGNÓSTICO: se o cliente descreve o problema de forma vaga/genérica (ex: "não liga", "parou de funcionar", "deu problema") e buscar_servicos não retornou nenhum serviço com confiança real pro sintoma dele (confira também as tags ocultas dos serviços/produtos por palavras-chave da descrição do cliente), NÃO force ele a escolher um serviço do catálogo -- explique que é preciso um diagnóstico técnico pra saber o que é e definir o preço certo, marque "diagnostico" como true, e chame buscar_servicos("diagnóstico") pra saber se a loja cobra o diagnóstico ou não e informar isso ao cliente antes de agendar. Em qualquer caso (diagnóstico ou serviço já identificado), deixe claro que o pagamento total (serviço + deslocamento, quando houver) só acontece na conclusão do reparo, nunca antes. ' +
       'Só chame depois de o cliente confirmar dia e horário. O backend revalida a disponibilidade e recusa se o horário já tiver sido ocupado.',
     parameters: {
       type: 'object',
       properties: {
-        servico_id: { type: 'string', description: 'ID do serviço obtido em buscar_servicos — é ele que define a duração.' },
-        servico_nome: { type: 'string', description: 'Nome do serviço, caso não exista no catálogo.' },
+        servico_id: { type: 'string', description: 'ID do serviço obtido em buscar_servicos — é ele que define a duração. Omita se for diagnóstico (serviço ainda não identificado).' },
+        servico_nome: { type: 'string', description: 'Nome do serviço, caso não exista no catálogo. Use "Diagnóstico" quando diagnostico=true.' },
         cliente_nome: { type: 'string', description: 'Nome do cliente.' },
         cliente_telefone: { type: 'string', description: 'Telefone/WhatsApp do cliente (só dígitos).' },
         data: { type: 'string', description: '"hoje" ou "amanhã" (também aceita dd/mm/aaaa). A loja só agenda nesses dois dias.' },
         horario: { type: 'string', description: 'Horário em HH:MM, formato 24h (ex: 14:00 para 2 da tarde).' },
         observacoes: { type: 'string', description: 'Observações relevantes (defeito relatado, etc).' },
+        coleta: { type: 'boolean', description: 'true = a loja busca o aparelho no endereço do cliente. false = o cliente mesmo leva até a loja. Pergunte sempre antes de agendar.' },
+        diagnostico: { type: 'boolean', description: 'true quando o cliente não sabe o que há de errado e o serviço exato ainda não foi identificado -- vira um atendimento de diagnóstico em vez de um reparo já definido.' },
       },
-      required: ['cliente_nome', 'cliente_telefone', 'data', 'horario'],
+      required: ['cliente_nome', 'cliente_telefone', 'data', 'horario', 'coleta'],
     },
   },
   {
@@ -217,6 +220,8 @@ async function criarAgendamento(input: {
   data: string
   horario: string
   observacoes?: string
+  coleta?: boolean
+  diagnostico?: boolean
 }): Promise<string> {
   const dateKey = resolveDateKey(input.data)
   if (!dateKey) return 'FALHOU (validation): informe a data como "hoje", "amanhã" ou dd/mm/aaaa.'
@@ -226,13 +231,18 @@ async function criarAgendamento(input: {
   }
 
   const startsAt = parseStoreDateTime(dateKey, input.horario)
-  const service = await resolveService(input.servico_id ?? null, input.servico_nome ?? null, undefined)
+  // Diagnóstico: serviço ainda não identificado -- "Diagnóstico" cobre o
+  // caso de o modelo não ter mandado servico_nome mesmo com diagnostico=true.
+  const fallbackLabel = input.diagnostico ? (input.servico_nome ?? 'Diagnóstico') : input.servico_nome ?? null
+  const service = await resolveService(input.servico_id ?? null, fallbackLabel, undefined)
   const serviceRequestId = await ensureServiceRequestForAppointment({
     customer_name: input.cliente_nome,
     customer_phone: input.cliente_telefone,
     problem_description: input.observacoes ?? null,
     service_label: service.service_label,
     source: 'whatsapp_ai',
+    self_pickup: input.coleta === false,
+    diagnosis_requested: !!input.diagnostico,
   })
   const appointment = await createAppointment({
     service_id: input.servico_id ?? null,
@@ -313,6 +323,8 @@ export async function executeAgendaTool(
           data: String(input.data ?? ''),
           horario: String(input.horario ?? ''),
           observacoes: input.observacoes ? String(input.observacoes) : undefined,
+          coleta: typeof input.coleta === 'boolean' ? input.coleta : undefined,
+          diagnostico: typeof input.diagnostico === 'boolean' ? input.diagnostico : undefined,
         })
       case 'consultar_agendamento':
         return await consultarAgendamento({
