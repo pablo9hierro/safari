@@ -40,13 +40,27 @@ function toProduct(dto: EcommerceProductDto): Product {
   }
 }
 
+// `no-store` forçava toda visita da vitrine a esperar um round-trip novo
+// pro ecommerce-api (Railway) sem timeout nenhum -- se aquele serviço
+// degradar/ficar lento, a página inteira travava por minutos (achado
+// real, reportado ao vivo). `revalidate: 30` mantém o catálogo essencialmente
+// ao vivo (30s de defasagem no pior caso) mas serve do cache pra maioria
+// das visitas, e o timeout garante que uma resposta lenta nunca segura a
+// página -- cai pro fallback (array vazio) em vez de pendurar.
+const FETCH_TIMEOUT_MS = 8000
+
 export async function fetchPublicProducts(): Promise<Product[]> {
-  const res = await fetch(`${ECOMMERCE_API_URL}/api/public/catalog/${TENANT_SLUG}/products`, {
-    cache: 'no-store',
-  })
-  if (!res.ok) return []
-  const data: EcommerceProductDto[] = await res.json()
-  return data.filter((p) => p.active).map(toProduct)
+  try {
+    const res = await fetch(`${ECOMMERCE_API_URL}/api/public/catalog/${TENANT_SLUG}/products`, {
+      next: { revalidate: 30 },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })
+    if (!res.ok) return []
+    const data: EcommerceProductDto[] = await res.json()
+    return data.filter((p) => p.active).map(toProduct)
+  } catch {
+    return []
+  }
 }
 
 // ─── Catálogo de serviços (reparo) ──────────────────────────────────────
@@ -95,12 +109,25 @@ function slugify(s: string) {
 }
 
 export async function fetchServiceCatalog(): Promise<{ categories: CatalogCategory[]; items: CatalogItem[] }> {
-  const [categoriesRes, servicesRes] = await Promise.all([
-    fetch(`${ECOMMERCE_API_URL}/api/public/catalog/${TENANT_SLUG}/categories`, { cache: 'no-store' }),
-    fetch(`${ECOMMERCE_API_URL}/api/public/catalog/${TENANT_SLUG}/services`, { cache: 'no-store' }),
-  ])
-  const rawCategories: CatalogCategoryApi[] = categoriesRes.ok ? await categoriesRes.json() : []
-  const rawServices: EcommerceServiceDto[] = servicesRes.ok ? await servicesRes.json() : []
+  let rawCategories: CatalogCategoryApi[] = []
+  let rawServices: EcommerceServiceDto[] = []
+  try {
+    const [categoriesRes, servicesRes] = await Promise.all([
+      fetch(`${ECOMMERCE_API_URL}/api/public/catalog/${TENANT_SLUG}/categories`, {
+        next: { revalidate: 30 },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      }),
+      fetch(`${ECOMMERCE_API_URL}/api/public/catalog/${TENANT_SLUG}/services`, {
+        next: { revalidate: 30 },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      }),
+    ])
+    rawCategories = categoriesRes.ok ? await categoriesRes.json() : []
+    rawServices = servicesRes.ok ? await servicesRes.json() : []
+  } catch {
+    // Timeout ou API fora do ar -- cai pro fallback vazio (página mostra
+    // "catálogo em construção") em vez de travar o carregamento da página.
+  }
 
   // Categoria = marca do aparelho — só entram categorias que realmente têm
   // algum serviço com model_name/repair_type preenchido (catálogo de reparo).

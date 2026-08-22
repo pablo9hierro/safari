@@ -6,7 +6,14 @@ import { CartProvider } from '@/lib/carrinho/context'
 import CarrinhoFlutuante from '@/components/CarrinhoFlutuante'
 import { StoreLink } from '@/lib/storeProxyLink'
 
-export const dynamic = 'force-dynamic'
+// `force-dynamic` desativava até o cache da própria chamada fetch()
+// (equivalente a no-store em tudo), fazendo toda visita esperar um
+// round-trip novo pro ecommerce-api sem timeout -- página demorava
+// minutos pra abrir quando aquele serviço externo degradava. As chamadas
+// em fetchServiceCatalog() já têm revalidate + timeout próprios agora
+// (ver catalog.ts); sem forçar dynamic aqui, o Next reaproveita esse
+// cache entre visitas em vez de sempre esperar a rede.
+export const revalidate = 30
 
 export type { CatalogCategory, CatalogItem }
 
