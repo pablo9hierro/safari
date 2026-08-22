@@ -57,7 +57,9 @@ export const AGENDA_TOOLS: ToolDef[] = [
   {
     name: 'criar_agendamento',
     description:
-      'Cria o agendamento do serviço na agenda da loja. Todo serviço de assistência técnica EXIGE agendamento, inclusive quando o cliente quer ser atendido agora — nesse caso, ofereça o primeiro horário livre. O tempo que o agendamento ocupa vem da duração cadastrada do serviço (coleta + manutenção + entrega). Só chame depois de o cliente confirmar dia e horário. O backend revalida a disponibilidade e recusa se o horário já tiver sido ocupado.',
+      'Cria o agendamento do serviço na agenda da loja, para quando o CLIENTE MESMO vai levar o aparelho até a loja (sem coleta). Todo serviço de assistência técnica EXIGE agendamento, inclusive quando o cliente quer ser atendido agora — nesse caso, ofereça o primeiro horário livre. O tempo que o agendamento ocupa vem da duração cadastrada do serviço (coleta + manutenção + entrega). ' +
+      'ANTES de chamar esta tool pra um reparo, pergunte se o cliente quer que a loja busque o aparelho — se ele quiser coleta, use agendar_coleta_aparelho em vez desta (quando essa ferramenta estiver disponível). ' +
+      'Só chame depois de o cliente confirmar dia e horário. O backend revalida a disponibilidade e recusa se o horário já tiver sido ocupado.',
     parameters: {
       type: 'object',
       properties: {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { setWhatsAppState as setState } from '@/lib/whatsapp/state'
 import { createServiceClient } from '@/lib/supabase/service'
-import { envOr } from '@/lib/envGuard'
+import { deliverAssistantMessageReliable } from '@/lib/queue/assistantQueue'
 
 // Recebe os eventos de webhook da Evolution API.
 // Trata: QR code, status de conexão e mensagens de texto (encaminha pro assistente IA).
@@ -73,20 +73,13 @@ export async function POST(req: NextRequest) {
       const phone = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '')
       const pushName: string = msg?.pushName ?? ''
 
-      // Fire-and-forget: não bloqueia a resposta do webhook
-      const appUrl = envOr(process.env.NEXT_PUBLIC_APP_URL, req.nextUrl.origin)
-      const assistantUrl = `${appUrl}/api/assistant/message`
-
-      fetch(assistantUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(process.env.ASSISTANT_WEBHOOK_SECRET
-            ? { 'x-internal-secret': process.env.ASSISTANT_WEBHOOK_SECRET }
-            : {}),
-        },
-        body: JSON.stringify({ phone, text, customerName: pushName || null }),
-      }).catch((e) => console.error('[webhook] forward to assistant failed:', e))
+      // Não bloqueia a resposta do webhook (fire-and-forget do ponto de
+      // vista da Evolution API), mas agora passa pela fila confiável --
+      // se o processamento direto falhar (timeout, erro transitório etc),
+      // fica enfileirado no Redis pra um drain tentar de novo em vez de a
+      // mensagem do cliente se perder pra sempre (ver assistantQueue.ts).
+      deliverAssistantMessageReliable({ phone, text, customerName: pushName || null })
+        .catch((e) => console.error('[webhook] entrega confiável ao assistente falhou:', e))
     }
     return NextResponse.json({ ok: true })
   }

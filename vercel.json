@@ -3,6 +3,8 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "crons": [
-    { "path": "/api/keepalive", "schedule": "0 6 * * *" }
+    { "path": "/api/keepalive", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/whatsapp-drain", "schedule": "0 7 * * *" },
+    { "path": "/api/cron/assistant-drain", "schedule": "0 8 * * *" }
   ]
 }

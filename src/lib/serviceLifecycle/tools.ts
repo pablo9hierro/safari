@@ -167,7 +167,9 @@ export const DEVICE_TOOLS: ToolDef[] = [
   {
     name: 'agendar_coleta_aparelho',
     description:
-      'Agenda a coleta do aparelho no endereço do cliente (a loja vai buscar), na mesma agenda dos atendimentos. Vale enquanto o atendimento estiver ativo (não cancelado/finalizado). Use quando o cliente solicitar o serviço e não puder trazer o aparelho até a loja.',
+      'Agenda a coleta do aparelho no endereço do cliente (a loja vai buscar), na mesma agenda dos atendimentos. Vale enquanto o atendimento estiver ativo (não cancelado/finalizado). ' +
+      'OBRIGATÓRIO: antes de marcar QUALQUER agendamento de reparo, pergunte ao cliente se ele quer que a loja busque o aparelho (coleta) ou se ele mesmo vai levar até a loja — nunca assuma. ' +
+      'Se ele quiser coleta, use esta tool. Se ele for levar sozinho, use criar_agendamento normalmente (sem coleta).',
     parameters: deviceParams(),
   },
   {
