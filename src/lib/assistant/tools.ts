@@ -3,6 +3,8 @@ import type { ToolDef, ToolCallRecord } from './aiClient'
 import { AGENDA_TOOLS, agendaToolsEnabled, executeAgendaTool } from '@/lib/agenda/tools'
 import { SERVICE_TOOLS, DEVICE_TOOLS, executeServiceTool } from '@/lib/serviceLifecycle/tools'
 import { fetchApenasRetiradaServer } from '@/lib/resolutoo/platformConfig'
+import { fetchPublicProducts } from '@/lib/resolutoo/catalog'
+import { createAssistantOrderServer, createPixPaymentServer } from '@/lib/resolutoo/assistantOrder'
 
 export const TOOLS: ToolDef[] = [
   {
@@ -21,6 +23,32 @@ export const TOOLS: ToolDef[] = [
       type: 'object',
       properties: { query: { type: 'string', description: 'Termo de busca (ex: "tela iPhone 14", "bateria Samsung", "troca de tela")' } },
       required: ['query'],
+    },
+  },
+  {
+    name: 'criar_pedido_e_gerar_cobranca',
+    description:
+      'Fecha a compra de produto(s) — cria o pedido de verdade (visível pro lojista) e, se o cliente quiser pagar agora, gera a cobrança Pix real. Só chame depois do cliente confirmar exatamente quais produtos e quantidades ele quer, e ter dado nome. O pedido de assistente sempre nasce como RETIRADA na loja (o atendimento por WhatsApp ainda não agenda entrega de produto). Se pagar_agora=true, o retorno inclui o código Pix copia-e-cola real na última linha — repasse esse código pro cliente exatamente como veio, sem reescrever. Se pagar_agora=false, o pedido fica pendente pra pagamento no ato da retirada (só ofereça essa opção se as regras de pagamento permitirem).',
+    parameters: {
+      type: 'object',
+      properties: {
+        itens: {
+          type: 'array',
+          description: 'Produtos e quantidades, com o ID exato vindo de buscar_produtos.',
+          items: {
+            type: 'object',
+            properties: {
+              produto_id: { type: 'string', description: 'ID do produto (de buscar_produtos).' },
+              quantidade: { type: 'number', description: 'Quantidade desse produto.' },
+            },
+            required: ['produto_id', 'quantidade'],
+          },
+        },
+        cliente_nome: { type: 'string', description: 'Nome do cliente.' },
+        cliente_telefone: { type: 'string', description: 'WhatsApp do cliente, só dígitos (o da conversa já vale).' },
+        pagar_agora: { type: 'boolean', description: 'true = gera Pix agora. false = paga na retirada.' },
+      },
+      required: ['itens', 'cliente_nome', 'cliente_telefone', 'pagar_agora'],
     },
   },
   {
@@ -43,45 +71,34 @@ export const TOOLS: ToolDef[] = [
   },
 ]
 
+// Busca no catálogo do ecommerce-api (mesmo que a vitrine pública usa pra
+// venda de verdade) -- não no Supabase do próprio vrtech, que é um catálogo
+// À PARTE, sem sincronia nenhuma com o que o cliente realmente compra (ver
+// decisão de arquitetura: os dois bancos divergiram, e é o ecommerce-api
+// quem tem o pedido/pagamento real). IDs retornados aqui são os mesmos IDs
+// aceitos por criar_pedido_e_gerar_cobranca.
 async function buscarProdutos(query: string): Promise<string> {
-  const supabase = createServiceClient()
-  const { data, error } = await supabase
-    .from('products')
-    .select('id, name, price, description, quantity, active')
-    .eq('active', true)
-    .ilike('name', `%${query}%`)
-    .gt('quantity', 0)
-    .order('name')
-    .limit(8)
+  const produtos = await fetchPublicProducts()
+  const disponiveis = produtos.filter((p) => p.active && p.quantity > 0)
 
-  if (error) return `Erro ao buscar produtos: ${error.message}`
-  if (data && data.length > 0) return formatProducts(data)
-
-  // Try broader search in description
-  const { data: d2 } = await supabase
-    .from('products')
-    .select('id, name, price, description, quantity, active')
-    .eq('active', true)
-    .ilike('description', `%${query}%`)
-    .gt('quantity', 0)
-    .limit(5)
-  if (d2 && d2.length > 0) return formatProducts(d2)
-
-  // Cliente descreveu o problema em vez do nome do produto -- tags de
-  // busca (geradas por IA no cadastro) cobrem sinônimo/sintoma. Catálogo é
-  // pequeno, filtra em JS em vez de brigar com operador de array do
-  // PostgREST pra substring parcial dentro de cada tag.
   const term = query.trim().toLowerCase()
-  const { data: d3 } = await supabase
-    .from('products')
-    .select('id, name, price, description, quantity, active, tags')
-    .eq('active', true)
-    .gt('quantity', 0)
-    .limit(200)
-  const byTag = (d3 ?? []).filter((p) => (p.tags ?? []).some((t: string) => t.includes(term) || term.includes(t)))
-  if (byTag.length > 0) return formatProducts(byTag.slice(0, 8))
+  const tokens = term.split(/\s+/).filter(Boolean)
+  const searchable = (p: (typeof disponiveis)[number]) =>
+    [p.name, p.description ?? '', ...(p.tags ?? [])].join(' ').toLowerCase()
 
-  return `Nenhum produto encontrado para "${query}".`
+  const matches = disponiveis.filter((p) => {
+    const text = searchable(p)
+    return tokens.some((t) => text.includes(t))
+  })
+  if (matches.length === 0) return `Nenhum produto encontrado para "${query}".`
+
+  const scored = matches
+    .map((p) => ({ p, score: tokens.filter((t) => searchable(p).includes(t)).length }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8)
+    .map((x) => x.p)
+
+  return formatProducts(scored)
 }
 
 function formatProducts(products: { id: string; name: string; price: number; description: string | null; quantity: number }[]) {
@@ -145,6 +162,45 @@ async function buscarServicos(query: string): Promise<string> {
     .map((x) => x.s)
 
   return formatServices(scored)
+}
+
+async function criarPedidoEGerarCobranca(input: {
+  itens: { produto_id: string; quantidade: number }[]
+  cliente_nome: string
+  cliente_telefone: string
+  pagar_agora: boolean
+}): Promise<string> {
+  if (!input.itens || input.itens.length === 0) return 'FALHOU (validation): informe ao menos um item.'
+  if (!input.cliente_nome?.trim() || !input.cliente_telefone?.trim()) {
+    return 'FALHOU (validation): nome e telefone do cliente são obrigatórios.'
+  }
+
+  let order
+  try {
+    order = await createAssistantOrderServer({
+      customer_name: input.cliente_nome.trim(),
+      customer_whatsapp: input.cliente_telefone.replace(/\D/g, ''),
+      items: input.itens.map((i) => ({ product_id: i.produto_id, quantity: i.quantidade })),
+    })
+  } catch (e) {
+    return `FALHOU (pedido): ${e instanceof Error ? e.message : String(e)}`
+  }
+
+  const total = `R$ ${order.total.toFixed(2).replace('.', ',')}`
+
+  if (!input.pagar_agora) {
+    return `PEDIDO CRIADO: ID ${order.id} | Total: ${total} | Retirada na loja, pagamento no ato. ID do pedido: ${order.id}`
+  }
+
+  try {
+    const withPix = await createPixPaymentServer(order.id)
+    if (!withPix.pix_copia_cola) {
+      return `PEDIDO CRIADO: ID ${order.id} | Total: ${total} | Não foi possível gerar o Pix agora — combine o pagamento na retirada ou tente de novo em instantes.`
+    }
+    return `PEDIDO CRIADO: ID ${order.id} | Total: ${total}\n${withPix.pix_copia_cola}`
+  } catch (e) {
+    return `PEDIDO CRIADO: ID ${order.id} | Total: ${total} | Não foi possível gerar o Pix agora (${e instanceof Error ? e.message : String(e)}) — combine o pagamento na retirada ou tente de novo.`
+  }
 }
 
 async function consultarPedido(phone: string): Promise<string> {
@@ -255,6 +311,18 @@ export async function executeTool(name: string, input: Record<string, unknown>):
   try {
     if (name === 'buscar_produtos') return await buscarProdutos(String(input.query ?? ''))
     if (name === 'buscar_servicos') return await buscarServicos(String(input.query ?? ''))
+    if (name === 'criar_pedido_e_gerar_cobranca') {
+      const itensRaw = Array.isArray(input.itens) ? input.itens : []
+      return await criarPedidoEGerarCobranca({
+        itens: itensRaw.map((i) => ({
+          produto_id: String((i as Record<string, unknown>).produto_id ?? ''),
+          quantidade: Number((i as Record<string, unknown>).quantidade ?? 1),
+        })),
+        cliente_nome: String(input.cliente_nome ?? ''),
+        cliente_telefone: String(input.cliente_telefone ?? ''),
+        pagar_agora: !!input.pagar_agora,
+      })
+    }
     if (name === 'consultar_pedido') return await consultarPedido(String(input.phone ?? ''))
     if (name === 'consultar_atendimento_em_andamento') return await consultarAtendimentoEmAndamento(String(input.phone ?? ''))
     const service = await executeServiceTool(name, input)

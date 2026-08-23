@@ -131,21 +131,22 @@ async function runInterpreter(config: AssistantConfig, userMessage: string): Pro
 
 /**
  * Preferência configurada em /meu-plano (plataforma) — quando ligada, o
- * cliente pode escolher pagar produto (+ entrega) no ato da entrega, em vez
- * de no checkout. A assistente não cria o pedido (isso acontece no checkout
- * da vitrine), mas precisa saber oferecer/confirmar a opção quando perguntada.
+ * cliente pode escolher pagar produto no ato da retirada, em vez de pagar
+ * agora via Pix. criar_pedido_e_gerar_cobranca cria o pedido de verdade
+ * (o mesmo que aparece no painel do lojista); pagar_agora controla se o
+ * Pix é gerado na hora ou se fica pendente pra retirada.
  */
 function paymentOnDeliveryRule(): string {
-  return '- O cliente pode escolher pagar o produto (+ entrega) no ato da entrega, em vez de pagar agora no checkout — existe um checkbox pra isso no checkout da vitrine. Se ele perguntar sobre formas de pagamento ou preferir não pagar agora, informe essa opção normalmente. A compra em si é fechada no checkout da vitrine (envie o link do catálogo), não por aqui.'
+  return '- Ao fechar a compra de produto (criar_pedido_e_gerar_cobranca), pergunte se o cliente quer pagar agora (gera Pix copia-e-cola) ou pagar na retirada — as duas opções valem aqui. Use pagar_agora conforme a escolha dele. Pedido de assistente sempre é RETIRADA na loja (não há entrega de produto por aqui ainda).'
 }
 
 /**
  * Sem deslocamento nenhum (apenas_retirada) OU quando a loja desligou
- * pagamento-na-entrega em /meu-plano: produto só pode ser pago no
- * checkout mesmo, nunca depois.
+ * pagamento-na-entrega em /meu-plano: produto só pode ser pago agora
+ * (Pix), nunca na retirada.
  */
 function productCheckoutOnlyRule(): string {
-  return '- Produto só pode ser pago no checkout da vitrine (esta loja não oferece pagar na entrega/retirada) — se o cliente perguntar sobre pagar depois, informe que aqui é só no checkout mesmo.'
+  return '- Ao fechar a compra de produto (criar_pedido_e_gerar_cobranca), sempre use pagar_agora=true — esta loja não oferece pagar na retirada, não ofereça essa opção ao cliente.'
 }
 
 /**
