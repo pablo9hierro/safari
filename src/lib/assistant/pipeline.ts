@@ -1,7 +1,8 @@
 import { completeSimple, completeWithTools } from './aiClient'
 import { resolveTools, executeTool, consultarAtendimentoEmAndamento } from './tools'
 import { AGENDA_TOOL_NAMES } from '@/lib/agenda/tools'
-import { fetchPaymentOnDeliveryEnabledServer } from '@/lib/resolutoo/platformConfig'
+import { fetchPaymentOnDeliveryEnabledServer, fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
+import { SITE_URL } from '@/lib/constants'
 import type { AssistantConfig } from './types'
 import type { ToolCallRecord } from './aiClient'
 
@@ -40,7 +41,8 @@ function agendaRules(): string {
 function serviceLifecycleRules(): string {
   return [
     'ACOMPANHAMENTO DE ATENDIMENTO (obrigatório):',
-    '- ANTES de consultar pedido ou atendimento pela primeira vez na conversa, confirme com o cliente qual número de WhatsApp está cadastrado: "esse número que você está falando é o mesmo cadastrado no seu pedido/atendimento?". Não assuma que é sempre o número desta conversa — o cliente pode estar continuando por aqui um atendimento que começou em outro canal (telefone, loja física, outro WhatsApp). Se ele confirmar que é outro número, use ESSE número na tool, não o da conversa. Depois de confirmado uma vez na conversa, não precisa perguntar de novo pro mesmo cliente.',
+    '- Se o contexto pré-carregado no início desta conversa já indicar um atendimento/pedido em andamento, é PROIBIDO perguntar aparelho, marca, modelo, qual serviço ou qual produto de novo — isso já é conhecido pelo sistema. Vá direto ao que falta pra dar continuidade (status, próxima etapa, dado que realmente falta). Perguntar de novo algo que o sistema já sabe é o pior erro possível aqui.',
+    '- Se NÃO houver nada em andamento pro número desta conversa (sem contexto pré-carregado) E o cliente perguntar sobre status/andamento de algo (não uma triagem nova), pergunte antes: "esse número que você está falando é o mesmo cadastrado no seu pedido/atendimento, ou foi outro número?". Se ele indicar outro número, use consultar_atendimento_em_andamento com ESSE número e dê continuidade a partir do que for encontrado — sem repetir a triagem. Só depois de confirmar que não há nada em nenhum número é que se trata como atendimento novo.',
     '- Depois de confirmado o número, consulte o estado real (produto: consultar_pedido; serviço: consultar_meus_atendimentos) e dê continuidade dali — trate como a continuação natural do atendimento dele, não como uma conversa nova, mesmo que ele tenha vindo de outro canal.',
     '- Perguntas como "já terminou", "está pronto", "qual o problema", "quanto custa", "aprovado?" NUNCA são respondidas pela memória da conversa — rode consultar_meus_atendimentos (se ainda não souber o ID) e depois a tool específica do que foi perguntado, nesta mesma interação.',
     '- Nunca invente status, valor de orçamento, diagnóstico ou prazo de entrega. Se a ferramenta não retornar a informação, diga que ainda não está disponível.',
@@ -48,6 +50,38 @@ function serviceLifecycleRules(): string {
     '- Cancelamento (cancelar_atendimento) só funciona antes da aprovação do orçamento — se a tool recusar (atendimento já aprovado/em reparo), explique que a partir dali o cancelamento depende da loja, não invente uma forma de cancelar mesmo assim.',
     '- Depois que consultar_status_atendimento (ou consultar_status_reparo) confirmar que o reparo terminou, pergunte proativamente se o cliente prefere RETIRAR na loja ou RECEBER por entrega — não espere ele perguntar. Se for entrega, confirme se o endereço é o mesmo já usado antes ou se é outro.',
     '- Entrega/retirada do aparelho (agendar_entrega_aparelho/agendar_retirada_aparelho) só pode ser AGENDADA depois que o reparo estiver concluído — confirme com consultar_status_atendimento antes se não tiver certeza. Coleta do aparelho no cliente (agendar_coleta_aparelho) pode ser agendada a qualquer momento em que o atendimento estiver ativo.',
+    `- Toda confirmação de agendamento de serviço (criar_agendamento com sucesso, coleta/entrega/retirada agendada) inclua no final da mensagem o link de acompanhamento: ${SITE_URL}/consultar?phone=<telefone do cliente, só dígitos>. O cliente usa esse link pra ver o status a qualquer momento sem precisar voltar aqui.`,
+  ].join('\n')
+}
+
+/**
+ * Qualificação de aparelho/marca ANTES de sugerir produto ou serviço --
+ * sem isso a IA responde com uma lista genérica que não serve pro
+ * aparelho real do cliente, ou (pior, em acessórios) sugere algo
+ * incompatível.
+ */
+function qualificationRule(): string {
+  return [
+    'QUALIFICAÇÃO ANTES DE SUGERIR (obrigatório):',
+    '- Antes de rodar buscar_produtos ou buscar_servicos pela primeira vez numa conversa nova, confirme o aparelho e a marca (e o modelo, se o cliente souber) que o produto/serviço é PRA. Não pergunte de novo se isso já foi dito ou já está no contexto pré-carregado.',
+    '- Para ACESSÓRIO (carregador, capinha, fone, cabo, película, etc.): o aparelho/modelo é ainda mais crítico, porque existe risco real de incompatibilidade. Nunca sugira um acessório sem saber o modelo do aparelho do cliente, e ao sugerir, deixe claro que é compatível com o modelo dele (não ofereça um item genérico sem confirmar).',
+    '- Exceção: se o cliente já descreveu aparelho+marca+modelo na própria mensagem, não pergunte de novo — já rode a busca.',
+  ].join('\n')
+}
+
+/**
+ * Confirmação explícita do serviço antes de avançar pro checkout (nome,
+ * telefone, coleta, agenda) -- evita a IA pular direto pra criar_agendamento
+ * assim que tiver dados o bastante, sem o cliente ter realmente topado
+ * aquele serviço específico.
+ */
+function serviceConfirmationRule(): string {
+  return [
+    'CONFIRMAÇÃO DE SERVIÇO ANTES DO CHECKOUT (obrigatório):',
+    '- Depois de identificar/sugerir um serviço específico (via buscar_servicos), peça o cliente confirmar explicitamente que é aquele serviço que ele quer, ANTES de pedir nome, telefone, coleta ou horário. Frases como "sim", "é esse mesmo", "pode ser" contam como confirmação.',
+    '- Se o cliente disser que não sabe qual serviço precisa (ou a descrição for muito vaga/genérica e buscar_servicos não achar nada com confiança real pro sintoma — confira também as tags dos serviços contra palavras usadas por ele), NÃO force uma escolha do catálogo: explique que é necessário um diagnóstico técnico pra identificar o problema e definir o preço certo. Rode buscar_servicos("diagnóstico") pra saber se a loja cobra o diagnóstico ou não, informe esse valor ao cliente, e siga o agendamento com diagnostico=true em criar_agendamento.',
+    '- Só depois da confirmação do serviço (ou do diagnóstico), siga na ordem: 1) peça nome e telefone (o telefone da conversa já vale, mas confirme se é esse mesmo que deve ficar registrado) 2) pergunte se quer que a loja busque o aparelho (coleta) ou se ele mesmo leva 3) se for coleta, peça a localização pela conversa 4) consulte disponibilidade e ofereça horários (mesmo quando o cliente for levar o aparelho sozinho, o agendamento é obrigatório) 5) confirme o horário escolhido e só então chame criar_agendamento.',
+    '- Deixe sempre claro: o pagamento do serviço (mais o deslocamento, quando existir e for cobrado) só acontece na CONCLUSÃO do reparo — nunca cobre nada na criação da solicitação nem durante o atendimento.',
   ].join('\n')
 }
 
@@ -74,6 +108,10 @@ function universalRules(config: AssistantConfig, withAgenda: boolean): string {
     '- Não prometa prazo fixo que não veio de uma ferramenta.',
     noHumanHandoffRule(),
     '',
+    qualificationRule(),
+    '',
+    serviceConfirmationRule(),
+    '',
     serviceLifecycleRules(),
     `- Resposta em UMA ÚNICA mensagem curta (${min}–${max} caracteres). Vá direto ao ponto.`,
     ...(withAgenda ? ['', agendaRules()] : []),
@@ -98,7 +136,16 @@ async function runInterpreter(config: AssistantConfig, userMessage: string): Pro
  * da vitrine), mas precisa saber oferecer/confirmar a opção quando perguntada.
  */
 function paymentOnDeliveryRule(): string {
-  return '- O cliente pode escolher pagar o produto (+ entrega) no ato da entrega, em vez de pagar agora no checkout — existe um checkbox pra isso no checkout da vitrine. Se ele perguntar sobre formas de pagamento ou preferir não pagar agora, informe essa opção normalmente.'
+  return '- O cliente pode escolher pagar o produto (+ entrega) no ato da entrega, em vez de pagar agora no checkout — existe um checkbox pra isso no checkout da vitrine. Se ele perguntar sobre formas de pagamento ou preferir não pagar agora, informe essa opção normalmente. A compra em si é fechada no checkout da vitrine (envie o link do catálogo), não por aqui.'
+}
+
+/**
+ * Sem deslocamento nenhum (apenas_retirada) OU quando a loja desligou
+ * pagamento-na-entrega em /meu-plano: produto só pode ser pago no
+ * checkout mesmo, nunca depois.
+ */
+function productCheckoutOnlyRule(): string {
+  return '- Produto só pode ser pago no checkout da vitrine (esta loja não oferece pagar na entrega/retirada) — se o cliente perguntar sobre pagar depois, informe que aqui é só no checkout mesmo.'
 }
 
 /**
@@ -131,12 +178,16 @@ async function runResponder(
 ): Promise<{ reply: string; toolCalls: ToolCallRecord[] }> {
   const tools = await resolveTools()
   const withAgenda = tools.some((t) => AGENDA_TOOL_NAMES.includes(t.name))
-  const paymentOnDeliveryEnabled = await fetchPaymentOnDeliveryEnabledServer()
+  const platformConfig = await fetchPlatformStoreConfig()
+  // Sem deslocamento nenhum (loja é apenas-retirada), não existe "ato da
+  // entrega" pro produto ser pago -- o cliente SEMPRE leva o produto na
+  // loja, então o pagamento tem que ser no checkout, nunca depois.
+  const paymentOnDeliveryEnabled = !platformConfig.apenas_retirada && (await fetchPaymentOnDeliveryEnabledServer())
   const ongoingContext = await hydrateOngoingContext(history, conversationPhone)
 
   const system = [
     universalRules(config, withAgenda),
-    paymentOnDeliveryEnabled ? paymentOnDeliveryRule() : null,
+    paymentOnDeliveryEnabled ? paymentOnDeliveryRule() : productCheckoutOnlyRule(),
     ongoingContext,
     // Único prompt editável pelo lojista (mesmo padrão do a-vrtek-gente):
     // contexto de negócio/tom de voz, repassado tanto pro classificador de
