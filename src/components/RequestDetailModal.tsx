@@ -20,11 +20,10 @@ import {
   AlertCircle,
   ExternalLink,
   ArrowRight,
-  Send,
 } from 'lucide-react'
 
 const STATUS_LABELS: Record<ServiceStatus, string> = {
-  pending:                'Pendente',
+  pending:                '🆕 Solicitação nova — aguardando aceite',
   accepted:               'Aceito pelo cliente (orçamento confirmado)',
   rejected:               '✅ Atendimento concluído — Recusado pelo cliente',
   retirada_local:         '🏠 Retirada/entrega pelo cliente',
@@ -39,12 +38,6 @@ const STATUS_LABELS: Record<ServiceStatus, string> = {
   aguardando_diagnostico: '🔍 Aguardando diagnóstico físico do aparelho',
   diagnostico_enviado:    '📄 Diagnóstico enviado — aguardando aprovação do cliente',
 }
-
-const STATUS_MESSAGES_AVAILABLE: ServiceStatus[] = [
-  'aguardando_diagnostico', 'diagnostico_enviado',
-  'accepted', 'rejected', 'retirada_local', 'em_busca', 'in_progress',
-  'em_entrega', 'cancelled', 'delivered', 'finished',
-]
 
 type AdvanceConfig =
   | { type: 'terminal' }
@@ -62,14 +55,20 @@ function getAdvanceConfig(
   estimatedQuoteValue: string,
 ): AdvanceConfig {
   switch (current) {
-    // "pending" não é mais destino de nenhum fluxo novo (a solicitação já
-    // nasce em retirada_local/em_busca) -- caso só existe pra dado legado
-    // antigo continuar avançável, sem UI própria dedicada.
+    // "Solicitação nova" -- landing de toda solicitação recém-chegada do
+    // cliente (vitrine/orçamento). Lojista decide: aceita (avança pra
+    // coleta/aguardando aparelho) ou cancela com justificativa (ver botão
+    // dedicado fora deste switch, mesmo padrão de retirada_local/em_busca).
     case 'pending':
+      if (selfPickup) {
+        return { type: 'single', next: 'retirada_local', label: '🏠 Aceitar — aguardando aparelho', ready: true }
+      }
       return {
-        type: 'single',
-        next: diagnosisRequested ? 'aguardando_diagnostico' : 'in_progress',
-        label: diagnosisRequested ? '🔍 Aceitar para diagnóstico físico' : '🔧 Avançar para reparo',
+        type: 'choice',
+        options: [
+          { next: 'retirada_local', label: '🏠 Aceitar — cliente vai trazer/retirar o aparelho' },
+          { next: 'em_busca', label: '🛵 Aceitar — em rota de coleta (motoboy)' },
+        ],
         ready: true,
       }
 
@@ -195,12 +194,16 @@ export default function RequestDetailModal({
   const [credentialSaved, setCredentialSaved] = useState(false)
   const [savingCredential, setSavingCredential] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+  // Cancelamento com justificativa (só pending/"Solicitação nova") -- motivo
+  // obrigatório, mandado pro cliente por WhatsApp (ver /api/service-requests/[id]/cancel).
+  const [reasonCancelOpen, setReasonCancelOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancellingWithReason, setCancellingWithReason] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [osState, setOsState] = useState({ closed: false, hasUpdate: false })
   const [waError, setWaError] = useState<string | null>(null)
-  const [resendingWa, setResendingWa] = useState(false)
 
   const [selectedMethods, setSelectedMethods] = useState<string[]>((request.payment_methods ?? []).map((p) => p.method))
   const [methodValues, setMethodValues] = useState<Record<string, string>>(
@@ -290,10 +293,26 @@ export default function RequestDetailModal({
     }
   }
 
-  const handleResendWa = async () => {
-    setResendingWa(true)
-    await notifyWhatsApp(status)
-    setResendingWa(false)
+  const handleCancelWithReason = async () => {
+    if (!cancelReason.trim()) return
+    setCancellingWithReason(true)
+    setError(null)
+    try {
+      const res = await fetch(apiPath(`/api/service-requests/${request.id}/cancel`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: cancelReason.trim() }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Erro ao cancelar')
+      setStatus('cancelled')
+      onUpdate(data.data as ServiceRequest)
+      setReasonCancelOpen(false)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao cancelar')
+    } finally {
+      setCancellingWithReason(false)
+    }
   }
 
   const handleAdvance = async (next: ServiceStatus) => {
@@ -767,6 +786,16 @@ export default function RequestDetailModal({
               </div>
             )}
 
+            {status === 'pending' && (
+              <button
+                onClick={() => setReasonCancelOpen(true)}
+                disabled={loading}
+                className="w-full text-sm font-medium text-red-600 border border-red-200 rounded-xl py-2 hover:bg-red-50 transition-colors disabled:opacity-50"
+              >
+                Recusar / cancelar solicitação
+              </button>
+            )}
+
             {(status === 'retirada_local' || status === 'em_busca') && (
               <button
                 onClick={() => setCancelConfirmOpen(true)}
@@ -775,6 +804,41 @@ export default function RequestDetailModal({
               >
                 Cancelar solicitação
               </button>
+            )}
+
+            {reasonCancelOpen && (
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl w-full max-w-sm p-5 space-y-3">
+                  <h3 className="font-bold text-gray-900">Recusar/cancelar solicitação</h3>
+                  <p className="text-sm text-gray-500">
+                    Esse motivo é enviado direto pro cliente por WhatsApp — seja claro e educado.
+                  </p>
+                  <textarea
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="Ex: No momento não atendemos esse modelo de aparelho."
+                    rows={3}
+                    className="input-field resize-none"
+                    autoFocus
+                  />
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => { setReasonCancelOpen(false); setCancelReason('') }}
+                      disabled={cancellingWithReason}
+                      className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Voltar
+                    </button>
+                    <button
+                      onClick={handleCancelWithReason}
+                      disabled={cancellingWithReason || !cancelReason.trim()}
+                      className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-semibold text-sm hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {cancellingWithReason ? 'Enviando...' : 'Confirmar e avisar cliente'}
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
 
             {cancelConfirmOpen && (
@@ -810,17 +874,6 @@ export default function RequestDetailModal({
               </div>
             )}
 
-            {STATUS_MESSAGES_AVAILABLE.includes(status) && (
-              <button
-                type="button"
-                onClick={handleResendWa}
-                disabled={resendingWa}
-                className="flex items-center justify-center gap-1.5 text-xs text-center text-green-600 hover:text-green-700 transition-colors w-full disabled:opacity-50"
-              >
-                {resendingWa ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                Reenviar mensagem do status atual
-              </button>
-            )}
           </section>
 
           <p className="text-xs text-gray-400 text-center pb-2">

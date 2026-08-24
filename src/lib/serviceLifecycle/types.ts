@@ -51,6 +51,7 @@ export const REPAIR_DONE_STATUSES: ServiceStatus[] = ['completed', 'em_pagamento
  * for adicionado ao enum sem ganhar um balde aqui.
  */
 export type StatusGroup =
+  | 'novas'
   | 'em_deslocamento'
   | 'aguardando_aparelho'
   | 'em_diagnostico'
@@ -59,13 +60,13 @@ export type StatusGroup =
   | 'concluidos'
 
 export const STATUS_GROUP: Record<ServiceStatus, StatusGroup> = {
-  // "pendente" deixou de existir como balde -- a solicitação nasce direto
-  // em retirada_local/em_busca (ver POST /api/service-requests). 'pending'
-  // continua no enum só por compatibilidade com dado histórico; 'accepted'
-  // continua existindo como status transitório de uso interno (PDV,
-  // ver agenda/service.ts), mas nenhuma tela mostra "Pendente" mais --
-  // os dois caem no mesmo balde de quem está aguardando deslocamento físico.
-  pending: 'em_deslocamento',
+  // "Solicitação nova" -- a solicitação nasce em pending e fica parada aqui
+  // até o lojista aceitar (avança pra retirada_local/em_busca) ou cancelar
+  // com justificativa (ver RequestDetailModal + /api/service-requests/[id]/cancel).
+  pending: 'novas',
+  // 'accepted' continua existindo como status transitório de uso interno
+  // (PDV, ver agenda/service.ts) -- cai no mesmo balde de quem está
+  // aguardando deslocamento físico.
   accepted: 'em_deslocamento',
   aguardando_diagnostico: 'em_diagnostico',
   diagnostico_enviado: 'em_diagnostico',
@@ -93,6 +94,7 @@ export const STATUS_GROUP: Record<ServiceStatus, StatusGroup> = {
 export const ENDED_NEGATIVE_STATUSES: ServiceStatus[] = ['rejected', 'cancelled']
 
 export const STATUS_GROUP_LABEL: Record<StatusGroup, string> = {
+  novas: 'Solicitação nova',
   em_deslocamento: 'Em deslocamento',
   aguardando_aparelho: 'Aguardando aparelho',
   em_diagnostico: 'Em diagnóstico',

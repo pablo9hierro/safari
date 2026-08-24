@@ -146,7 +146,7 @@ function PedidosTab() {
 }
 
 const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: string }> = {
-  pending:                 { label: 'Pendente',                     color: 'text-yellow-700',  bg: 'bg-yellow-100'  },
+  pending:                 { label: 'Solicitação nova',              color: 'text-yellow-700',  bg: 'bg-yellow-100'  },
   accepted:                { label: 'Aceito',                       color: 'text-green-700',   bg: 'bg-green-100'   },
   rejected:                { label: 'Recusado',                     color: 'text-red-700',     bg: 'bg-red-100'     },
   retirada_local:          { label: 'Retirada/entrega pelo cliente', color: 'text-teal-700',    bg: 'bg-teal-100'    },
@@ -168,6 +168,7 @@ const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: s
 // de fato em lojas COM deslocamento -- apenasRetirada continua filtrando,
 // só que agora nada some, porque loja de retirada nunca ocupa esses status.
 const GROUP_FILTERS: { key: StatusGroup; label: string }[] = [
+  { key: 'novas', label: STATUS_GROUP_LABEL.novas },
   { key: 'em_deslocamento', label: STATUS_GROUP_LABEL.em_deslocamento },
   { key: 'aguardando_aparelho', label: STATUS_GROUP_LABEL.aguardando_aparelho },
   { key: 'em_diagnostico', label: STATUS_GROUP_LABEL.em_diagnostico },
@@ -188,7 +189,7 @@ export default function DashboardClient({
 }) {
   const [tab, setTab] = useState<'solicitacoes' | 'pedidos'>('solicitacoes')
   const [requests, setRequests] = useState<ServiceRequest[]>(initialRequests)
-  const [groupFilter, setGroupFilter] = useState<StatusGroup>('em_deslocamento')
+  const [groupFilter, setGroupFilter] = useState<StatusGroup>('novas')
   const [selected, setSelected] = useState<ServiceRequest | null>(null)
 
   // apenasRetirada não precisa mais filtrar baldes -- em_deslocamento (que

@@ -23,11 +23,11 @@ export async function POST(req: NextRequest) {
     address_city:         body.address_city ?? null,
     address_state:        body.address_state ?? null,
     shipping_price:       body.shipping_price ?? null,
-    // Nasce direto em coleta/deslocamento -- nunca fica "pendente" esperando
-    // aceite manual do lojista (decisão do dono: a solicitação já chega em
-    // trânsito, o lojista preenche orçamento estimado/senha do cliente no
-    // momento físico da coleta, não antes).
-    status:               body.self_pickup ? 'retirada_local' : 'em_busca',
+    // Nasce em "pending" (balde "Solicitação nova" no painel) -- o lojista
+    // decide manualmente se aceita (avançando pra coleta/aguardando aparelho)
+    // ou cancela (com justificativa mandada pro cliente), antes de qualquer
+    // deslocamento acontecer de verdade.
+    status:               'pending',
     quote_value:          null,
     owner_notes:          null,
     source:               'storefront_form',
