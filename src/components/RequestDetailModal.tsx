@@ -54,15 +54,19 @@ function getAdvanceConfig(
   selfPickup: boolean,
   diagnosisRequested: boolean,
   estimatedQuoteValue: string,
+  credentialSaved: boolean,
 ): AdvanceConfig {
   switch (current) {
     // "Solicitação nova" -- landing de toda solicitação recém-chegada do
     // cliente (vitrine/orçamento). Lojista decide: aceita (avança pra
     // coleta/aguardando aparelho) ou cancela com justificativa (ver botão
     // dedicado fora deste switch, mesmo padrão de retirada_local/em_busca).
-    case 'pending':
+    // Senha do cliente (PIN/padrão) é obrigatória antes de aceitar -- sem
+    // ela não dá pra devolver o aparelho depois sem o desenho/senha certos.
+    case 'pending': {
+      const blockedMessage = credentialSaved ? undefined : 'Salve a senha do cliente (PIN ou padrão) antes de aceitar.'
       if (selfPickup) {
-        return { type: 'single', next: 'retirada_local', label: '🏠 Aceitar — aguardando aparelho', ready: true }
+        return { type: 'single', next: 'retirada_local', label: '🏠 Aceitar — aguardando aparelho', ready: credentialSaved, blockedMessage }
       }
       return {
         type: 'choice',
@@ -70,8 +74,10 @@ function getAdvanceConfig(
           { next: 'retirada_local', label: '🏠 Aceitar — cliente vai trazer/retirar o aparelho' },
           { next: 'em_busca', label: '🛵 Aceitar — em rota de coleta (motoboy)' },
         ],
-        ready: true,
+        ready: credentialSaved,
+        blockedMessage,
       }
+    }
 
     // Card de coleta (self_pickup) ou deslocamento (motoboy): é aqui que o
     // lojista preenche o orçamento estimado (falado de boca) e a senha do
@@ -189,7 +195,9 @@ export default function RequestDetailModal({
   // Senha do cliente (PIN ou padrão de desenho) -- colapsável, salva em
   // service_request_credentials (RLS restrita a authenticated, nunca lida
   // pelo /consultar nem pela IA).
-  const [credentialsOpen, setCredentialsOpen] = useState(false)
+  // Já nasce aberto quando ainda pendente -- é obrigatória pra aceitar,
+  // não faz sentido esconder atrás de um toggle nesse caso.
+  const [credentialsOpen, setCredentialsOpen] = useState(request.status === 'pending')
   const [credentialKind, setCredentialKind] = useState<'pin' | 'pattern'>('pin')
   const [credentialValue, setCredentialValue] = useState('')
   const [credentialSaved, setCredentialSaved] = useState(false)
@@ -403,7 +411,7 @@ export default function RequestDetailModal({
     }
   }
 
-  const advance = getAdvanceConfig(status, osState, quoteValue, paymentSaved, !!request.self_pickup, !!request.diagnosis_requested, estimatedQuoteValue)
+  const advance = getAdvanceConfig(status, osState, quoteValue, paymentSaved, !!request.self_pickup, !!request.diagnosis_requested, estimatedQuoteValue, credentialSaved)
   const fullAddress = request.self_pickup
     ? 'Cliente vai levar/buscar o aparelho — sem coleta/entrega'
     : request.address_label
@@ -501,33 +509,37 @@ export default function RequestDetailModal({
             </div>
           </section>
 
-          {/* Orçamento estimado + senha do cliente -- só na coleta/deslocamento,
-              momento físico em que o lojista tem essas informações em mãos. */}
-          {(status === 'retirada_local' || status === 'em_busca') && (
+          {/* Orçamento estimado + senha do cliente. Orçamento é só na
+              coleta/deslocamento (momento físico em que o lojista tem essa
+              info em mãos); senha já aparece em "Solicitação nova" também,
+              porque agora é obrigatória pra aceitar (ver getAdvanceConfig). */}
+          {(status === 'pending' || status === 'retirada_local' || status === 'em_busca') && (
             <section className="space-y-2">
               <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Coleta do aparelho</h3>
-              <div>
-                <label className="label">Orçamento estimado (R$) <span className="font-normal text-gray-400">— falado de boca, confirmado no diagnóstico</span></label>
-                <div className="relative">
-                  <span className="absolute left-4 top-3.5 text-gray-400 font-medium">R$</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={estimatedQuoteValue}
-                    onChange={(e) => setEstimatedQuoteValue(e.target.value)}
-                    onBlur={saveEstimatedQuote}
-                    placeholder="0,00"
-                    className="input-field pl-10"
-                  />
+              {(status === 'retirada_local' || status === 'em_busca') && (
+                <div>
+                  <label className="label">Orçamento estimado (R$) <span className="font-normal text-gray-400">— falado de boca, confirmado no diagnóstico</span></label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-3.5 text-gray-400 font-medium">R$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={estimatedQuoteValue}
+                      onChange={(e) => setEstimatedQuoteValue(e.target.value)}
+                      onBlur={saveEstimatedQuote}
+                      placeholder="0,00"
+                      className="input-field pl-10"
+                    />
+                  </div>
+                  {savingEstimate && <p className="text-xs text-gray-400 mt-1 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Salvando...</p>}
+                  {!request.self_pickup && request.shipping_price && (
+                    <p className="text-xs text-amber-600 mt-1.5">
+                      Frete (coleta): R$ {Number(request.shipping_price).toFixed(2)} — será somado automaticamente ao total. A entrega/retirada é decidida e cobrada à parte quando o reparo terminar.
+                    </p>
+                  )}
                 </div>
-                {savingEstimate && <p className="text-xs text-gray-400 mt-1 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Salvando...</p>}
-                {!request.self_pickup && request.shipping_price && (
-                  <p className="text-xs text-amber-600 mt-1.5">
-                    Frete (coleta): R$ {Number(request.shipping_price).toFixed(2)} — será somado automaticamente ao total. A entrega/retirada é decidida e cobrada à parte quando o reparo terminar.
-                  </p>
-                )}
-              </div>
+              )}
 
               {/* Senha do cliente — colapsável: clique abre o form; ao salvar,
                   clique de novo revela o que foi cadastrado. */}
