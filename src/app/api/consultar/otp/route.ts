@@ -5,13 +5,20 @@ import { fetchUnifiedByPhone, hasAnyAttendance } from '@/lib/consultar'
 import { PUBLIC_CONSULTAR_URL } from '@/lib/constants'
 
 /**
- * Gera (ou reenvia) o código de acesso de 3 dígitos pro /consultar e manda
- * por WhatsApp junto do link já pronto. Nunca retorna o código na resposta
- * HTTP -- só confirma que foi enviado (ou avisa que não achou atendimento).
+ * Duas coisas nesta rota, gatilhadas por `send`:
+ * - `send` ausente/false: só confere se existe atendimento pra esse
+ *   telefone (usado ao digitar o número em /consultar) -- NÃO gera nem
+ *   manda código novo. O código já mandado na criação do pedido/agendamento
+ *   (ver src/lib/tracking.ts) continua valendo até expirar; gerar um novo
+ *   a cada vez que alguém digita o telefone spamava WhatsApp à toa.
+ * - `send: true` (botão explícito "Gerar novo código"): gera um código
+ *   novo (invalida o anterior, ver RPC) e manda por WhatsApp. Nunca
+ *   retorna o código na resposta HTTP.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null)
   const phone = body?.phone as string | undefined
+  const send = body?.send === true
   if (!phone) return NextResponse.json({ error: 'Telefone obrigatório' }, { status: 400 })
 
   const digits = phone.replace(/\D/g, '')
@@ -20,6 +27,10 @@ export async function POST(req: NextRequest) {
   const unified = await fetchUnifiedByPhone(digits)
   if (!hasAnyAttendance(unified)) {
     return NextResponse.json({ found: false })
+  }
+
+  if (!send) {
+    return NextResponse.json({ found: true, sent: false })
   }
 
   const supabase = createServiceClient()
@@ -36,5 +47,5 @@ export async function POST(req: NextRequest) {
     relatedId: digits,
   })
 
-  return NextResponse.json({ found: true, ok: true })
+  return NextResponse.json({ found: true, sent: true })
 }

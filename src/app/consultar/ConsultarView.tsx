@@ -33,8 +33,12 @@ const STATUS_MAP: Record<string, { label: string; color: string; bg: string; ico
 type Stage = { key: string; label: string; icon: React.ReactNode; statuses: ServiceStatus[] }
 
 const STAGES: Stage[] = [
-  { key: 'pending', label: 'Solicitação realizada', icon: <ClipboardList className="w-3.5 h-3.5" />, statuses: ['pending'] },
-  { key: 'accepted', label: 'Orçamento aceito', icon: <CheckCircle className="w-3.5 h-3.5" />, statuses: ['accepted'] },
+  // pending/accepted nunca acontecem como etapas sequenciais de verdade --
+  // a solicitação já nasce direto em em_busca/retirada_local (ver
+  // DashboardClient.tsx), então mostrar "Orçamento aceito" como um degrau
+  // separado depois de "Solicitação realizada" é enganoso (nunca existiu
+  // um orçamento pra aceitar nesse ponto). Um degrau só, cobrindo os dois.
+  { key: 'pending', label: 'Solicitação recebida', icon: <ClipboardList className="w-3.5 h-3.5" />, statuses: ['pending', 'accepted'] },
   { key: 'pickup', label: 'Em rota de busca / cliente vai levar', icon: <Truck className="w-3.5 h-3.5" />, statuses: ['em_busca', 'retirada_local'] },
   { key: 'in_progress', label: 'Em reparo', icon: <Wrench className="w-3.5 h-3.5" />, statuses: ['in_progress'] },
   { key: 'completed', label: 'Reparo concluído', icon: <PackageCheck className="w-3.5 h-3.5" />, statuses: ['completed'] },
@@ -315,7 +319,11 @@ function ConsultarContent({ initialPhone, initialOtp }: { initialPhone?: string;
     return () => clearTimeout(t)
   }, [resendCooldown])
 
-  const requestOtp = useCallback(async (rawPhone: string) => {
+  // Só confere se existe atendimento -- NÃO gera nem manda código novo.
+  // O código já mandado na criação do pedido/agendamento continua valendo;
+  // gerar um novo toda vez que alguém digita o telefone mandaria WhatsApp
+  // à toa. Gerar código novo é ação explícita, ver sendNewOtp.
+  const checkPhone = useCallback(async (rawPhone: string) => {
     const digits = rawPhone.replace(/\D/g, '')
     if (digits.length < 10) return
     setLoading(true)
@@ -324,7 +332,34 @@ function ConsultarContent({ initialPhone, initialOtp }: { initialPhone?: string;
       const res = await fetch(apiPath('/api/consultar/otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: digits }),
+        body: JSON.stringify({ phone: digits, send: false }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erro ao verificar telefone')
+      if (!data.found) {
+        setStep('not-found')
+        return
+      }
+      setStep('otp')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao verificar telefone')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Ação explícita do botão "Gerar novo código" -- essa sim gera e manda
+  // um código novo por WhatsApp (invalida o anterior, ver RPC).
+  const sendNewOtp = useCallback(async (rawPhone: string) => {
+    const digits = rawPhone.replace(/\D/g, '')
+    if (digits.length < 10) return
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(apiPath('/api/consultar/otp'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: digits, send: true }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erro ao gerar código')
@@ -332,7 +367,6 @@ function ConsultarContent({ initialPhone, initialOtp }: { initialPhone?: string;
         setStep('not-found')
         return
       }
-      setStep('otp')
       setResendCooldown(30)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao gerar código')
@@ -374,14 +408,14 @@ function ConsultarContent({ initialPhone, initialOtp }: { initialPhone?: string;
     } else if (p && p.length >= 10) {
       const formatted = formatPhone(p)
       setPhone(formatted)
-      requestOtp(p)
+      checkPhone(p)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
-    await requestOtp(phone)
+    await checkPhone(phone)
   }
 
   const handleVerify = async (e: React.FormEvent) => {
@@ -494,10 +528,10 @@ function ConsultarContent({ initialPhone, initialOtp }: { initialPhone?: string;
                 <button
                   type="button"
                   disabled={resendCooldown > 0 || loading}
-                  onClick={() => requestOtp(phone)}
+                  onClick={() => sendNewOtp(phone)}
                   className="text-xs text-vr-red hover:text-vr-red-dark font-semibold disabled:text-gray-300 disabled:cursor-not-allowed"
                 >
-                  {resendCooldown > 0 ? `Receber novo código (${resendCooldown}s)` : 'Receber novo código'}
+                  {resendCooldown > 0 ? `Gerar novo código (${resendCooldown}s)` : 'Gerar novo código'}
                 </button>
               </div>
             </form>
