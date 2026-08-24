@@ -20,6 +20,8 @@ import {
 } from 'lucide-react'
 import RequestDetailModal from '@/components/RequestDetailModal'
 import NovoServicoDialog from '@/components/dashboard/NovoServicoDialog'
+import LocationShareToggle from '@/components/dashboard/LocationShareToggle'
+import LiveTrackingMap from '@/components/dashboard/LiveTrackingMap'
 import { fetchOrders, AdminAuthError, type Order } from '@/lib/resolutoo/adminApi'
 import { adminAwareHref } from '@/lib/storeProxyLink'
 import { createClient } from '@/lib/supabase/client'
@@ -224,16 +226,19 @@ export default function DashboardClient({
   return (
     <>
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <h1 className="text-lg font-bold text-white">Solicitações</h1>
-          <button
-            onClick={() => setNovoServicoOpen(true)}
-            className="shrink-0 flex items-center gap-1.5 bg-vr-red hover:bg-vr-red/90 text-white
-              text-sm font-medium px-3.5 py-2 rounded-xl transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Registrar serviço
-          </button>
+          <div className="flex items-center gap-2">
+            <LocationShareToggle />
+            <button
+              onClick={() => setNovoServicoOpen(true)}
+              className="shrink-0 flex items-center gap-1.5 bg-vr-red hover:bg-vr-red/90 text-white
+                text-sm font-medium px-3.5 py-2 rounded-xl transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Registrar serviço
+            </button>
+          </div>
         </div>
 
         {novoServicoOpen && (
@@ -308,44 +313,57 @@ export default function DashboardClient({
           ) : (
             filtered.map((req) => {
               const sc = STATUS_CONFIG[req.status]
+              // Mapa ao vivo só faz sentido em deslocamento de verdade
+              // (motoboy indo buscar/entregar) e só com endereço real --
+              // retirada_local/aguardando aparelho é o cliente que se
+              // desloca, não a loja.
+              const showLiveMap =
+                (req.status === 'em_busca' || req.status === 'em_entrega') &&
+                !req.self_pickup && typeof req.address_lat === 'number' && typeof req.address_lng === 'number'
               return (
-                <button
+                <div
                   key={req.id}
-                  onClick={() => setSelected(req)}
-                  className="w-full bg-vr-graphite rounded-2xl border border-white/5 p-4 text-left hover:shadow-md transition-all hover:border-vr-red/30 group"
+                  className="w-full bg-vr-graphite rounded-2xl border border-white/5 overflow-hidden hover:shadow-md transition-all hover:border-vr-red/30 group"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${sc.bg} ${sc.color}`}>
-                          {sc.label}
-                        </span>
-                        {req.quote_value && (
-                          <span className="text-xs font-bold text-vr-red">
-                            R$ {Number(req.quote_value).toFixed(2)}
+                  <button onClick={() => setSelected(req)} className="w-full p-4 text-left">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${sc.bg} ${sc.color}`}>
+                            {sc.label}
                           </span>
-                        )}
+                          {req.quote_value && (
+                            <span className="text-xs font-bold text-vr-red">
+                              R$ {Number(req.quote_value).toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="font-semibold text-white truncate">{req.customer_name}</h3>
+                        <div className="flex items-center gap-1 text-vr-silver/70 text-sm">
+                          <Smartphone className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">{req.phone_model ?? (req.diagnosis_requested ? '🔍 Diagnóstico solicitado' : '—')}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-vr-silver/40 text-xs mt-1">
+                          <MapPin className="w-3 h-3 shrink-0" />
+                          <span className="truncate">
+                            {req.self_pickup ? 'Retirada pelo cliente' : formatAddress(req)}
+                          </span>
+                        </div>
                       </div>
-                      <h3 className="font-semibold text-white truncate">{req.customer_name}</h3>
-                      <div className="flex items-center gap-1 text-vr-silver/70 text-sm">
-                        <Smartphone className="w-3.5 h-3.5 shrink-0" />
-                        <span className="truncate">{req.phone_model ?? (req.diagnosis_requested ? '🔍 Diagnóstico solicitado' : '—')}</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-vr-silver/40 text-xs mt-1">
-                        <MapPin className="w-3 h-3 shrink-0" />
-                        <span className="truncate">
-                          {req.self_pickup ? 'Retirada pelo cliente' : formatAddress(req)}
+                      <div className="flex flex-col items-end gap-2 shrink-0">
+                        <span className="text-xs text-vr-silver/40">
+                          {new Date(req.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
                         </span>
+                        <ChevronRight className="w-4 h-4 text-vr-silver/30 group-hover:text-vr-red transition-colors" />
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-2 shrink-0">
-                      <span className="text-xs text-vr-silver/40">
-                        {new Date(req.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-vr-silver/30 group-hover:text-vr-red transition-colors" />
+                  </button>
+                  {showLiveMap && (
+                    <div className="px-4 pb-4">
+                      <LiveTrackingMap destLat={req.address_lat!} destLng={req.address_lng!} />
                     </div>
-                  </div>
-                </button>
+                  )}
+                </div>
               )
             })
           )}

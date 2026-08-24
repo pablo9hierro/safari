@@ -42,11 +42,24 @@ export async function buscarEnderecos(q: string, perto?: Ponto): Promise<Enderec
       titulo: a.house_number ? `${rua}, ${a.house_number}` : rua,
       subtitulo: [a.suburb || a.neighbourhood, a.city || a.town || a.village, a.state].filter(Boolean).join(' · '),
       bairro: a.suburb || a.neighbourhood,
+      rua,
+      numero: a.house_number,
+      cidade: a.city || a.town || a.village,
     }
   })
 }
 
-export async function enderecoDe({ lat, lng }: Ponto, tentativa = 0): Promise<{ label: string; bairro?: string }> {
+export type EnderecoReverso = { label: string; bairro?: string; rua?: string; numero?: string; cidade?: string }
+
+/**
+ * `rua`/`numero`/`cidade` vêm separados (não só o `label` já montado) --
+ * quem grava no banco precisa dos campos estruturados (address_street,
+ * address_number, address_neighborhood), não de uma string solta. O
+ * OpenStreetMap às vezes não tem o número da casa cadastrado (endereço
+ * rural, condomínio novo, etc.) -- quando falta, `numero` vem undefined e
+ * quem chama isso deve pedir o número ao cliente como campo opcional.
+ */
+export async function enderecoDe({ lat, lng }: Ponto, tentativa = 0): Promise<EnderecoReverso> {
   const p = new URLSearchParams({
     lat: String(lat),
     lon: String(lng),
@@ -66,9 +79,11 @@ export async function enderecoDe({ lat, lng }: Ponto, tentativa = 0): Promise<{ 
     const body = (await r.json()) as { address?: Record<string, string>; display_name?: string }
     const a = body.address || {}
     const rua = a.road || a.pedestrian || a.suburb || a.neighbourhood || body.display_name?.split(',')[0]
-    if (!rua) return { label: 'Local no mapa', bairro: a.suburb || a.neighbourhood }
+    const bairro = a.suburb || a.neighbourhood
+    const cidade = a.city || a.town || a.village
+    if (!rua) return { label: 'Local no mapa', bairro }
     const label = a.house_number ? `${rua}, ${a.house_number}` : rua
-    return { label, bairro: a.suburb || a.neighbourhood }
+    return { label, bairro, rua, numero: a.house_number, cidade }
   } catch {
     if (tentativa < 1) {
       await new Promise((res) => setTimeout(res, 700))

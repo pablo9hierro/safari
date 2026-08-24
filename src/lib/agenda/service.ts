@@ -457,6 +457,17 @@ export async function ensureServiceRequestForAppointment(
     /** Cliente não sabe o que há de errado -- vira diagnóstico em vez de um
      * serviço específico já escolhido. */
     diagnosis_requested?: boolean
+    /** Endereço real da coleta -- lat/lng exatos da localização mandada
+     * pelo WhatsApp (nunca inventados), já reverse-geocodados em
+     * street/number/neighborhood/city quando possível (ver criar_agendamento
+     * em agenda/tools.ts). Ausentes quando self_pickup=true. */
+    address_lat?: number
+    address_lng?: number
+    address_label?: string
+    address_street?: string
+    address_number?: string
+    address_neighborhood?: string
+    address_city?: string
   },
   db: Db = createServiceClient(),
 ): Promise<string> {
@@ -473,6 +484,13 @@ export async function ensureServiceRequestForAppointment(
       payment_methods: [],
       status: input.status ?? 'em_busca',
       source: input.source,
+      address_lat: input.address_lat ?? null,
+      address_lng: input.address_lng ?? null,
+      address_label: input.address_label ?? null,
+      address_street: input.address_street ?? null,
+      address_number: input.address_number ?? null,
+      address_neighborhood: input.address_neighborhood ?? null,
+      address_city: input.address_city ?? null,
     })
     .select('id')
     .single()

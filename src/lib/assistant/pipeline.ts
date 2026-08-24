@@ -223,7 +223,7 @@ async function runResponder(
       ? `Telefone desta conversa (WhatsApp real do cliente, já confirmado pelo sistema): ${conversationPhone}. Use ESSE valor sempre que uma tool pedir cliente_telefone/telefone — NUNCA peça o número de novo nem invente um placeholder, a menos que o cliente diga explicitamente que quer usar outro número (aí use o que ele informou).`
       : null,
     `Endereço da loja (informe ao cliente quando ele escolher RETIRAR em vez de entrega/coleta): ${storeAddressText}. Mapa: ${STORE_ADDRESS.mapsUrl}`,
-    '- Quando o cliente enviar uma localização pelo WhatsApp (mensagem de localização, não texto), você recebe as coordenadas reais (latitude/longitude) já extraídas dessa mensagem — use esses valores exatos em endereco_lat/endereco_lng de criar_pedido_e_gerar_cobranca. Nunca invente coordenadas.',
+    '- Quando o cliente enviar uma localização pelo WhatsApp (mensagem de localização, não texto), você recebe as coordenadas reais (latitude/longitude) já extraídas dessa mensagem — use esses valores exatos em endereco_lat/endereco_lng de criar_pedido_e_gerar_cobranca (produto) ou de criar_agendamento (serviço com coleta). Nunca invente coordenadas.',
     'Use as ferramentas necessárias pra buscar dados reais antes de responder. Sua última mensagem de texto vai direto pro cliente.',
   ].filter(Boolean).join('\n\n')
 

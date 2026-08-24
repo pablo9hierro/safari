@@ -67,6 +67,12 @@ export default function ServiceRequestForm({
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [showMap, setShowMap] = useState(false)
+  // Rua/número/cidade estruturados (não só o address_label solto) --
+  // vem do reverse geocoding do LocationPicker, ou digitado manualmente
+  // quando o número não veio.
+  const [addressStreet, setAddressStreet] = useState<string | undefined>()
+  const [addressNumber, setAddressNumber] = useState<string | undefined>()
+  const [addressCity, setAddressCity] = useState<string | undefined>()
   const [location, setLocation] = useState<LocationPickerResult | null>(null)
   const [gettingLocation, setGettingLocation] = useState(false)
   const [gpsPosition, setGpsPosition] = useState<{ lat: number; lng: number } | null>(null)
@@ -224,6 +230,9 @@ export default function ServiceRequestForm({
     setValue('address_lng', result.lng)
     setValue('address_label', result.label)
     setValue('address_bairro', result.bairro)
+    setAddressStreet(result.rua)
+    setAddressNumber(result.numero)
+    setAddressCity(result.cidade)
     setShowMap(false)
   }, [setValue])
 
@@ -316,13 +325,15 @@ export default function ServiceRequestForm({
           address_lat:          data.self_pickup ? null : (data.address_lat ?? null),
           address_lng:          data.self_pickup ? null : (data.address_lng ?? null),
           address_label:        data.self_pickup ? null : (data.address_label ?? null),
+          address_street:       data.self_pickup ? null : (addressStreet ?? null),
+          address_number:       data.self_pickup ? null : (addressNumber ?? null),
           address_neighborhood: data.self_pickup ? null : (data.address_bairro ?? null),
-          address_city:         data.self_pickup ? null : 'João Pessoa',
+          address_city:         data.self_pickup ? null : (addressCity ?? 'João Pessoa'),
           address_state:        data.self_pickup ? null : 'PB',
           shipping_price:       shippingPrice,
           image_url,
-          // status não vai no payload -- a API decide sozinha a partir de
-          // self_pickup (nasce direto em coleta/deslocamento, nunca "pendente").
+          // status não vai no payload -- a API decide sozinha (nasce em
+          // "pending", balde "Solicitação nova" no painel).
           quote_value:          null,
           owner_notes:          null,
         }),

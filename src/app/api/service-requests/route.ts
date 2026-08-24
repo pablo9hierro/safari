@@ -19,6 +19,8 @@ export async function POST(req: NextRequest) {
     address_lat:          body.address_lat ?? null,
     address_lng:          body.address_lng ?? null,
     address_label:        body.address_label ?? null,
+    address_street:       body.address_street ?? null,
+    address_number:       body.address_number ?? null,
     address_neighborhood: body.address_neighborhood ?? null,
     address_city:         body.address_city ?? null,
     address_state:        body.address_state ?? null,

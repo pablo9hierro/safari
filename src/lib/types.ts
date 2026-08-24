@@ -36,6 +36,8 @@ export interface ServiceRequest {
   address_city?: string | null
   address_state?: string | null
   address_label?: string | null
+  address_lat?: number | null
+  address_lng?: number | null
   shipping_price?: number | null
   self_pickup?: boolean
   status: ServiceStatus

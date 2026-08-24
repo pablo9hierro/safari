@@ -16,6 +16,9 @@ export interface LocationPickerResult {
   lng: number
   label: string
   bairro?: string
+  rua?: string
+  numero?: string
+  cidade?: string
 }
 
 interface LocationPickerProps {
@@ -88,6 +91,13 @@ export default function LocationPicker({ initial, onClose, onConfirm }: Location
   const [pos, setPos] = useState<Ponto>(initial ?? FALLBACK)
   const [label, setLabel] = useState(initial?.label ?? 'Localizando…')
   const [bairro, setBairro] = useState<string | undefined>(initial?.bairro)
+  const [rua, setRua] = useState<string | undefined>()
+  const [numero, setNumero] = useState<string | undefined>()
+  const [cidade, setCidade] = useState<string | undefined>()
+  // Preenchido manualmente pelo cliente quando o OpenStreetMap não tem o
+  // número da casa cadastrado (endereço rural, condomínio novo, etc.) --
+  // opcional, mas evita a entrega/coleta chegar sem número nenhum.
+  const [numeroManual, setNumeroManual] = useState('')
   const [moving, setMoving] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [tilesFailing, setTilesFailing] = useState(false)
@@ -155,21 +165,29 @@ export default function LocationPicker({ initial, onClose, onConfirm }: Location
     let cancelled = false
     ;(async () => {
       const addr = await enderecoDe(ajusteCentro)
-      if (!cancelled) { setLabel(addr.label); setBairro(addr.bairro) }
+      if (!cancelled) {
+        setLabel(addr.label); setBairro(addr.bairro)
+        setRua(addr.rua); setNumero(addr.numero); setCidade(addr.cidade)
+        setNumeroManual('')
+      }
     })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, ajusteCentro])
 
-  function abrirAjuste(centro: Ponto, addr?: { label?: string; bairro?: string }) {
+  function abrirAjuste(centro: Ponto, addr?: { label?: string; bairro?: string; rua?: string; numero?: string; cidade?: string }) {
     setAjusteCentro(centro); setPos(centro)
     setLabel(addr?.label ?? 'Localizando…'); setBairro(addr?.bairro)
+    setRua(addr?.rua); setNumero(addr?.numero); setCidade(addr?.cidade)
+    setNumeroManual('')
     setStep('ajuste')
   }
 
   function selecionarResultadoLabel(r: EnderecoResultado) {
     setLabelEditing(false); setLabelQuery(''); setLabelResults([])
     setAjusteCentro(r); setPos(r); setLabel(r.titulo); setBairro(r.bairro)
+    setRua(r.rua); setNumero(r.numero); setCidade(r.cidade)
+    setNumeroManual('')
   }
 
   async function usarLocalizacaoAtual() {
@@ -197,12 +215,19 @@ export default function LocationPicker({ initial, onClose, onConfirm }: Location
       const addr = await enderecoDe(c)
       if (id !== moveSeq.current) return
       setLabel(addr.label); setBairro(addr.bairro)
+      setRua(addr.rua); setNumero(addr.numero); setCidade(addr.cidade)
+      setNumeroManual('')
     }, 400)
   }
 
   async function confirmar() {
     setErrorMsg(null); setConfirming(true)
-    try { onConfirm({ lat: pos.lat, lng: pos.lng, label, bairro }) }
+    try {
+      onConfirm({
+        lat: pos.lat, lng: pos.lng, label, bairro, rua, cidade,
+        numero: numero || numeroManual.trim() || undefined,
+      })
+    }
     finally { setConfirming(false) }
   }
 
@@ -256,7 +281,7 @@ export default function LocationPicker({ initial, onClose, onConfirm }: Location
               <button
                 key={i}
                 type="button"
-                onClick={() => abrirAjuste(r, { label: r.titulo, bairro: r.bairro })}
+                onClick={() => abrirAjuste(r, { label: r.titulo, bairro: r.bairro, rua: r.rua, numero: r.numero, cidade: r.cidade })}
                 className="w-full flex items-center gap-3 px-4 py-3 border-b border-white/5 text-left hover:bg-white/5 transition-colors"
               >
                 <MapPin className="w-4 h-4 text-vr-silver/50 flex-none" />
@@ -359,6 +384,21 @@ export default function LocationPicker({ initial, onClose, onConfirm }: Location
           </div>
 
           <div className="relative border-t border-white/10 px-4 py-4 space-y-3" style={{ background: '#0a0a0a' }}>
+            {/* O OSM às vezes não tem o número da casa cadastrado -- pede
+                como campo opcional em vez de deixar a coleta/entrega sem
+                número nenhum. */}
+            {!numero && !moving && (
+              <div>
+                <label className="block text-xs text-vr-silver/60 mb-1">Número (opcional, se o mapa não achou)</label>
+                <input
+                  value={numeroManual}
+                  onChange={(e) => setNumeroManual(e.target.value)}
+                  placeholder="Ex: 123"
+                  inputMode="numeric"
+                  className="w-full bg-vr-graphite border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-vr-silver/40 outline-none focus:border-vr-red/60"
+                />
+              </div>
+            )}
             {errorMsg && <p className="text-red-400 text-xs">{errorMsg}</p>}
             <button
               onClick={confirmar}

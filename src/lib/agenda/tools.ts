@@ -58,7 +58,7 @@ export const AGENDA_TOOLS: ToolDef[] = [
     name: 'criar_agendamento',
     description:
       'Cria o agendamento E o atendimento do cliente na loja (é esta tool que abre um atendimento novo -- use pra QUALQUER cliente que ainda não tem um atendimento em andamento, mesmo que ele não saiba o que há de errado com o aparelho). Todo serviço de assistência técnica EXIGE agendamento, inclusive quando o cliente quer ser atendido agora — nesse caso, ofereça o primeiro horário livre. O tempo que o agendamento ocupa vem da duração cadastrada do serviço (coleta + manutenção + entrega). ' +
-      'OBRIGATÓRIO perguntar ANTES de agendar: o cliente quer que a loja busque o aparelho (coleta) ou ele mesmo vai levar até a loja? Preencha "coleta" com a resposta. ' +
+      'OBRIGATÓRIO perguntar ANTES de agendar: o cliente quer que a loja busque o aparelho (coleta) ou ele mesmo vai levar até a loja? Preencha "coleta" com a resposta. Quando coleta=true, é OBRIGATÓRIO ter a localização exata do cliente (peça pra ele mandar a localização pelo WhatsApp -- você recebe latitude/longitude reais na mensagem) ANTES de chamar esta tool, e preencher endereco_lat/endereco_lng com esses valores exatos, nunca inventados. Junto com a localização, pergunte também (numa mesma mensagem, como algo opcional) se tem número da casa/apê pra completar o endereço, e preencha endereco_numero se ele responder — sem isso o sistema tenta achar o número sozinho, mas nem sempre consegue. ' +
       'DIAGNÓSTICO: se o cliente descreve o problema de forma vaga/genérica (ex: "não liga", "parou de funcionar", "deu problema") e buscar_servicos não retornou nenhum serviço com confiança real pro sintoma dele (confira também as tags ocultas dos serviços/produtos por palavras-chave da descrição do cliente), NÃO force ele a escolher um serviço do catálogo -- explique que é preciso um diagnóstico técnico pra saber o que é e definir o preço certo, marque "diagnostico" como true, e chame buscar_servicos("diagnóstico") pra saber se a loja cobra o diagnóstico ou não e informar isso ao cliente antes de agendar. Em qualquer caso (diagnóstico ou serviço já identificado), deixe claro que o pagamento total (serviço + deslocamento, quando houver) só acontece na conclusão do reparo, nunca antes. ' +
       'Só chame depois de o cliente confirmar dia e horário. O backend revalida a disponibilidade e recusa se o horário já tiver sido ocupado.',
     parameters: {
@@ -73,6 +73,9 @@ export const AGENDA_TOOLS: ToolDef[] = [
         observacoes: { type: 'string', description: 'Observações relevantes (defeito relatado, etc).' },
         coleta: { type: 'boolean', description: 'true = a loja busca o aparelho no endereço do cliente. false = o cliente mesmo leva até a loja. Pergunte sempre antes de agendar.' },
         diagnostico: { type: 'boolean', description: 'true quando o cliente não sabe o que há de errado e o serviço exato ainda não foi identificado -- vira um atendimento de diagnóstico em vez de um reparo já definido.' },
+        endereco_lat: { type: 'number', description: 'Latitude EXATA da localização que o cliente mandou pelo WhatsApp (mensagem de localização) -- OBRIGATÓRIO quando coleta=true. Nunca invente coordenada.' },
+        endereco_lng: { type: 'number', description: 'Longitude EXATA da localização que o cliente mandou pelo WhatsApp -- OBRIGATÓRIO quando coleta=true.' },
+        endereco_numero: { type: 'string', description: 'Número da casa/apartamento, só quando o cliente informar (pergunte se a resposta desta tool disser "SEM NÚMERO" depois de mandar a localização).' },
       },
       required: ['cliente_nome', 'cliente_telefone', 'data', 'horario', 'coleta'],
     },
@@ -222,6 +225,9 @@ async function criarAgendamento(input: {
   observacoes?: string
   coleta?: boolean
   diagnostico?: boolean
+  endereco_lat?: number
+  endereco_lng?: number
+  endereco_numero?: string
 }): Promise<string> {
   const dateKey = resolveDateKey(input.data)
   if (!dateKey) return 'FALHOU (validation): informe a data como "hoje", "amanhã" ou dd/mm/aaaa.'
@@ -229,12 +235,43 @@ async function criarAgendamento(input: {
   if (!dias.some((d) => d.key === dateKey)) {
     return `FALHOU (validation): a loja só agenda para hoje (${dateKeyToBr(dias[0].key)}) ou amanhã (${dateKeyToBr(dias[1].key)}).`
   }
+  const coleta = input.coleta === true
+  if (coleta && (input.endereco_lat == null || input.endereco_lng == null)) {
+    return 'FALHOU (validation): peça pro cliente mandar a localização pelo WhatsApp e chame de novo com endereco_lat/endereco_lng.'
+  }
 
   const startsAt = parseStoreDateTime(dateKey, input.horario)
   // Diagnóstico: serviço ainda não identificado -- "Diagnóstico" cobre o
   // caso de o modelo não ter mandado servico_nome mesmo com diagnostico=true.
   const fallbackLabel = input.diagnostico ? (input.servico_nome ?? 'Diagnóstico') : input.servico_nome ?? null
   const service = await resolveService(input.servico_id ?? null, fallbackLabel, undefined)
+
+  // Endereço real do cliente -- reverse geocoding server-side a partir das
+  // coordenadas exatas que a conversa recebeu (nunca inventadas). Falha de
+  // rede aqui não pode travar o agendamento: cai pra endereço "cru" (só
+  // lat/lng), o lojista ainda consegue abrir no mapa.
+  type AddressFields = Partial<{
+    address_lat: number; address_lng: number; address_label: string
+    address_street: string; address_number: string; address_neighborhood: string; address_city: string
+  }>
+  let addressFields: AddressFields = {}
+  let semNumero = false
+  if (coleta) {
+    const { enderecoDe } = await import('@/lib/mapa/geocodificacao')
+    const addr = await enderecoDe({ lat: input.endereco_lat!, lng: input.endereco_lng! }).catch(() => null)
+    const numero = input.endereco_numero || addr?.numero
+    semNumero = !numero
+    addressFields = {
+      address_lat: input.endereco_lat,
+      address_lng: input.endereco_lng,
+      address_label: addr?.label ?? 'Local no mapa',
+      address_street: addr?.rua,
+      address_number: numero,
+      address_neighborhood: addr?.bairro,
+      address_city: addr?.cidade,
+    }
+  }
+
   const serviceRequestId = await ensureServiceRequestForAppointment({
     customer_name: input.cliente_nome,
     customer_phone: input.cliente_telefone,
@@ -243,6 +280,7 @@ async function criarAgendamento(input: {
     source: 'whatsapp_ai',
     self_pickup: input.coleta === false,
     diagnosis_requested: !!input.diagnostico,
+    ...addressFields,
   })
   const appointment = await createAppointment({
     service_id: input.servico_id ?? null,
@@ -255,7 +293,8 @@ async function criarAgendamento(input: {
     service_request_id: serviceRequestId,
   })
   await notifyAppointmentCreated(appointment)
-  return `AGENDAMENTO CONFIRMADO: ${appointment.service_label} em ${formatStoreDateTime(appointment.starts_at)} (até ${formatStoreTime(appointment.ends_at)}) para ${appointment.customer_name}. ID: ${appointment.id}`
+  const numeroAviso = coleta && semNumero ? ' SEM NÚMERO no endereço -- pergunte ao cliente (opcional).' : ''
+  return `AGENDAMENTO CONFIRMADO: ${appointment.service_label} em ${formatStoreDateTime(appointment.starts_at)} (até ${formatStoreTime(appointment.ends_at)}) para ${appointment.customer_name}. ID: ${appointment.id}.${numeroAviso}`
 }
 
 async function consultarAgendamento(input: {
@@ -325,6 +364,9 @@ export async function executeAgendaTool(
           observacoes: input.observacoes ? String(input.observacoes) : undefined,
           coleta: typeof input.coleta === 'boolean' ? input.coleta : undefined,
           diagnostico: typeof input.diagnostico === 'boolean' ? input.diagnostico : undefined,
+          endereco_lat: typeof input.endereco_lat === 'number' ? input.endereco_lat : undefined,
+          endereco_lng: typeof input.endereco_lng === 'number' ? input.endereco_lng : undefined,
+          endereco_numero: input.endereco_numero ? String(input.endereco_numero) : undefined,
         })
       case 'consultar_agendamento':
         return await consultarAgendamento({
