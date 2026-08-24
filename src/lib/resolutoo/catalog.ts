@@ -109,7 +109,9 @@ export type CatalogCategory = {
 export type CatalogItem = {
   id: string
   category_id: string
-  model_name: string
+  /** null = serviço universal da marca -- vale pra qualquer modelo, ver
+   * agrupamento em CatalogoClient. */
+  model_name: string | null
   repair_type: string
   price: number
   description: string | null
@@ -127,47 +129,54 @@ function slugify(s: string) {
     .replace(/(^-|-$)/g, '')
 }
 
+/**
+ * Catálogo de SERVIÇOS (reparo) vem do Supabase do próprio vrtech
+ * (service_catalog_categories/service_catalog_items) -- é o admin em
+ * /dashboard/catalogo que escreve ali, e é dessa mesma fonte que o wizard
+ * de orçamento (ServiceRequestForm) já lê ao vivo (via client, RLS anon).
+ * Achado real: esta função lia do ecommerce-api (motor de PRODUTOS, outra
+ * base), que nunca teve dado de serviço pra nenhum tenant -- catálogo
+ * público sempre vinha vazio ("catálogo em construção") mesmo com o
+ * lojista tendo cadastrado dezenas de serviços reais no dashboard.
+ */
 export async function fetchServiceCatalog(): Promise<{ categories: CatalogCategory[]; items: CatalogItem[] }> {
-  let rawCategories: CatalogCategoryApi[] = []
-  let rawServices: EcommerceServiceDto[] = []
+  const { createServiceClient } = await import('@/lib/supabase/service')
+  type RawCategory = { id: string; name: string; slug: string; sort_order: number; image_url: string | null }
+  type RawItem = {
+    id: string; category_id: string; model_name: string | null; repair_type: string
+    price: number; description: string | null; sort_order: number; active: boolean; tags?: string[]
+  }
+  let rawCategories: RawCategory[] = []
+  let rawItems: RawItem[] = []
   try {
-    const [categoriesRes, servicesRes] = await Promise.all([
-      fetch(`${ECOMMERCE_API_URL}/api/public/catalog/${TENANT_SLUG}/categories`, {
-        next: { revalidate: 30 },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      }),
-      fetch(`${ECOMMERCE_API_URL}/api/public/catalog/${TENANT_SLUG}/services`, {
-        next: { revalidate: 30 },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      }),
+    const supabase = createServiceClient()
+    const [{ data: cats }, { data: svcItems }] = await Promise.all([
+      supabase.from('service_catalog_categories').select('*').order('sort_order'),
+      supabase.from('service_catalog_items').select('*').eq('active', true).order('sort_order'),
     ])
-    rawCategories = categoriesRes.ok ? await categoriesRes.json() : []
-    rawServices = servicesRes.ok ? await servicesRes.json() : []
+    rawCategories = (cats ?? []) as RawCategory[]
+    rawItems = (svcItems ?? []) as RawItem[]
   } catch {
-    // Timeout ou API fora do ar -- cai pro fallback vazio (página mostra
-    // "catálogo em construção") em vez de travar o carregamento da página.
+    // Falha de conexão -- cai pro fallback vazio (página mostra "catálogo
+    // em construção") em vez de travar o carregamento da página.
   }
 
-  // Categoria = marca do aparelho — só entram categorias que realmente têm
-  // algum serviço com model_name/repair_type preenchido (catálogo de reparo).
-  const categoryIdByName = new Map(rawCategories.map((c) => [c.name, c.id] as const))
+  // Só entram categorias que realmente têm algum serviço ativo cadastrado.
   const categories: CatalogCategory[] = rawCategories
-    .filter((c) => rawServices.some((s) => s.category_name === c.name && s.model_name && s.repair_type))
-    .map((c, i) => ({ id: c.id, name: c.name, slug: slugify(c.name), sort_order: i, image_url: null }))
+    .filter((c) => rawItems.some((i) => i.category_id === c.id))
+    .map((c) => ({ id: c.id, name: c.name, slug: c.slug, sort_order: c.sort_order, image_url: c.image_url }))
 
-  const items: CatalogItem[] = rawServices
-    .filter((s) => s.model_name && s.repair_type && s.category_name)
-    .map((s, i) => ({
-      id: s.id,
-      category_id: categoryIdByName.get(s.category_name!) ?? '',
-      model_name: s.model_name!,
-      repair_type: s.repair_type!,
-      price: s.price,
-      description: s.description || null,
-      image_url: null,
-      sort_order: i,
-      tags: s.tags,
-    }))
+  const items: CatalogItem[] = rawItems.map((i) => ({
+    id: i.id,
+    category_id: i.category_id,
+    model_name: i.model_name,
+    repair_type: i.repair_type,
+    price: i.price,
+    description: i.description,
+    image_url: null,
+    sort_order: i.sort_order,
+    tags: i.tags,
+  }))
 
   return { categories, items }
 }
