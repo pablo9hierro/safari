@@ -16,10 +16,13 @@ import {
   MessageCircle,
   Loader2,
   AlertCircle,
+  Plus,
 } from 'lucide-react'
 import RequestDetailModal from '@/components/RequestDetailModal'
+import NovoServicoDialog from '@/components/dashboard/NovoServicoDialog'
 import { fetchOrders, AdminAuthError, type Order } from '@/lib/resolutoo/adminApi'
 import { adminAwareHref } from '@/lib/storeProxyLink'
+import { createClient } from '@/lib/supabase/client'
 
 const PAYMENT_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   pendente: { label: 'Pagamento pendente', color: 'text-yellow-700', bg: 'bg-yellow-100' },
@@ -191,6 +194,13 @@ export default function DashboardClient({
   const [requests, setRequests] = useState<ServiceRequest[]>(initialRequests)
   const [groupFilter, setGroupFilter] = useState<StatusGroup>('novas')
   const [selected, setSelected] = useState<ServiceRequest | null>(null)
+  const [novoServicoOpen, setNovoServicoOpen] = useState(false)
+
+  const reloadRequests = async () => {
+    const supabase = createClient()
+    const { data } = await supabase.from('service_requests').select('*').order('created_at', { ascending: false })
+    setRequests((data as ServiceRequest[]) ?? [])
+  }
 
   // apenasRetirada não precisa mais filtrar baldes -- em_deslocamento (que
   // engloba em_busca) e retiradas (que engloba em_entrega) nunca são
@@ -213,7 +223,24 @@ export default function DashboardClient({
   return (
     <>
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-        <h1 className="text-lg font-bold text-white">Solicitações</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-lg font-bold text-white">Solicitações</h1>
+          <button
+            onClick={() => setNovoServicoOpen(true)}
+            className="shrink-0 flex items-center gap-1.5 bg-vr-red hover:bg-vr-red/90 text-white
+              text-sm font-medium px-3.5 py-2 rounded-xl transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Registrar serviço
+          </button>
+        </div>
+
+        {novoServicoOpen && (
+          <NovoServicoDialog
+            onClose={() => setNovoServicoOpen(false)}
+            onDone={() => { setNovoServicoOpen(false); reloadRequests() }}
+          />
+        )}
 
         {/* Solicitações (assistência técnica) x Pedidos (compras da vitrine) — entidades
             diferentes, então ficam em abas em vez de misturadas numa lista só, mas
