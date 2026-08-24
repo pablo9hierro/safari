@@ -1,13 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-function makeClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { db: { schema: 'vrtech' } }
-  )
-}
+import { createServiceClient as makeClient } from '@/lib/supabase/service'
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null)

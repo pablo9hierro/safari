@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient as makeClient } from '@/lib/supabase/service'
 import { deliverReliable } from '@/lib/queue/whatsappQueue'
 import { ownerNewRequestMessage, pendingCustomerMessage, STATUS_MESSAGES, OrderSummary } from '@/lib/whatsapp/messages'
 import { ServiceRequest, ServiceStatus } from '@/lib/types'
@@ -44,14 +44,6 @@ function requestVars(req: ServiceRequest, order: OrderSummary): TemplateVars {
       ? `${Math.max(1, Math.round((new Date(req.busy_until).getTime() - Date.now()) / 60_000))} minutos`
       : '',
   }
-}
-
-function makeClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { db: { schema: 'vrtech' } }
-  )
 }
 
 export async function POST(req: NextRequest) {

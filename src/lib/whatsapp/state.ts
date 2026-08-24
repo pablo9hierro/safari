@@ -1,12 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
-
-function makeClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { db: { schema: 'vrtech' } }
-  )
-}
+import { createServiceClient as makeClient } from '@/lib/supabase/service'
 
 // qrCode === undefined -> preserva o QR já salvo (não sobrescreve).
 // qrCode === null ou string -> atualiza explicitamente (limpa ou define um novo QR).

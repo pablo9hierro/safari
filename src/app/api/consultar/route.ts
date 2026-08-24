@@ -1,15 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient as makeClient } from '@/lib/supabase/service'
 
 const SELECT_COLS = 'id, created_at, phone_model, problem_description, address_cep, address_number, address_street, address_neighborhood, address_city, status, quote_value, owner_notes'
-
-function makeClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { db: { schema: 'vrtech' } }
-  )
-}
 
 export async function GET(req: NextRequest) {
   const phone = req.nextUrl.searchParams.get('phone')

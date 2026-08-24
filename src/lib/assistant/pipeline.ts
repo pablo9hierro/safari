@@ -244,6 +244,25 @@ function enforcePaymentSplit(reply: string, toolCalls: ToolCallRecord[]): string
   return `${aviso}${MSG_SPLIT_MARKER}${code}`
 }
 
+// A instrução no prompt pra sempre mandar o link de acompanhamento nem
+// sempre é seguida (modelo é texto gerado, não garantido) -- reforça aqui
+// de forma mecânica: se um pedido/agendamento foi fechado com sucesso
+// nesta interação e a resposta final não menciona o link, anexa como
+// mensagem separada. Roda DEPOIS de enforcePaymentSplit pra não interferir
+// na separação do código Pix.
+function enforceTrackingLink(reply: string, toolCalls: ToolCallRecord[], phone?: string): string {
+  if (!phone) return reply
+  const closed = toolCalls.some(
+    (t) =>
+      (t.tool === 'criar_pedido_e_gerar_cobranca' || t.tool === 'criar_agendamento') &&
+      t.output.includes(t.tool === 'criar_pedido_e_gerar_cobranca' ? 'PEDIDO CRIADO' : 'AGENDAMENTO CONFIRMADO'),
+  )
+  if (!closed) return reply
+  if (reply.includes('/consultar')) return reply
+  const link = PUBLIC_CONSULTAR_URL(phone)
+  return `${reply}${MSG_SPLIT_MARKER}Acompanhe por aqui: ${link}`
+}
+
 export type PipelineResult = {
   reply: string
   interpreterOutput: InterpreterOutput
@@ -258,8 +277,9 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   const interpreterOutput = await runInterpreter(config, userMessage)
   const { reply, toolCalls } = await runResponder(config, history, userMessage, interpreterOutput, conversationPhone)
+  const withPayment = enforcePaymentSplit(reply || 'Desculpe, não consegui processar sua mensagem agora.', toolCalls)
   return {
-    reply: enforcePaymentSplit(reply || 'Desculpe, não consegui processar sua mensagem agora.', toolCalls),
+    reply: enforceTrackingLink(withPayment, toolCalls, conversationPhone),
     interpreterOutput,
     toolCalls,
   }
