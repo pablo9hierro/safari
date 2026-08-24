@@ -2,7 +2,7 @@ import { completeSimple, completeWithTools } from './aiClient'
 import { resolveTools, executeTool, consultarAtendimentoEmAndamento } from './tools'
 import { AGENDA_TOOL_NAMES } from '@/lib/agenda/tools'
 import { fetchPaymentOnDeliveryEnabledServer, fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
-import { SITE_URL } from '@/lib/constants'
+import { SITE_URL, STORE_ADDRESS } from '@/lib/constants'
 import type { AssistantConfig } from './types'
 import type { ToolCallRecord } from './aiClient'
 
@@ -199,6 +199,11 @@ async function runResponder(
       : 'Você é o atendimento via WhatsApp. Seja direto, simpático e técnico quando necessário.',
     `Intenção detectada: ${JSON.stringify(interpreterOutput)}`,
     `Data e hora de agora: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (use como referência para "hoje", "amanhã", "agora").`,
+    conversationPhone
+      ? `Telefone desta conversa (WhatsApp real do cliente, já confirmado pelo sistema): ${conversationPhone}. Use ESSE valor sempre que uma tool pedir cliente_telefone/telefone — NUNCA peça o número de novo nem invente um placeholder, a menos que o cliente diga explicitamente que quer usar outro número (aí use o que ele informou).`
+      : null,
+    `Endereço da loja (informe ao cliente quando ele escolher RETIRAR em vez de entrega/coleta): ${STORE_ADDRESS.street}, ${STORE_ADDRESS.neighborhood}, ${STORE_ADDRESS.city}. Mapa: ${STORE_ADDRESS.mapsUrl}`,
+    '- Quando o cliente enviar uma localização pelo WhatsApp (mensagem de localização, não texto), você recebe as coordenadas reais (latitude/longitude) já extraídas dessa mensagem — use esses valores exatos em endereco_lat/endereco_lng de criar_pedido_e_gerar_cobranca. Nunca invente coordenadas.',
     'Use as ferramentas necessárias pra buscar dados reais antes de responder. Sua última mensagem de texto vai direto pro cliente.',
   ].filter(Boolean).join('\n\n')
 

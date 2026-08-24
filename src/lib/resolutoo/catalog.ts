@@ -63,6 +63,25 @@ export async function fetchPublicProducts(): Promise<Product[]> {
   }
 }
 
+/** Produto único por ID -- mesma fonte de fetchPublicProducts (ecommerce-api),
+ * usado por /loja/[id]. Os IDs que a listagem/vitrine/IA usam são desse
+ * catálogo, não do Supabase do vrtech -- ver decisão de arquitetura em
+ * assistantOrder.ts. */
+export async function fetchPublicProduct(id: string): Promise<Product | null> {
+  try {
+    const res = await fetch(`${ECOMMERCE_API_URL}/api/public/catalog/${TENANT_SLUG}/products/${id}`, {
+      next: { revalidate: 30 },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })
+    if (!res.ok) return null
+    const data: EcommerceProductDto = await res.json()
+    if (!data.active) return null
+    return toProduct(data)
+  } catch {
+    return null
+  }
+}
+
 // ─── Catálogo de serviços (reparo) ──────────────────────────────────────
 
 export type CatalogCategoryApi = { id: string; name: string }

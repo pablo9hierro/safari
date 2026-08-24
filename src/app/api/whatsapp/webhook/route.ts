@@ -63,11 +63,18 @@ export async function POST(req: NextRequest) {
       if (remoteJid.endsWith('@g.us')) continue
       if (msg?.key?.fromMe) continue
 
+      // Mensagem de localização (Baileys/Evolution API): sem texto nenhum,
+      // vem em locationMessage com lat/lng reais -- converte pra um texto
+      // estruturado que a IA sabe extrair (ver instrução em pipeline.ts),
+      // em vez de um tipo de mensagem à parte que o pipeline não entende.
+      const location = msg?.message?.locationMessage
       const text: string =
         msg?.message?.conversation ??
         msg?.message?.extendedTextMessage?.text ??
         msg?.message?.imageMessage?.caption ??
-        ''
+        (location?.degreesLatitude != null && location?.degreesLongitude != null
+          ? `[localização recebida] latitude: ${location.degreesLatitude}, longitude: ${location.degreesLongitude}`
+          : '')
       if (!text.trim()) continue
 
       const phone = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '')

@@ -30,6 +30,7 @@ export async function createAssistantOrderServer(input: {
   customer_name: string
   customer_whatsapp: string
   items: { product_id: string; quantity: number }[]
+  shipping_price?: number
 }): Promise<OrderDto> {
   const res = await fetch(`${ECOMMERCE_API_URL}/api/public/catalog/${TENANT_SLUG}/assistant-order`, {
     method: 'POST',
@@ -40,11 +41,28 @@ export async function createAssistantOrderServer(input: {
       customer_whatsapp: input.customer_whatsapp,
       items: input.items,
       payment_method: 'pix',
+      shipping_price: input.shipping_price && input.shipping_price > 0 ? input.shipping_price : undefined,
     }),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw new Error(body?.message ?? `Erro ao criar pedido (${res.status}).`)
+  }
+  return res.json()
+}
+
+export type EstimateDeliveryResult = { km: number; price: number; within_range: boolean }
+
+export async function estimateDeliveryServer(lat: number, lng: number): Promise<EstimateDeliveryResult> {
+  const res = await fetch(`${ECOMMERCE_API_URL}/api/public/catalog/${TENANT_SLUG}/estimate-delivery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(10_000),
+    body: JSON.stringify({ lat, lng }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.message ?? 'Não foi possível calcular o valor da entrega.')
   }
   return res.json()
 }

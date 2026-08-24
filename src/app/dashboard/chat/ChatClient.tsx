@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MessageCircle, Send, Loader2, Bot, UserCog, FlaskConical, Plus } from 'lucide-react'
+import { MessageCircle, Send, Loader2, Bot, UserCog, FlaskConical, Plus, MapPin } from 'lucide-react'
 import { apiPath } from '@/lib/storeProxyLink'
 import { createClient } from '@/lib/supabase/client'
 import Dialog from '@/components/ui/Dialog'
@@ -134,8 +134,14 @@ export default function ChatClient() {
     typingTimeoutRef.current = setTimeout(() => notifyTyping(false), 4000)
   }
 
-  const send = async () => {
-    const content = draft.trim()
+  // Coordenadas reais da loja (Rua Aposentado Cláudio de Santana, 37 --
+  // mesmas usadas em servicodeslocamento/store_lat|lng) -- botão de teste
+  // pra simular o cliente mandando localização pelo WhatsApp sem precisar
+  // de um celular de verdade pra isso.
+  const sendTestLocation = () => send('[localização recebida] latitude: -7.1195, longitude: -34.845')
+
+  const send = async (override?: string) => {
+    const content = override ?? draft.trim()
     if (!content || !activeId || !active) return
     setSending(true)
     setError(null)
@@ -355,8 +361,18 @@ export default function ChatClient() {
                 placeholder={active?.is_test ? 'Digite como se fosse o cliente...' : 'Escreva uma mensagem...'}
                 className="flex-1 px-3.5 py-2.5 rounded-xl bg-vr-black border border-white/8 text-white text-sm placeholder-vr-silver/30 outline-none focus:border-vr-red/50 transition-colors"
               />
+              {active?.is_test && (
+                <button
+                  onClick={sendTestLocation}
+                  disabled={sending}
+                  title="Simula o cliente enviando a localização da loja pelo WhatsApp"
+                  className="p-2.5 rounded-xl bg-vr-graphite border border-white/10 text-vr-silver/70 hover:text-white hover:border-vr-red/40 disabled:opacity-40 transition-colors"
+                >
+                  <MapPin className="w-4 h-4" />
+                </button>
+              )}
               <button
-                onClick={send}
+                onClick={() => send()}
                 disabled={sending || !draft.trim()}
                 className="p-2.5 rounded-xl bg-vr-red text-white hover:bg-vr-red/90 disabled:opacity-40 transition-colors"
               >

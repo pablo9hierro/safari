@@ -4,12 +4,15 @@ import { AGENDA_TOOLS, agendaToolsEnabled, executeAgendaTool } from '@/lib/agend
 import { SERVICE_TOOLS, DEVICE_TOOLS, executeServiceTool } from '@/lib/serviceLifecycle/tools'
 import { fetchApenasRetiradaServer } from '@/lib/resolutoo/platformConfig'
 import { fetchPublicProducts } from '@/lib/resolutoo/catalog'
-import { createAssistantOrderServer, createPixPaymentServer } from '@/lib/resolutoo/assistantOrder'
+import { createAssistantOrderServer, createPixPaymentServer, estimateDeliveryServer } from '@/lib/resolutoo/assistantOrder'
+import { SITE_URL } from '@/lib/constants'
 
 export const TOOLS: ToolDef[] = [
   {
     name: 'buscar_produtos',
-    description: 'Busca produtos da loja por nome, categoria ou descrição. Retorna id, nome, preço, descrição e disponibilidade.',
+    description:
+      'Busca produtos da loja por nome, categoria ou descrição. Retorna id, nome, preço, descrição, link da página do produto na vitrine e disponibilidade. ' +
+      'Se houver mais de uma opção compatível, apresente PELO MENOS 2 ao cliente (não só a primeira) — um nome + link por linha — e diga que ele pode finalizar a compra no site (usando o link) ou ali mesmo na conversa com você.',
     parameters: {
       type: 'object',
       properties: { query: { type: 'string', description: 'Termo de busca (ex: "capinha iPhone 12", "carregador", "fone")' } },
@@ -28,7 +31,12 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'criar_pedido_e_gerar_cobranca',
     description:
-      'Fecha a compra de produto(s) — cria o pedido de verdade (visível pro lojista) e, se o cliente quiser pagar agora, gera a cobrança Pix real. Cria um pedido REAL, com valor real — NUNCA chame mais de uma vez pros mesmos itens na mesma conversa (isso duplicaria o pedido e cobraria em dobro). Se você já chamou esta tool nesta conversa e ela retornou "PEDIDO CRIADO" com um ID, o pedido já existe — não chame de novo, só confirme o que já foi feito (reenvie o código Pix se o cliente pedir de novo, não gere um pedido novo). Só chame depois do cliente confirmar exatamente quais produtos e quantidades ele quer, e ter dado nome. O pedido de assistente sempre nasce como RETIRADA na loja (o atendimento por WhatsApp ainda não agenda entrega de produto). Se pagar_agora=true, o retorno inclui o código Pix copia-e-cola real na última linha — repasse esse código pro cliente exatamente como veio, sem reescrever. Se pagar_agora=false, o pedido fica pendente pra pagamento no ato da retirada (só ofereça essa opção se as regras de pagamento permitirem).',
+      'Fecha a compra de produto(s) — cria o pedido de verdade (visível pro lojista) e, se o cliente quiser pagar agora, gera a cobrança Pix real. Cria um pedido REAL, com valor real — NUNCA chame mais de uma vez pros mesmos itens na mesma conversa (isso duplicaria o pedido e cobraria em dobro). Se você já chamou esta tool nesta conversa e ela retornou "PEDIDO CRIADO" com um ID, o pedido já existe — não chame de novo, só confirme o que já foi feito (reenvie o código Pix se o cliente pedir de novo, não gere um pedido novo). ' +
+      'ANTES de chamar: peça, numa mensagem só, nome e sobrenome do cliente e confirme que pode usar o WhatsApp desta conversa pro pedido (não precisa nome completo/documento, só nome e sobrenome mesmo). Depois pergunte se ele quer RETIRAR na loja ou receber por ENTREGA. ' +
+      'Se for retirada (entrega=false): não precisa de localização, chame direto. ' +
+      'Se for entrega (entrega=true): peça pro cliente enviar a localização pelo próprio WhatsApp (o botão de localização/localização atual) — só chame esta tool depois de já ter latitude/longitude reais extraídos da localização recebida (endereco_lat/endereco_lng). Esta tool calcula o valor da entrega automaticamente pela localização — nunca invente esse valor. Se a tool retornar que o endereço está fora da área de entrega, ofereça retirada em vez disso. Depois de calcular a entrega, pergunte se o cliente quer pagar agora ou pagar na entrega, antes de gerar a cobrança. ' +
+      'Se o cliente mudar de ideia no meio do fluxo (ex: pediu entrega mas depois disse que prefere retirar, ou vice-versa), siga a intenção mais recente dele, não a antiga. ' +
+      'Se pagar_agora=true, o retorno inclui o código Pix copia-e-cola real na última linha — repasse esse código pro cliente exatamente como veio, sem reescrever. Se pagar_agora=false, o pedido fica pendente pra pagamento no ato (só ofereça essa opção se as regras de pagamento permitirem).',
     parameters: {
       type: 'object',
       properties: {
@@ -44,11 +52,14 @@ export const TOOLS: ToolDef[] = [
             required: ['produto_id', 'quantidade'],
           },
         },
-        cliente_nome: { type: 'string', description: 'Nome do cliente.' },
+        cliente_nome: { type: 'string', description: 'Nome e sobrenome do cliente.' },
         cliente_telefone: { type: 'string', description: 'WhatsApp do cliente, só dígitos (o da conversa já vale).' },
-        pagar_agora: { type: 'boolean', description: 'true = gera Pix agora. false = paga na retirada.' },
+        entrega: { type: 'boolean', description: 'true = entregar no endereço do cliente. false = cliente retira na loja.' },
+        endereco_lat: { type: 'number', description: 'Latitude da localização enviada pelo cliente. Obrigatório quando entrega=true.' },
+        endereco_lng: { type: 'number', description: 'Longitude da localização enviada pelo cliente. Obrigatório quando entrega=true.' },
+        pagar_agora: { type: 'boolean', description: 'true = gera Pix agora. false = paga no ato (retirada ou entrega).' },
       },
-      required: ['itens', 'cliente_nome', 'cliente_telefone', 'pagar_agora'],
+      required: ['itens', 'cliente_nome', 'cliente_telefone', 'entrega', 'pagar_agora'],
     },
   },
   {
@@ -103,7 +114,7 @@ async function buscarProdutos(query: string): Promise<string> {
 
 function formatProducts(products: { id: string; name: string; price: number; description: string | null; quantity: number }[]) {
   return products.map((p) =>
-    `- ${p.name} | R$ ${Number(p.price).toFixed(2).replace('.', ',')} | Estoque: ${p.quantity} | ID: ${p.id}${p.description ? `\n  ${p.description}` : ''}`
+    `- ${p.name} | R$ ${Number(p.price).toFixed(2).replace('.', ',')} | Estoque: ${p.quantity} | ID: ${p.id} | Link: ${SITE_URL}/loja/${p.id}${p.description ? `\n  ${p.description}` : ''}`
   ).join('\n')
 }
 
@@ -168,11 +179,30 @@ async function criarPedidoEGerarCobranca(input: {
   itens: { produto_id: string; quantidade: number }[]
   cliente_nome: string
   cliente_telefone: string
+  entrega: boolean
+  endereco_lat?: number
+  endereco_lng?: number
   pagar_agora: boolean
 }): Promise<string> {
   if (!input.itens || input.itens.length === 0) return 'FALHOU (validation): informe ao menos um item.'
   if (!input.cliente_nome?.trim() || !input.cliente_telefone?.trim()) {
     return 'FALHOU (validation): nome e telefone do cliente são obrigatórios.'
+  }
+
+  let shippingPrice = 0
+  if (input.entrega) {
+    if (input.endereco_lat == null || input.endereco_lng == null) {
+      return 'FALHOU (validation): preciso da localização real do cliente pra calcular a entrega — peça pra ele enviar a localização pelo WhatsApp antes de chamar esta tool de novo.'
+    }
+    try {
+      const est = await estimateDeliveryServer(input.endereco_lat, input.endereco_lng)
+      if (!est.within_range) {
+        return 'FALHOU (validation): esse endereço está fora da área de entrega da loja — ofereça retirada na loja em vez disso.'
+      }
+      shippingPrice = est.price
+    } catch (e) {
+      return `FALHOU (entrega): ${e instanceof Error ? e.message : String(e)}`
+    }
   }
 
   let order
@@ -181,25 +211,29 @@ async function criarPedidoEGerarCobranca(input: {
       customer_name: input.cliente_nome.trim(),
       customer_whatsapp: input.cliente_telefone.replace(/\D/g, ''),
       items: input.itens.map((i) => ({ product_id: i.produto_id, quantity: i.quantidade })),
+      shipping_price: shippingPrice,
     })
   } catch (e) {
     return `FALHOU (pedido): ${e instanceof Error ? e.message : String(e)}`
   }
 
   const total = `R$ ${order.total.toFixed(2).replace('.', ',')}`
+  const modo = input.entrega
+    ? `Entrega no endereço informado (taxa: R$ ${shippingPrice.toFixed(2).replace('.', ',')}, já incluída no total)`
+    : 'Retirada na loja'
 
   if (!input.pagar_agora) {
-    return `PEDIDO CRIADO: ID ${order.id} | Total: ${total} | Retirada na loja, pagamento no ato. ID do pedido: ${order.id}`
+    return `PEDIDO CRIADO: ID ${order.id} | Total: ${total} | ${modo}, pagamento no ato.`
   }
 
   try {
     const withPix = await createPixPaymentServer(order.id)
     if (!withPix.pix_copia_cola) {
-      return `PEDIDO CRIADO: ID ${order.id} | Total: ${total} | Não foi possível gerar o Pix agora — combine o pagamento na retirada ou tente de novo em instantes.`
+      return `PEDIDO CRIADO: ID ${order.id} | Total: ${total} | ${modo} | Não foi possível gerar o Pix agora — combine o pagamento no ato ou tente de novo em instantes.`
     }
-    return `PEDIDO CRIADO: ID ${order.id} | Total: ${total}\n${withPix.pix_copia_cola}`
+    return `PEDIDO CRIADO: ID ${order.id} | Total: ${total} | ${modo}\n${withPix.pix_copia_cola}`
   } catch (e) {
-    return `PEDIDO CRIADO: ID ${order.id} | Total: ${total} | Não foi possível gerar o Pix agora (${e instanceof Error ? e.message : String(e)}) — combine o pagamento na retirada ou tente de novo.`
+    return `PEDIDO CRIADO: ID ${order.id} | Total: ${total} | ${modo} | Não foi possível gerar o Pix agora (${e instanceof Error ? e.message : String(e)}) — combine o pagamento no ato ou tente de novo.`
   }
 }
 
@@ -320,6 +354,9 @@ export async function executeTool(name: string, input: Record<string, unknown>):
         })),
         cliente_nome: String(input.cliente_nome ?? ''),
         cliente_telefone: String(input.cliente_telefone ?? ''),
+        entrega: !!input.entrega,
+        endereco_lat: typeof input.endereco_lat === 'number' ? input.endereco_lat : undefined,
+        endereco_lng: typeof input.endereco_lng === 'number' ? input.endereco_lng : undefined,
         pagar_agora: !!input.pagar_agora,
       })
     }
