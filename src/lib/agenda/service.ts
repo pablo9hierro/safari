@@ -344,7 +344,7 @@ export async function resolveService(
   }
   const { data, error } = await db
     .from('service_catalog_items')
-    .select('id, model_name, repair_type, duration_minutes')
+    .select('id, model_name, repair_type')
     .eq('id', serviceId)
     .maybeSingle()
   if (error) throw new AgendaError(`Falha ao buscar serviço: ${error.message}`, 'validation')
@@ -352,9 +352,14 @@ export async function resolveService(
   return {
     service_id: data.id as string,
     service_label: `${data.model_name} — ${data.repair_type}`,
-    // A duração do serviço cobre coleta + manutenção + entrega, e é ela que
-    // define quanto tempo o agendamento ocupa a agenda.
-    duration_minutes: (data.duration_minutes as number) || settings.default_duration_minutes,
+    // O agendamento aqui é só a VISITA de coleta (ou o horário de retirada/
+    // entrega, ver appointment_type 'device_*' em createAppointment) --
+    // nunca a manutenção em si, que pode levar horas/dias e não tem por
+    // que travar a agenda de coleta com um bloco contínuo gigante. O tempo
+    // de manutenção já é rastreado à parte (busy_until da bancada, ver
+    // computeRepairBusyUntil em serviceLifecycle/busyUntil.ts), que também
+    // lê duration_minutes do catálogo -- separado de propósito.
+    duration_minutes: settings.default_duration_minutes,
   }
 }
 

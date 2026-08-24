@@ -23,22 +23,40 @@ export type PublicOrderStatus = {
 }
 
 /** Solicitações de serviço (reparo) do telefone -- Supabase do próprio
- * vrtech. Mesma lógica RPC + fallback já usada em /api/consultar. */
+ * vrtech. Mesma lógica RPC + fallback já usada em /api/consultar. Anexa o
+ * horário do agendamento vivo (coleta ou aguardando aparelho) de cada uma,
+ * pra /consultar mostrar o horário real em vez de um texto genérico. */
 export async function fetchServiceRequestsByPhone(digits: string) {
   const supabase = createServiceClient()
   const { data: rpcData, error: rpcError } = await supabase.rpc('search_requests_by_phone', { phone_digits: digits })
-  if (!rpcError) return rpcData ?? []
 
-  const last8 = digits.slice(-8)
-  const part1 = last8.slice(0, 4)
-  const part2 = last8.slice(4)
-  const { data } = await supabase
-    .from('service_requests')
-    .select(SERVICE_REQUEST_COLS)
-    .ilike('customer_phone', `%${part1}%`)
-    .ilike('customer_phone', `%${part2}%`)
-    .order('created_at', { ascending: false })
-  return data ?? []
+  let rows: Array<{ id: string; [key: string]: unknown }>
+  if (!rpcError) {
+    rows = (rpcData ?? []) as typeof rows
+  } else {
+    const last8 = digits.slice(-8)
+    const part1 = last8.slice(0, 4)
+    const part2 = last8.slice(4)
+    const { data } = await supabase
+      .from('service_requests')
+      .select(SERVICE_REQUEST_COLS)
+      .ilike('customer_phone', `%${part1}%`)
+      .ilike('customer_phone', `%${part2}%`)
+      .order('created_at', { ascending: false })
+    rows = (data ?? []) as typeof rows
+  }
+
+  const ids = rows.map((r) => r.id)
+  if (ids.length === 0) return rows
+
+  const { data: appts } = await supabase
+    .from('appointments')
+    .select('service_request_id, starts_at')
+    .in('service_request_id', ids)
+    .eq('status', 'agendado')
+  const startsById = new Map((appts ?? []).map((a) => [a.service_request_id as string, a.starts_at as string]))
+
+  return rows.map((r) => ({ ...r, appointment_starts_at: startsById.get(r.id) ?? null }))
 }
 
 /** Pedidos de produto do telefone -- ecommerce-api (fonte real de

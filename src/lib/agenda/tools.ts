@@ -187,7 +187,7 @@ async function consultarDisponibilidade(input: {
       )
     }
     return [
-      `Duração do atendimento: ${duration} min (coleta + manutenção + entrega).`,
+      `Duração da visita de coleta: ${duration} min (a manutenção em si acontece depois, na loja, e não ocupa esse horário).`,
       ...blocos,
       'Pergunte ao cliente se prefere HOJE ou AMANHÃ e qual desses horários.',
     ].join('\n')

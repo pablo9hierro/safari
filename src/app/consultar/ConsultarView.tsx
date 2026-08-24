@@ -11,7 +11,6 @@ import {
 } from 'lucide-react'
 import Logo from '@/components/ui/Logo'
 import {StoreLink, apiPath } from '@/lib/storeProxyLink'
-import { fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   pending:        { label: 'Aguardando avaliação',      color: 'text-yellow-700', bg: 'bg-yellow-100', icon: <Clock className="w-3.5 h-3.5" /> },
@@ -93,7 +92,7 @@ function TimelineStep({
   )
 }
 
-function RequestStatusTimeline({ request, apenasRetirada }: { request: ServiceRequest; apenasRetirada: boolean }) {
+function RequestStatusTimeline({ request }: { request: ServiceRequest }) {
   const [expanded, setExpanded] = useState(false)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
 
@@ -110,18 +109,30 @@ function RequestStatusTimeline({ request, apenasRetirada }: { request: ServiceRe
   const current = STATUS_MAP[request.status] ?? STATUS_MAP.pending
   const isInterrupted = request.status === 'rejected' || request.status === 'cancelled'
   const currentIdx = stageIndexForStatus(request.status)
-  // Loja "apenas retirada": self_pickup é sempre true na criação, então
-  // em_busca/em_entrega (motoboy) nunca acontecem de verdade -- não faz
-  // sentido a etapa mencionar essa opção que não existe pra esta loja.
-  const stages = apenasRetirada
-    ? STAGES.map((s) =>
-        s.key === 'pickup'
-          ? { ...s, label: 'Cliente leva o aparelho na loja' }
-          : s.key === 'delivery'
-            ? { ...s, label: 'Cliente retira o aparelho na loja' }
-            : s,
-      )
-    : STAGES
+
+  const appointmentStartsAt = (request as ServiceRequest & { appointment_starts_at?: string | null }).appointment_starts_at
+  const appointmentLabel = appointmentStartsAt
+    ? new Date(appointmentStartsAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : null
+
+  // Nunca mistura os dois jeitos possíveis (motoboy busca vs. cliente
+  // leva/retira) num rótulo só -- renderiza de acordo com o que ESTE
+  // pedido pediu de verdade (self_pickup), com o horário agendado quando
+  // já existe. apenasRetirada nem entra na conta: self_pickup já é sempre
+  // true nesse caso, o resultado é o mesmo.
+  const stages = STAGES.map((s) => {
+    if (s.key === 'pickup') {
+      return request.self_pickup
+        ? { ...s, label: appointmentLabel ? `Aguardando você trazer o aparelho — ${appointmentLabel}` : 'Aguardando você trazer o aparelho na loja' }
+        : { ...s, label: appointmentLabel ? `Em rota de coleta do aparelho — ${appointmentLabel}` : 'Em rota de coleta do aparelho' }
+    }
+    if (s.key === 'delivery') {
+      return request.self_pickup
+        ? { ...s, label: 'Aguardando você retirar o aparelho na loja' }
+        : { ...s, label: 'Em rota de entrega do aparelho' }
+    }
+    return s
+  })
   const visibleStages = isInterrupted ? [] : stages.slice(0, currentIdx + 1)
 
   return (
@@ -306,12 +317,7 @@ function ConsultarContent({ initialPhone, initialOtp }: { initialPhone?: string;
   const [error, setError] = useState<string | null>(null)
   const [cancelTargetId, setCancelTargetId] = useState<string | null>(null)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
-  const [apenasRetirada, setApenasRetirada] = useState(false)
   const [resendCooldown, setResendCooldown] = useState(0)
-
-  useEffect(() => {
-    fetchPlatformStoreConfig().then((c) => setApenasRetirada(c.apenas_retirada))
-  }, [])
 
   useEffect(() => {
     if (resendCooldown <= 0) return
@@ -552,7 +558,7 @@ function ConsultarContent({ initialPhone, initialOtp }: { initialPhone?: string;
                     <div key={req.id} className="bg-white rounded-2xl p-5 shadow">
                       <div className="flex items-start justify-between gap-2 mb-3">
                         <div className="flex-1 min-w-0">
-                          <RequestStatusTimeline request={req} apenasRetirada={apenasRetirada} />
+                          <RequestStatusTimeline request={req} />
                         </div>
                         <span className="text-xs text-gray-400 flex-shrink-0 pt-2.5">
                           {new Date(req.created_at).toLocaleDateString('pt-BR')}

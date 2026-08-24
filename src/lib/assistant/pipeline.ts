@@ -84,6 +84,7 @@ function serviceConfirmationRule(): string {
     '- Se o cliente disser que não sabe qual serviço precisa (ou a descrição for muito vaga/genérica e buscar_servicos não achar nada com confiança real pro sintoma — confira também as tags dos serviços contra palavras usadas por ele), NÃO force uma escolha do catálogo: explique que é necessário um diagnóstico técnico pra identificar o problema e definir o preço certo. Rode buscar_servicos("diagnóstico") pra saber se a loja cobra o diagnóstico ou não, informe esse valor ao cliente, e siga o agendamento com diagnostico=true em criar_agendamento.',
     '- Só depois da confirmação do serviço (ou do diagnóstico), siga na ordem: 1) peça nome e telefone (o telefone da conversa já vale, mas confirme se é esse mesmo que deve ficar registrado) 2) pergunte se quer que a loja busque o aparelho (coleta) ou se ele mesmo leva 3) se for coleta, peça a localização pela conversa 4) consulte disponibilidade e ofereça horários (mesmo quando o cliente for levar o aparelho sozinho, o agendamento é obrigatório) 5) confirme o horário escolhido e só então chame criar_agendamento.',
     '- Deixe sempre claro: o pagamento do serviço (mais o deslocamento, quando existir e for cobrado) só acontece na CONCLUSÃO do reparo — nunca cobre nada na criação da solicitação nem durante o atendimento.',
+    '- Ao apresentar o preço de um serviço sugerido pelo catálogo, deixe claro que é uma ESTIMATIVA: pode subir se o diagnóstico físico achar outro componente danificado, ou pode cair se o reparo real for mais simples (ex.: solda/jump, sem precisar trocar peça). O valor final só é confirmado depois do diagnóstico na loja.',
   ].join('\n')
 }
 
@@ -264,6 +265,25 @@ async function enforceTrackingLink(reply: string, toolCalls: ToolCallRecord[], p
   return `${reply}${MSG_SPLIT_MARKER}Acompanhe por aqui: ${link}`
 }
 
+// Quando a IA sugere um serviço com preço ANTES de o aparelho ser visto de
+// verdade (o normal aqui: orçamento falado por telefone/WhatsApp), o valor
+// é só uma estimativa -- pode mudar pra cima (achou outro componente
+// quebrado) ou pra baixo (reparo simples, tipo solda/jump, sem trocar
+// peça). Confiar só no prompt pra sempre explicar isso e mandar como
+// mensagem separada é frágil (texto gerado, não garantido) -- reforça aqui
+// de forma mecânica, igual enforceTrackingLink. Não entra em agendamento
+// de diagnóstico puro (diagnostico=true): ali ainda não existe preço
+// nenhum cravado pra "poder mudar".
+function enforceDiagnosisExplanation(reply: string, toolCalls: ToolCallRecord[]): string {
+  const call = [...toolCalls].reverse().find(
+    (t) => t.tool === 'criar_agendamento' && t.output.includes('AGENDAMENTO CONFIRMADO') && t.input?.diagnostico !== true,
+  )
+  if (!call) return reply
+  const explanation =
+    'Só um detalhe importante: esse valor é uma estimativa baseada no que você descreveu. Quando o aparelho chegar na loja, vamos abrir e fazer um diagnóstico completo — o valor final pode ficar maior (se aparecer outro componente danificado) ou menor (se for um reparo mais simples, sem precisar trocar peça). Você só paga depois que o serviço for concluído.'
+  return `${reply}${MSG_SPLIT_MARKER}${explanation}`
+}
+
 export type PipelineResult = {
   reply: string
   interpreterOutput: InterpreterOutput
@@ -279,8 +299,9 @@ export async function runPipeline(
   const interpreterOutput = await runInterpreter(config, userMessage)
   const { reply, toolCalls } = await runResponder(config, history, userMessage, interpreterOutput, conversationPhone)
   const withPayment = enforcePaymentSplit(reply || 'Desculpe, não consegui processar sua mensagem agora.', toolCalls)
+  const withDiagnosisExplanation = enforceDiagnosisExplanation(withPayment, toolCalls)
   return {
-    reply: await enforceTrackingLink(withPayment, toolCalls, conversationPhone),
+    reply: await enforceTrackingLink(withDiagnosisExplanation, toolCalls, conversationPhone),
     interpreterOutput,
     toolCalls,
   }
