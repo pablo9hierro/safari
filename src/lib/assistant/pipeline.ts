@@ -2,7 +2,8 @@ import { completeSimple, completeWithTools } from './aiClient'
 import { resolveTools, executeTool, consultarAtendimentoEmAndamento } from './tools'
 import { AGENDA_TOOL_NAMES } from '@/lib/agenda/tools'
 import { fetchPaymentOnDeliveryEnabledServer, fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
-import { SITE_URL, STORE_ADDRESS } from '@/lib/constants'
+import { STORE_ADDRESS, PUBLIC_CONSULTAR_URL } from '@/lib/constants'
+import { createServiceClient } from '@/lib/supabase/service'
 import type { AssistantConfig } from './types'
 import type { ToolCallRecord } from './aiClient'
 
@@ -50,7 +51,7 @@ function serviceLifecycleRules(): string {
     '- Cancelamento (cancelar_atendimento) só funciona antes da aprovação do orçamento — se a tool recusar (atendimento já aprovado/em reparo), explique que a partir dali o cancelamento depende da loja, não invente uma forma de cancelar mesmo assim.',
     '- Depois que consultar_status_atendimento (ou consultar_status_reparo) confirmar que o reparo terminou, pergunte proativamente se o cliente prefere RETIRAR na loja ou RECEBER por entrega — não espere ele perguntar. Se for entrega, confirme se o endereço é o mesmo já usado antes ou se é outro.',
     '- Entrega/retirada do aparelho (agendar_entrega_aparelho/agendar_retirada_aparelho) só pode ser AGENDADA depois que o reparo estiver concluído — confirme com consultar_status_atendimento antes se não tiver certeza. Coleta do aparelho no cliente (agendar_coleta_aparelho) pode ser agendada a qualquer momento em que o atendimento estiver ativo.',
-    `- Toda confirmação de agendamento de serviço (criar_agendamento com sucesso, coleta/entrega/retirada agendada) inclua no final da mensagem o link de acompanhamento: ${SITE_URL}/consultar?phone=<telefone do cliente, só dígitos>. O cliente usa esse link pra ver o status a qualquer momento sem precisar voltar aqui.`,
+    `- Toda confirmação de agendamento de serviço (criar_agendamento com sucesso, coleta/entrega/retirada agendada) inclua no final da mensagem o link de acompanhamento: ${PUBLIC_CONSULTAR_URL('<telefone do cliente, só dígitos>')}. O cliente usa esse link pra ver o status a qualquer momento sem precisar voltar aqui.`,
   ].join('\n')
 }
 
@@ -170,6 +171,22 @@ async function hydrateOngoingContext(
   }
 }
 
+/** Endereço real da loja, configurado pelo lojista em
+ * /dashboard/servicodeslocamento (shipping_settings.store_address) --
+ * nunca hardcoded aqui, pra não divergir se a loja mudar de endereço.
+ * STORE_ADDRESS (constants.ts) só entra como fallback se o lojista nunca
+ * preencheu esse campo. */
+async function fetchStoreAddressText(): Promise<string> {
+  try {
+    const supabase = createServiceClient()
+    const { data } = await supabase.from('shipping_settings').select('store_address').eq('id', 1).single()
+    if (data?.store_address?.trim()) return data.store_address.trim()
+  } catch {
+    // cai pro fallback abaixo
+  }
+  return `${STORE_ADDRESS.street}, ${STORE_ADDRESS.neighborhood}, ${STORE_ADDRESS.city}`
+}
+
 async function runResponder(
   config: AssistantConfig,
   history: { role: 'user' | 'assistant'; content: string }[],
@@ -185,6 +202,7 @@ async function runResponder(
   // loja, então o pagamento tem que ser no checkout, nunca depois.
   const paymentOnDeliveryEnabled = !platformConfig.apenas_retirada && (await fetchPaymentOnDeliveryEnabledServer())
   const ongoingContext = await hydrateOngoingContext(history, conversationPhone)
+  const storeAddressText = await fetchStoreAddressText()
 
   const system = [
     universalRules(config, withAgenda),
@@ -202,7 +220,7 @@ async function runResponder(
     conversationPhone
       ? `Telefone desta conversa (WhatsApp real do cliente, já confirmado pelo sistema): ${conversationPhone}. Use ESSE valor sempre que uma tool pedir cliente_telefone/telefone — NUNCA peça o número de novo nem invente um placeholder, a menos que o cliente diga explicitamente que quer usar outro número (aí use o que ele informou).`
       : null,
-    `Endereço da loja (informe ao cliente quando ele escolher RETIRAR em vez de entrega/coleta): ${STORE_ADDRESS.street}, ${STORE_ADDRESS.neighborhood}, ${STORE_ADDRESS.city}. Mapa: ${STORE_ADDRESS.mapsUrl}`,
+    `Endereço da loja (informe ao cliente quando ele escolher RETIRAR em vez de entrega/coleta): ${storeAddressText}. Mapa: ${STORE_ADDRESS.mapsUrl}`,
     '- Quando o cliente enviar uma localização pelo WhatsApp (mensagem de localização, não texto), você recebe as coordenadas reais (latitude/longitude) já extraídas dessa mensagem — use esses valores exatos em endereco_lat/endereco_lng de criar_pedido_e_gerar_cobranca. Nunca invente coordenadas.',
     'Use as ferramentas necessárias pra buscar dados reais antes de responder. Sua última mensagem de texto vai direto pro cliente.',
   ].filter(Boolean).join('\n\n')

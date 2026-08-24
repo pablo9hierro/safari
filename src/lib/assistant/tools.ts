@@ -5,7 +5,7 @@ import { SERVICE_TOOLS, DEVICE_TOOLS, executeServiceTool } from '@/lib/serviceLi
 import { fetchApenasRetiradaServer } from '@/lib/resolutoo/platformConfig'
 import { fetchPublicProducts } from '@/lib/resolutoo/catalog'
 import { createAssistantOrderServer, createPixPaymentServer, estimateDeliveryServer } from '@/lib/resolutoo/assistantOrder'
-import { SITE_URL } from '@/lib/constants'
+import { PUBLIC_PRODUCT_URL } from '@/lib/constants'
 
 export const TOOLS: ToolDef[] = [
   {
@@ -32,7 +32,7 @@ export const TOOLS: ToolDef[] = [
     name: 'criar_pedido_e_gerar_cobranca',
     description:
       'Fecha a compra de produto(s) — cria o pedido de verdade (visível pro lojista) e, se o cliente quiser pagar agora, gera a cobrança Pix real. Cria um pedido REAL, com valor real — NUNCA chame mais de uma vez pros mesmos itens na mesma conversa (isso duplicaria o pedido e cobraria em dobro). Se você já chamou esta tool nesta conversa e ela retornou "PEDIDO CRIADO" com um ID, o pedido já existe — não chame de novo, só confirme o que já foi feito (reenvie o código Pix se o cliente pedir de novo, não gere um pedido novo). ' +
-      'ANTES de chamar: peça, numa mensagem só, nome e sobrenome do cliente e confirme que pode usar o WhatsApp desta conversa pro pedido (não precisa nome completo/documento, só nome e sobrenome mesmo). Depois pergunte se ele quer RETIRAR na loja ou receber por ENTREGA. ' +
+      'ANTES de chamar: peça nome e sobrenome do cliente (não precisa nome completo/documento, só nome e sobrenome mesmo) — o WhatsApp já é o desta conversa, não precisa perguntar/confirmar isso. Depois pergunte se ele quer RETIRAR na loja ou receber por ENTREGA. ' +
       'Se for retirada (entrega=false): não precisa de localização, chame direto. ' +
       'Se for entrega (entrega=true): peça pro cliente enviar a localização pelo próprio WhatsApp (o botão de localização/localização atual) — só chame esta tool depois de já ter latitude/longitude reais extraídos da localização recebida (endereco_lat/endereco_lng). Esta tool calcula o valor da entrega automaticamente pela localização — nunca invente esse valor. Se a tool retornar que o endereço está fora da área de entrega, ofereça retirada em vez disso. Depois de calcular a entrega, pergunte se o cliente quer pagar agora ou pagar na entrega, antes de gerar a cobrança. ' +
       'Se o cliente mudar de ideia no meio do fluxo (ex: pediu entrega mas depois disse que prefere retirar, ou vice-versa), siga a intenção mais recente dele, não a antiga. ' +
@@ -114,7 +114,7 @@ async function buscarProdutos(query: string): Promise<string> {
 
 function formatProducts(products: { id: string; name: string; price: number; description: string | null; quantity: number }[]) {
   return products.map((p) =>
-    `- ${p.name} | R$ ${Number(p.price).toFixed(2).replace('.', ',')} | Estoque: ${p.quantity} | ID: ${p.id} | Link: ${SITE_URL}/loja/${p.id}${p.description ? `\n  ${p.description}` : ''}`
+    `- ${p.name} | R$ ${Number(p.price).toFixed(2).replace('.', ',')} | Estoque: ${p.quantity} | ID: ${p.id} | Link: ${PUBLIC_PRODUCT_URL(p.id)}${p.description ? `\n  ${p.description}` : ''}`
   ).join('\n')
 }
 
