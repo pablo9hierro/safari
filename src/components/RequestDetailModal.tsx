@@ -6,6 +6,7 @@ import { PAYMENT_METHODS } from '@/lib/constants'
 import { createClient } from '@/lib/supabase/client'
 import ServiceOrderPanel, { isServiceOrderStatus } from '@/components/ServiceOrderPanel'
 import DiagnosticSection from '@/components/DiagnosticSection'
+import PatternLockInput from '@/components/PatternLockInput'
 import { apiPath } from '@/lib/storeProxyLink'
 import { computeDiagnosisBusyUntil, computeRepairBusyUntil } from '@/lib/serviceLifecycle/busyUntil'
 import {
@@ -542,18 +543,22 @@ export default function RequestDetailModal({
                 {credentialsOpen && (
                   <div className="px-3.5 pb-3.5 pt-1 space-y-2 border-t border-gray-100">
                     {credentialSaved ? (
-                      <div className="bg-slate-50 rounded-xl p-3 flex items-center justify-between">
-                        <div>
+                      <div className="bg-slate-50 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center justify-between">
                           <p className="text-xs text-gray-500">{credentialKind === 'pin' ? 'PIN' : 'Padrão'} cadastrado</p>
-                          <p className="text-sm font-mono font-semibold text-gray-900">{credentialValue}</p>
+                          <button
+                            type="button"
+                            onClick={() => setCredentialSaved(false)}
+                            className="text-xs text-gray-400 hover:text-gray-600"
+                          >
+                            Editar
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setCredentialSaved(false)}
-                          className="text-xs text-gray-400 hover:text-gray-600"
-                        >
-                          Editar
-                        </button>
+                        {credentialKind === 'pin' ? (
+                          <p className="text-sm font-mono font-semibold text-gray-900">{credentialValue}</p>
+                        ) : (
+                          <PatternLockInput value={credentialValue} readOnly />
+                        )}
                       </div>
                     ) : (
                       <>
@@ -571,13 +576,17 @@ export default function RequestDetailModal({
                             </button>
                           ))}
                         </div>
-                        <input
-                          type="text"
-                          value={credentialValue}
-                          onChange={(e) => setCredentialValue(e.target.value)}
-                          placeholder={credentialKind === 'pin' ? 'Ex: 1234' : 'Ex: cima, direita, baixo, esquerda'}
-                          className="input-field"
-                        />
+                        {credentialKind === 'pin' ? (
+                          <input
+                            type="text"
+                            value={credentialValue}
+                            onChange={(e) => setCredentialValue(e.target.value)}
+                            placeholder="Ex: 1234"
+                            className="input-field"
+                          />
+                        ) : (
+                          <PatternLockInput value={credentialValue} onChange={setCredentialValue} />
+                        )}
                         <button
                           type="button"
                           onClick={saveCredential}
