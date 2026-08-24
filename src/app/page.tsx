@@ -1,4 +1,3 @@
-import ServiceRequestForm from '@/components/ServiceRequestForm'
 import Logo from '@/components/ui/Logo'
 import {
   Smartphone,
@@ -10,15 +9,13 @@ import {
   Award,
   CheckCircle2,
   Search,
-  ArrowRight,
   ShoppingBag,
-  LayoutGrid,
+  ClipboardList,
 } from 'lucide-react'
 import Image from 'next/image'
 import { CartProvider } from '@/lib/carrinho/context'
 import CarrinhoFlutuante from '@/components/CarrinhoFlutuante'
 import { StoreLink } from '@/lib/storeProxyLink'
-import { fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
 
 const SERVICES = [
   { icon: Smartphone, title: 'Troca de tela', desc: 'Telas originais com garantia para todas as marcas.' },
@@ -35,7 +32,6 @@ const HIGHLIGHTS = [
 ]
 
 export default async function Home() {
-  const { apenas_retirada: apenasRetirada, coleta_gratis: coletaGratis } = await fetchPlatformStoreConfig()
   return (
     <CartProvider>
       <main className="min-h-screen bg-vr-black text-white">
@@ -84,19 +80,17 @@ export default async function Home() {
             Buscamos, consertamos e devolvemos seu aparelho no seu endereço. Peça um orçamento gratuito agora mesmo.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <a href="#orcamento" className="btn-primary w-full sm:w-auto flex items-center justify-center gap-2">
-              Solicitar orçamento <ArrowRight className="w-4 h-4" />
-            </a>
-            <StoreLink href="/loja" className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2">
+            <StoreLink href="/loja" className="btn-primary w-full sm:w-auto flex items-center justify-center gap-2">
               <ShoppingBag className="w-4 h-4" />
-              Ver catálogo
+              Produtos
             </StoreLink>
             <StoreLink href="/catalogo-servico" className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2">
-              <LayoutGrid className="w-4 h-4" />
-              Catálogo de serviços
+              <Wrench className="w-4 h-4" />
+              Serviços e Orçamento
             </StoreLink>
-            <StoreLink href="/consultar" className="btn-secondary w-full sm:w-auto text-center">
-              Acompanhar solicitação
+            <StoreLink href="/consultar" className="btn-secondary w-full sm:w-auto flex items-center justify-center gap-2">
+              <ClipboardList className="w-4 h-4" />
+              Meu pedido
             </StoreLink>
           </div>
         </section>
@@ -136,15 +130,6 @@ export default async function Home() {
                 <span className="text-sm font-medium text-vr-silver">{h.label}</span>
               </div>
             ))}
-          </div>
-        </section>
-
-        {/* Formulário de orçamento */}
-        <section id="orcamento" className="px-5 sm:px-10 py-16 bg-linear-to-b from-vr-graphite/40 to-vr-black">
-          <div className="max-w-lg mx-auto bg-vr-graphite border border-white/8 rounded-3xl shadow-2xl p-6">
-            <h2 className="text-lg font-bold text-white mb-1">Solicitar orçamento</h2>
-            <p className="text-vr-silver/50 text-sm mb-6">Preencha os dados abaixo e responderemos em até 2h</p>
-            <ServiceRequestForm apenasRetirada={apenasRetirada} coletaGratis={coletaGratis} />
           </div>
         </section>
 

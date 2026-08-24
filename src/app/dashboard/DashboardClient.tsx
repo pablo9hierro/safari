@@ -169,6 +169,7 @@ const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: s
 // só que agora nada some, porque loja de retirada nunca ocupa esses status.
 const GROUP_FILTERS: { key: StatusGroup; label: string }[] = [
   { key: 'em_deslocamento', label: STATUS_GROUP_LABEL.em_deslocamento },
+  { key: 'aguardando_aparelho', label: STATUS_GROUP_LABEL.aguardando_aparelho },
   { key: 'em_diagnostico', label: STATUS_GROUP_LABEL.em_diagnostico },
   { key: 'em_reparo', label: STATUS_GROUP_LABEL.em_reparo },
   { key: 'retiradas', label: STATUS_GROUP_LABEL.retiradas },

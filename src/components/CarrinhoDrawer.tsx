@@ -5,7 +5,7 @@ import {
   X, ShoppingBag, Trash2, Wrench, Package, ChevronRight,
   ChevronLeft, Minus, Plus, MapPin, Loader2, CheckCircle2, Home, Wallet,
 } from 'lucide-react'
-import {StoreLink, apiPath } from '@/lib/storeProxyLink'
+import { apiPath } from '@/lib/storeProxyLink'
 import { useCart } from '@/lib/carrinho/context'
 import dynamic from 'next/dynamic'
 import type { LocationPickerResult } from './LocationPicker'
@@ -295,26 +295,13 @@ export default function CarrinhoDrawer({ open, onClose }: { open: boolean; onClo
                   <span className="text-sm text-vr-silver/60">Total estimado</span>
                   <span className="text-lg font-black text-white">{fmt(total)}</span>
                 </div>
-                {hasProducts && (
-                  <button
-                    onClick={() => setStep('checkout')}
-                    className="w-full flex items-center justify-center gap-2 bg-vr-red text-white font-semibold py-3 rounded-xl hover:bg-vr-red/90 transition-colors text-sm"
-                  >
-                    Finalizar compra
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                )}
-                {hasServices && (
-                  <StoreLink
-                    href="/#orcamento"
-                    onClick={onClose}
-                    className="w-full flex items-center justify-center gap-2 bg-vr-black border border-white/10 text-white font-semibold py-3 rounded-xl hover:border-vr-red/40 transition-colors text-sm"
-                  >
-                    <Wrench className="w-4 h-4 text-vr-red" />
-                    Solicitar serviços
-                    <ChevronRight className="w-4 h-4" />
-                  </StoreLink>
-                )}
+                <button
+                  onClick={() => setStep('checkout')}
+                  className="w-full flex items-center justify-center gap-2 bg-vr-red text-white font-semibold py-3 rounded-xl hover:bg-vr-red/90 transition-colors text-sm"
+                >
+                  {hasServices && !hasProducts ? 'Finalizar solicitação' : 'Finalizar compra'}
+                  <ChevronRight className="w-4 h-4" />
+                </button>
                 <button
                   onClick={clear}
                   className="w-full text-xs text-vr-silver/40 hover:text-vr-silver transition-colors py-1"

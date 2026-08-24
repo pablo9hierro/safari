@@ -52,6 +52,7 @@ export const REPAIR_DONE_STATUSES: ServiceStatus[] = ['completed', 'em_pagamento
  */
 export type StatusGroup =
   | 'em_deslocamento'
+  | 'aguardando_aparelho'
   | 'em_diagnostico'
   | 'em_reparo'
   | 'retiradas'
@@ -68,7 +69,10 @@ export const STATUS_GROUP: Record<ServiceStatus, StatusGroup> = {
   accepted: 'em_deslocamento',
   aguardando_diagnostico: 'em_diagnostico',
   diagnostico_enviado: 'em_diagnostico',
-  retirada_local: 'em_deslocamento',
+  // Cliente combinou trazer o aparelho ele mesmo -- balde próprio, separado
+  // de quem tá esperando o motoboy ir buscar (em_deslocamento), pra ficar
+  // claro no painel que aqui a loja só espera o cliente aparecer.
+  retirada_local: 'aguardando_aparelho',
   em_busca: 'em_deslocamento',
   in_progress: 'em_reparo',
   completed: 'retiradas',
@@ -90,6 +94,7 @@ export const ENDED_NEGATIVE_STATUSES: ServiceStatus[] = ['rejected', 'cancelled'
 
 export const STATUS_GROUP_LABEL: Record<StatusGroup, string> = {
   em_deslocamento: 'Em deslocamento',
+  aguardando_aparelho: 'Aguardando aparelho',
   em_diagnostico: 'Em diagnóstico',
   em_reparo: 'Em reparo',
   retiradas: 'Retiradas',

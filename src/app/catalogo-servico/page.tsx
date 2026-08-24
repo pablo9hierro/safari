@@ -1,5 +1,7 @@
 import { fetchServiceCatalog, type CatalogCategory, type CatalogItem } from '@/lib/resolutoo/catalog'
+import { fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
 import CatalogoClient from './CatalogoClient'
+import DiagnosticoToggle from './DiagnosticoToggle'
 import Image from 'next/image'
 import { ArrowLeft } from 'lucide-react'
 import { CartProvider } from '@/lib/carrinho/context'
@@ -18,7 +20,10 @@ export const revalidate = 30
 export type { CatalogCategory, CatalogItem }
 
 export default async function CatalogoServicoPage() {
-  const { categories, items } = await fetchServiceCatalog()
+  const [{ categories, items }, { apenas_retirada: apenasRetirada, coleta_gratis: coletaGratis }] = await Promise.all([
+    fetchServiceCatalog(),
+    fetchPlatformStoreConfig(),
+  ])
 
   return (
     <CartProvider>
@@ -42,26 +47,18 @@ export default async function CatalogoServicoPage() {
 
       <section className="px-5 sm:px-10 py-10 max-w-5xl mx-auto">
         <h1 className="text-3xl sm:text-4xl font-black mb-2">
-          Catálogo de <span className="text-vr-red">serviços</span>
+          Serviços e <span className="text-vr-red">orçamento</span>
         </h1>
         <p className="text-vr-silver/60 mb-8 text-sm max-w-lg">
           Consulte os valores por modelo de celular e tipo de reparo. Preços sujeitos a alteração — confirme no orçamento.
         </p>
 
+        <DiagnosticoToggle apenasRetirada={apenasRetirada} coletaGratis={coletaGratis} />
+
         <CatalogoClient
           categories={(categories ?? []) as CatalogCategory[]}
           items={(items ?? []) as CatalogItem[]}
         />
-
-        <div className="mt-12 bg-vr-graphite border border-white/5 rounded-2xl p-6 text-center space-y-3">
-          <p className="text-vr-silver/60 text-sm">Não encontrou seu modelo ou serviço?</p>
-          <a
-            href="/#orcamento"
-            className="inline-flex items-center gap-2 bg-vr-red text-white font-semibold px-6 py-3 rounded-xl hover:bg-vr-red/90 transition-colors text-sm"
-          >
-            Solicitar orçamento grátis
-          </a>
-        </div>
       </section>
       <CarrinhoFlutuante />
     </main>

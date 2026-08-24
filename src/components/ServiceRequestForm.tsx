@@ -49,9 +49,15 @@ const ERR = 'text-red-400 text-xs mt-1'
 export default function ServiceRequestForm({
   apenasRetirada = false,
   coletaGratis = false,
+  diagnosisOnly = false,
 }: {
   apenasRetirada?: boolean
   coletaGratis?: boolean
+  /** Fluxo exclusivo de "não sei o que quebrou" (usado em /catalogo-servico) --
+   * pula o wizard de tipo/marca/modelo/serviço inteiro, vai direto pra
+   * descrição do problema. Quem já sabe o serviço se autoatende na vitrine
+   * de serviços logo abaixo, fora deste form. */
+  diagnosisOnly?: boolean
 }) {
   const [step, setStep] = useState(1)
   const [submitted, setSubmitted] = useState(false)
@@ -102,6 +108,10 @@ export default function ServiceRequestForm({
   useEffect(() => {
     if (apenasRetirada) setValue('self_pickup', true)
   }, [apenasRetirada, setValue])
+
+  useEffect(() => {
+    if (diagnosisOnly) { setDiagnosisMode(true); setValue('diagnosis_requested', true) }
+  }, [diagnosisOnly, setValue])
 
   // Fetch catalog when entering step 2 for the first time
   useEffect(() => {
@@ -436,33 +446,36 @@ export default function ServiceRequestForm({
               <h3 className="font-semibold text-white">Sobre o aparelho</h3>
             </div>
 
-            {/* Checkbox: Não sei o modelo */}
-            <label className="flex items-start gap-3 bg-vr-black border border-white/10 rounded-xl p-3.5 cursor-pointer hover:border-vr-red/30 transition-colors">
-              <input
-                type="checkbox"
-                checked={diagnosisMode}
-                onChange={(e) => {
-                  const checked = e.target.checked
-                  setDiagnosisMode(checked)
-                  setValue('diagnosis_requested', checked)
-                  if (checked) {
-                    setSelectedDeviceType(null)
-                    setSelectedBrandId(null)
-                    setSelectedModelName(null)
-                    setSelectedServiceIds([])
-                    setValue('phone_model', undefined)
-                  }
-                }}
-                className="w-4 h-4 mt-0.5 accent-vr-red flex-none"
-              />
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <HelpCircle className="w-3.5 h-3.5 text-vr-red flex-none" />
-                  <span className="text-sm font-semibold text-white">Não sei o modelo do meu aparelho</span>
+            {/* Checkbox: Não sei o modelo -- some no modo diagnóstico exclusivo
+                (já nasce fixo em "não sei", não faz sentido perguntar de novo) */}
+            {!diagnosisOnly && (
+              <label className="flex items-start gap-3 bg-vr-black border border-white/10 rounded-xl p-3.5 cursor-pointer hover:border-vr-red/30 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={diagnosisMode}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setDiagnosisMode(checked)
+                    setValue('diagnosis_requested', checked)
+                    if (checked) {
+                      setSelectedDeviceType(null)
+                      setSelectedBrandId(null)
+                      setSelectedModelName(null)
+                      setSelectedServiceIds([])
+                      setValue('phone_model', undefined)
+                    }
+                  }}
+                  className="w-4 h-4 mt-0.5 accent-vr-red flex-none"
+                />
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <HelpCircle className="w-3.5 h-3.5 text-vr-red flex-none" />
+                    <span className="text-sm font-semibold text-white">Não sei o modelo do meu aparelho</span>
+                  </div>
+                  <p className="text-xs text-vr-silver/50 mt-0.5">Orçamento após diagnóstico físico do aparelho</p>
                 </div>
-                <p className="text-xs text-vr-silver/50 mt-0.5">Orçamento após diagnóstico físico do aparelho</p>
-              </div>
-            </label>
+              </label>
+            )}
 
             {/* Wizard sequencial: tipo -> marca -> modelo -> serviços (oculto no modo diagnóstico) */}
             {!diagnosisMode && (
