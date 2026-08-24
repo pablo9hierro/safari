@@ -29,6 +29,24 @@ const driverIcon = L.divIcon({
   iconAnchor: [15, 15],
 })
 
+/** Rota real por ruas (não linha reta) via OSRM demo público -- ponto A
+ * (lojista) até ponto B (endereço do cliente). Sem chave, sem custo, mas
+ * é um serviço demo/melhor-esforço: falha vira fallback pra linha reta,
+ * nunca quebra o card. */
+async function fetchRoute(a: { lat: number; lng: number }, b: { lat: number; lng: number }): Promise<[number, number][] | null> {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) })
+    if (!res.ok) return null
+    const data = await res.json()
+    const coords = data?.routes?.[0]?.geometry?.coordinates as [number, number][] | undefined
+    if (!coords?.length) return null
+    return coords.map(([lng, lat]) => [lat, lng])
+  } catch {
+    return null
+  }
+}
+
 /**
  * Mapa "tipo Uber" ao vivo dentro do card de coleta/entrega em andamento:
  * pino do endereço do cliente (fixo) + pino do lojista (se movendo,
@@ -40,6 +58,8 @@ export default function LiveTrackingMap({ destLat, destLng }: { destLat: number;
   const mapRef = useRef<L.Map | null>(null)
   const destMarkerRef = useRef<L.Marker | null>(null)
   const driverMarkerRef = useRef<L.Marker | null>(null)
+  const routeLineRef = useRef<L.Polyline | null>(null)
+  const lastRouteFor = useRef<string | null>(null)
   const [driver, setDriver] = useState<DriverLocation | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -71,6 +91,8 @@ export default function LiveTrackingMap({ destLat, destLng }: { destLat: number;
     if (!map) return
     if (!driver || !isFresh(driver.updated_at)) {
       if (driverMarkerRef.current) { driverMarkerRef.current.remove(); driverMarkerRef.current = null }
+      if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null }
+      lastRouteFor.current = null
       map.setView([destLat, destLng], 14)
       return
     }
@@ -81,6 +103,19 @@ export default function LiveTrackingMap({ destLat, destLng }: { destLat: number;
     }
     const bounds = L.latLngBounds([[destLat, destLng], [driver.lat, driver.lng]])
     map.fitBounds(bounds, { padding: [36, 36], maxZoom: 16 })
+
+    // Só busca rota nova se o lojista se moveu de verdade (~30m) --
+    // evita bater no OSRM a cada poll sem necessidade.
+    const key = `${driver.lat.toFixed(4)},${driver.lng.toFixed(4)}`
+    if (lastRouteFor.current === key) return
+    lastRouteFor.current = key
+    fetchRoute(driver, { lat: destLat, lng: destLng }).then((coords) => {
+      if (mapRef.current !== map) return
+      if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null }
+      if (coords) {
+        routeLineRef.current = L.polyline(coords, { color: '#dc2626', weight: 4, opacity: 0.8 }).addTo(map)
+      }
+    })
   }, [driver, destLat, destLng])
 
   const distanceKm = driver && isFresh(driver.updated_at)

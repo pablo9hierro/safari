@@ -1,10 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2, X, CheckCircle2, Search } from 'lucide-react'
+import dynamic from 'next/dynamic'
+import { Loader2, X, CheckCircle2, Search, MapPin, Truck, Home } from 'lucide-react'
 import { apiPath } from '@/lib/storeProxyLink'
 import { createClient } from '@/lib/supabase/client'
 import DateDropdown from '@/components/dashboard/DateDropdown'
+import type { LocationPickerResult } from '@/components/LocationPicker'
+
+const LocationPicker = dynamic(() => import('@/components/LocationPicker'), { ssr: false })
 
 const INPUT =
   'w-full bg-vr-black border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-vr-silver/30 outline-none focus:border-vr-red transition-colors'
@@ -151,6 +155,11 @@ export default function NovoServicoDialog({ onClose, onDone }: { onClose: () => 
   const [horario, setHorario] = useState('09:00')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Padrão: já atendido (balcão/telefone), sem coleta -- só vira coleta se
+  // o lojista marcar e informar o endereço real (mapa), nunca inventado.
+  const [selfPickup, setSelfPickup] = useState(true)
+  const [address, setAddress] = useState<LocationPickerResult | null>(null)
+  const [showMap, setShowMap] = useState(false)
 
   const submit = async () => {
     setSaving(true); setErr(null)
@@ -159,7 +168,20 @@ export default function NovoServicoDialog({ onClose, onDone }: { onClose: () => 
       const res = await fetch(apiPath('/api/appointments'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...rest, service_id: service_id || undefined, data: dia, horario }),
+        body: JSON.stringify({
+          ...rest,
+          service_id: service_id || undefined,
+          data: dia,
+          horario,
+          self_pickup: selfPickup,
+          address_lat: selfPickup ? undefined : address?.lat,
+          address_lng: selfPickup ? undefined : address?.lng,
+          address_label: selfPickup ? undefined : address?.label,
+          address_street: selfPickup ? undefined : address?.rua,
+          address_number: selfPickup ? undefined : address?.numero,
+          address_neighborhood: selfPickup ? undefined : address?.bairro,
+          address_city: selfPickup ? undefined : address?.cidade,
+        }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Falha ao registrar o serviço.')
@@ -180,6 +202,13 @@ export default function NovoServicoDialog({ onClose, onDone }: { onClose: () => 
 
   return (
     <Dialog title="Registrar novo serviço" onClose={onClose}>
+      {showMap && (
+        <LocationPicker
+          initial={address}
+          onClose={() => setShowMap(false)}
+          onConfirm={(r) => { setAddress(r); setShowMap(false) }}
+        />
+      )}
       {field('customer_name', 'Cliente')}
       {field('customer_phone', 'WhatsApp')}
       <div>
@@ -197,11 +226,46 @@ export default function NovoServicoDialog({ onClose, onDone }: { onClose: () => 
         <label className="block text-sm text-vr-silver mb-1.5">Horário de início</label>
         <TimeDropdown value={horario} onChange={setHorario} />
       </div>
+      <div>
+        <label className="block text-sm text-vr-silver mb-1.5">Aparelho</label>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setSelfPickup(true)}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-semibold border transition-all ${
+              selfPickup ? 'border-vr-red bg-red-500/10 text-vr-red' : 'border-white/10 text-vr-silver'
+            }`}
+          >
+            <Home className="w-3.5 h-3.5" /> Já com a loja
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelfPickup(false)}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-semibold border transition-all ${
+              !selfPickup ? 'border-vr-red bg-red-500/10 text-vr-red' : 'border-white/10 text-vr-silver'
+            }`}
+          >
+            <Truck className="w-3.5 h-3.5" /> Buscar (coleta)
+          </button>
+        </div>
+        {!selfPickup && (
+          <button
+            type="button"
+            onClick={() => setShowMap(true)}
+            className="w-full mt-2 flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/10 bg-vr-black text-sm text-left hover:border-vr-red/40 transition-colors"
+          >
+            <MapPin className="w-4 h-4 text-vr-red shrink-0" />
+            <span className={address ? 'text-white truncate' : 'text-vr-silver/50'}>
+              {address?.label ?? 'Selecionar endereço de coleta no mapa…'}
+            </span>
+          </button>
+        )}
+      </div>
       {field('notes', 'Observações')}
       {err && <p className="text-sm text-red-400">{err}</p>}
       <button
         onClick={submit}
-        disabled={saving || !form.customer_name || !form.customer_phone || !form.service_label}
+        disabled={saving || !form.customer_name || !form.customer_phone || !form.service_label || (!selfPickup && !address)}
         className="w-full bg-vr-red hover:bg-vr-red/90 disabled:opacity-40 disabled:cursor-not-allowed
           text-white font-medium py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2"
       >

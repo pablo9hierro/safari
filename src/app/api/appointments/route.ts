@@ -39,12 +39,28 @@ export async function POST(req: NextRequest) {
     const customerName = String(body.customer_name ?? '')
     const customerPhone = String(body.customer_phone ?? '')
     const service = await resolveService(body.service_id ?? null, body.service_label ?? null)
+    // Registro manual (painel/PDV de serviço): por padrão o cliente já foi
+    // atendido (balcão/telefone combinado) -- self_pickup=true, sem coleta.
+    // Só vira coleta de verdade quando o lojista escolhe no dialog e manda
+    // o endereço real (LocationPicker), nunca inventado.
+    const selfPickup = body.self_pickup !== false
     const serviceRequestId = await ensureServiceRequestForAppointment({
       customer_name: customerName,
       customer_phone: customerPhone,
       problem_description: body.notes ?? null,
       service_label: service.service_label,
       source: 'admin_manual',
+      self_pickup: selfPickup,
+      status: selfPickup ? 'retirada_local' : 'em_busca',
+      ...(selfPickup ? {} : {
+        address_lat: typeof body.address_lat === 'number' ? body.address_lat : undefined,
+        address_lng: typeof body.address_lng === 'number' ? body.address_lng : undefined,
+        address_label: body.address_label ?? undefined,
+        address_street: body.address_street ?? undefined,
+        address_number: body.address_number ?? undefined,
+        address_neighborhood: body.address_neighborhood ?? undefined,
+        address_city: body.address_city ?? undefined,
+      }),
     })
 
     const appointment = await createAppointment({
