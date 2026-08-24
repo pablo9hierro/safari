@@ -25,8 +25,7 @@ const STATUS_TEMPLATE_KEY: Partial<Record<ServiceStatus, string>> = {
   finished: 'status_finished',
 }
 
-async function requestVars(req: ServiceRequest, order: OrderSummary): Promise<TemplateVars> {
-  const link = await buildTrackingLink(req.customer_phone)
+function requestVars(req: ServiceRequest, order: OrderSummary, link: string): TemplateVars {
   return {
     nome: req.customer_name,
     telefone: req.customer_phone,
@@ -73,9 +72,10 @@ export async function POST(req: NextRequest) {
         relatedType: 'request_owner_notify',
         relatedId: requestId,
       })
+      const createdLink = await buildTrackingLink(typedRequest.customer_phone)
       const text = await renderMessage(
         'request_pending',
-        await requestVars(typedRequest, null),
+        requestVars(typedRequest, null, createdLink),
         pendingCustomerMessage(typedRequest),
       )
       await deliverReliable(typedRequest.customer_phone, text, {
@@ -98,14 +98,34 @@ export async function POST(req: NextRequest) {
         .maybeSingle()
       order = data
     }
+    // Diagnóstico enviado: precisa dos serviços identificados + valor real
+    // pra falar isso explícito na mensagem (não só "confira o PDF") -- vem
+    // de service_diagnostics, salvo por DiagnosticSection.tsx no mesmo
+    // instante em que o status vira diagnostico_enviado.
+    if (event === 'diagnostico_enviado') {
+      const { data } = await supabase
+        .from('service_diagnostics')
+        .select('services_selected, pdf_url, quote_confirmed')
+        .eq('service_request_id', requestId)
+        .maybeSingle()
+      if (data) {
+        order = {
+          completed_services: (data.services_selected ?? []).map((s: { repair_type: string }) => s.repair_type).join(', '),
+          warranty: null,
+          final_value: data.quote_confirmed,
+          pdf_url: data.pdf_url,
+        }
+      }
+    }
 
     const templateKey = STATUS_TEMPLATE_KEY[event as ServiceStatus]
     if (templateKey && !(await isTemplateEnabled(templateKey))) {
       return NextResponse.json({ ok: true, skipped: true, reason: 'disabled' })
     }
-    const fallback = fn(typedRequest, order)
+    const link = await buildTrackingLink(typedRequest.customer_phone)
+    const fallback = fn(typedRequest, order, link)
     const text = templateKey
-      ? await renderMessage(templateKey, await requestVars(typedRequest, order), fallback)
+      ? await renderMessage(templateKey, requestVars(typedRequest, order, link), fallback)
       : fallback
 
     // em_pagamento/completed são o momento em que o cliente precisa saber

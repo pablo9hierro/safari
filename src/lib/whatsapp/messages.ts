@@ -1,5 +1,5 @@
 import { ServiceRequest, ServiceStatus, StoreOrder } from '@/lib/types'
-import { STORE_ADDRESS, SITE_URL } from '@/lib/constants'
+import { STORE_ADDRESS } from '@/lib/constants'
 
 export type OrderSummary = {
   completed_services: string | null
@@ -39,24 +39,38 @@ export function pendingCustomerMessage(req: ServiceRequest) {
   ].join('\n')
 }
 
-type StatusMessageFn = (req: ServiceRequest, order?: OrderSummary) => string
+type StatusMessageFn = (req: ServiceRequest, order?: OrderSummary, link?: string) => string
 
 export const STATUS_MESSAGES: Partial<Record<ServiceStatus, StatusMessageFn>> = {
-  aguardando_diagnostico: (req) => [
+  aguardando_diagnostico: (req, _order, link) => [
     `Olá *${req.customer_name}*! 👋`,
     '',
     'Recebemos seu aparelho para diagnóstico. Em breve finalizamos a avaliação e te enviamos um orçamento detalhado pelo WhatsApp.',
     '',
+    link ? `Você pode acompanhar o andamento do diagnóstico em tempo real por aqui: ${link}` : null,
+    '',
     'Obrigado pela confiança! 🙏',
-  ].join('\n'),
+  ].filter(Boolean).join('\n'),
 
-  diagnostico_enviado: (req) => [
-    `Olá *${req.customer_name}*! 👋`,
-    '',
-    `Finalizamos o diagnóstico do seu${req.phone_model ? ` *${req.phone_model}*` : ' aparelho'} e preparamos um orçamento detalhado.`,
-    '',
-    'Segue o PDF com os serviços identificados e valores. Confirma o orçamento para darmos início ao reparo?',
-  ].join('\n'),
+  // Aprovação do orçamento REAL (pós-diagnóstico físico) -- precisa dizer
+  // o serviço identificado e o valor explicitamente no texto (não só
+  // "confira o PDF"), e perguntar se pode seguir pro reparo com esse valor.
+  diagnostico_enviado: (req, order, link) => {
+    const services = (order?.completed_services || '')
+      .split(',').map((s) => s.trim()).filter(Boolean).join(', ')
+    const valor = currency(order?.final_value ?? req.quote_value ?? 0)
+    return [
+      `Olá *${req.customer_name}*! 👋`,
+      '',
+      `Finalizamos o diagnóstico do seu${req.phone_model ? ` *${req.phone_model}*` : ' aparelho'}.`,
+      services ? `Identificamos que é necessário: *${services}*.` : null,
+      `Valor do reparo: *${valor}*.`,
+      '',
+      `Podemos seguir com o reparo por esse valor (${valor})?`,
+      '',
+      link ? `Acompanhe o diagnóstico completo (PDF) e todas as atualizações em tempo real por aqui: ${link}` : null,
+    ].filter(Boolean).join('\n')
+  },
 
   accepted: (req) => [
     `Olá *${req.customer_name}*! 👋`,
@@ -86,15 +100,12 @@ export const STATUS_MESSAGES: Partial<Record<ServiceStatus, StatusMessageFn>> = 
 
   em_busca: () => '🛵 Recebemos sua localização e estamos iniciando a busca do seu aparelho celular.',
 
-  in_progress: (req) => {
-    const digits = req.customer_phone.replace(/\D/g, '')
-    return [
-      `🔧 Seu aparelho celular está sendo reparado neste momento.`,
-      '',
-      'Acompanhe qualquer atualização do serviço em tempo real através do link:',
-      `${SITE_URL}/consultar?phone=${digits}`,
-    ].join('\n')
-  },
+  in_progress: (req, _order, link) => [
+    `🔧 Seu aparelho celular está sendo reparado neste momento.`,
+    '',
+    'Acompanhe as atualizações da ordem de serviço (PDF) em tempo real através do link:',
+    link ?? '',
+  ].filter(Boolean).join('\n'),
 
   em_entrega: (req) => [
     `📦 *Seu aparelho está a caminho!*`,
@@ -104,21 +115,20 @@ export const STATUS_MESSAGES: Partial<Record<ServiceStatus, StatusMessageFn>> = 
     'Em breve chegamos! 🛵',
   ].join('\n'),
 
-  completed: (req, order) => {
+  completed: (req, order, link) => {
     const services = (order?.completed_services || '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)
       .map((s) => `*${s}*`)
       .join(', ')
-    const digits = req.customer_phone.replace(/\D/g, '')
 
     return [
       `Seu aparelho${req.phone_model ? ` *${req.phone_model}*` : ''} foi reparado com sucesso! 🎉`,
       services ? `Serviços realizados: ${services}` : null,
       `Orçamento no valor de: ${currency(order?.final_value ?? req.quote_value ?? 0)}`,
       `Garantia do serviço: ${order?.warranty || 'não informada'}`,
-      `Ordem de serviço: ${order?.pdf_url || `${SITE_URL}/consultar?phone=${digits}`}`,
+      `Ordem de serviço: ${order?.pdf_url || link || ''}`,
     ].filter(Boolean).join('\n')
   },
 
