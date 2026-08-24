@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import Logo from '@/components/ui/Logo'
 import {StoreLink, apiPath } from '@/lib/storeProxyLink'
+import { formatAddress } from '@/lib/formatAddress'
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   pending:        { label: 'Aguardando avaliação',      color: 'text-yellow-700', bg: 'bg-yellow-100', icon: <Clock className="w-3.5 h-3.5" /> },
@@ -577,7 +578,7 @@ function ConsultarContent({ initialPhone, initialOtp }: { initialPhone?: string;
                           <span className="text-sm text-gray-500">
                             {req.self_pickup
                               ? 'Você vai levar/buscar o aparelho — sem coleta/entrega'
-                              : [req.address_street, req.address_number, req.address_neighborhood, req.address_city].filter(Boolean).join(', ') || (req.address_cep ? `CEP ${req.address_cep}` : 'Endereço não informado')}
+                              : formatAddress(req)}
                           </span>
                         </div>
 

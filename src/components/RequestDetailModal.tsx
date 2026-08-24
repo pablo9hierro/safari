@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import ServiceOrderPanel, { isServiceOrderStatus } from '@/components/ServiceOrderPanel'
 import DiagnosticSection from '@/components/DiagnosticSection'
 import PatternLockInput from '@/components/PatternLockInput'
+import { formatAddress } from '@/lib/formatAddress'
 import { apiPath } from '@/lib/storeProxyLink'
 import { computeDiagnosisBusyUntil, computeRepairBusyUntil } from '@/lib/serviceLifecycle/busyUntil'
 import {
@@ -414,15 +415,7 @@ export default function RequestDetailModal({
   const advance = getAdvanceConfig(status, osState, quoteValue, paymentSaved, !!request.self_pickup, !!request.diagnosis_requested, estimatedQuoteValue, credentialSaved)
   const fullAddress = request.self_pickup
     ? 'Cliente vai levar/buscar o aparelho — sem coleta/entrega'
-    : request.address_label
-      ? request.address_label
-      : [
-          request.address_street,
-          request.address_number,
-          request.address_neighborhood,
-          request.address_city,
-          request.address_state,
-        ].filter(Boolean).join(', ') || (request.address_cep ? `CEP ${request.address_cep}` : 'Endereço não informado')
+    : formatAddress(request)
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">

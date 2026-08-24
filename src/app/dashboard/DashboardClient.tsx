@@ -23,6 +23,7 @@ import NovoServicoDialog from '@/components/dashboard/NovoServicoDialog'
 import { fetchOrders, AdminAuthError, type Order } from '@/lib/resolutoo/adminApi'
 import { adminAwareHref } from '@/lib/storeProxyLink'
 import { createClient } from '@/lib/supabase/client'
+import { formatAddress } from '@/lib/formatAddress'
 
 const PAYMENT_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   pendente: { label: 'Pagamento pendente', color: 'text-yellow-700', bg: 'bg-yellow-100' },
@@ -333,10 +334,7 @@ export default function DashboardClient({
                       <div className="flex items-center gap-1 text-vr-silver/40 text-xs mt-1">
                         <MapPin className="w-3 h-3 shrink-0" />
                         <span className="truncate">
-                          {req.self_pickup ? 'Retirada pelo cliente'
-                            : req.address_label
-                              ? req.address_label
-                              : [req.address_street, req.address_number, req.address_city].filter(Boolean).join(', ') || (req.address_cep ? `CEP ${req.address_cep}` : '—')}
+                          {req.self_pickup ? 'Retirada pelo cliente' : formatAddress(req)}
                         </span>
                       </div>
                     </div>
