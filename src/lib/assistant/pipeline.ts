@@ -2,8 +2,9 @@ import { completeSimple, completeWithTools } from './aiClient'
 import { resolveTools, executeTool, consultarAtendimentoEmAndamento } from './tools'
 import { AGENDA_TOOL_NAMES } from '@/lib/agenda/tools'
 import { fetchPaymentOnDeliveryEnabledServer, fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
-import { STORE_ADDRESS, PUBLIC_CONSULTAR_URL } from '@/lib/constants'
+import { STORE_ADDRESS } from '@/lib/constants'
 import { createServiceClient } from '@/lib/supabase/service'
+import { buildTrackingLink } from '@/lib/tracking'
 import type { AssistantConfig } from './types'
 import type { ToolCallRecord } from './aiClient'
 
@@ -51,7 +52,7 @@ function serviceLifecycleRules(): string {
     '- Cancelamento (cancelar_atendimento) só funciona antes da aprovação do orçamento — se a tool recusar (atendimento já aprovado/em reparo), explique que a partir dali o cancelamento depende da loja, não invente uma forma de cancelar mesmo assim.',
     '- Depois que consultar_status_atendimento (ou consultar_status_reparo) confirmar que o reparo terminou, pergunte proativamente se o cliente prefere RETIRAR na loja ou RECEBER por entrega — não espere ele perguntar. Se for entrega, confirme se o endereço é o mesmo já usado antes ou se é outro.',
     '- Entrega/retirada do aparelho (agendar_entrega_aparelho/agendar_retirada_aparelho) só pode ser AGENDADA depois que o reparo estiver concluído — confirme com consultar_status_atendimento antes se não tiver certeza. Coleta do aparelho no cliente (agendar_coleta_aparelho) pode ser agendada a qualquer momento em que o atendimento estiver ativo.',
-    `- Toda confirmação de agendamento de serviço (criar_agendamento com sucesso, coleta/entrega/retirada agendada) inclua no final da mensagem o link de acompanhamento: ${PUBLIC_CONSULTAR_URL('<telefone do cliente, só dígitos>')}. O cliente usa esse link pra ver o status a qualquer momento sem precisar voltar aqui.`,
+    '- Não escreva você mesmo um link de "/consultar" — o sistema já anexa automaticamente o link de acompanhamento correto (com código de acesso) toda vez que um pedido/agendamento fecha com sucesso. Só foque em confirmar o que foi feito.',
   ].join('\n')
 }
 
@@ -250,7 +251,7 @@ function enforcePaymentSplit(reply: string, toolCalls: ToolCallRecord[]): string
 // nesta interação e a resposta final não menciona o link, anexa como
 // mensagem separada. Roda DEPOIS de enforcePaymentSplit pra não interferir
 // na separação do código Pix.
-function enforceTrackingLink(reply: string, toolCalls: ToolCallRecord[], phone?: string): string {
+async function enforceTrackingLink(reply: string, toolCalls: ToolCallRecord[], phone?: string): Promise<string> {
   if (!phone) return reply
   const closed = toolCalls.some(
     (t) =>
@@ -259,7 +260,7 @@ function enforceTrackingLink(reply: string, toolCalls: ToolCallRecord[], phone?:
   )
   if (!closed) return reply
   if (reply.includes('/consultar')) return reply
-  const link = PUBLIC_CONSULTAR_URL(phone)
+  const link = await buildTrackingLink(phone)
   return `${reply}${MSG_SPLIT_MARKER}Acompanhe por aqui: ${link}`
 }
 
@@ -279,7 +280,7 @@ export async function runPipeline(
   const { reply, toolCalls } = await runResponder(config, history, userMessage, interpreterOutput, conversationPhone)
   const withPayment = enforcePaymentSplit(reply || 'Desculpe, não consegui processar sua mensagem agora.', toolCalls)
   return {
-    reply: enforceTrackingLink(withPayment, toolCalls, conversationPhone),
+    reply: await enforceTrackingLink(withPayment, toolCalls, conversationPhone),
     interpreterOutput,
     toolCalls,
   }

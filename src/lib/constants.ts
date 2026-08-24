@@ -20,7 +20,11 @@ export const SITE_URL = 'https://vrtech-jp.vercel.app'
 // vrtech-jp.vercel.app/catalogo-servico.
 export const PUBLIC_STORE_BASE = 'https://resolutoo.com/loja/eletronica-loja'
 export const PUBLIC_PRODUCT_URL = (id: string) => `${PUBLIC_STORE_BASE}/catalogo/${id}`
-export const PUBLIC_CONSULTAR_URL = (phone: string) => `${PUBLIC_STORE_BASE}/consultar?phone=${phone}`
+// Com OTP: link já vem com acesso embutido (/consultar/{phone}/{otp}),
+// abre direto sem digitação. Sem OTP: cai no fluxo manual antigo (só
+// usado como fallback se a geração do código falhar).
+export const PUBLIC_CONSULTAR_URL = (phone: string, otp?: string) =>
+  otp ? `${PUBLIC_STORE_BASE}/consultar/${phone}/${otp}` : `${PUBLIC_STORE_BASE}/consultar?phone=${phone}`
 export const PUBLIC_SERVICOS_URL = `${PUBLIC_STORE_BASE}/servicos`
 
 export const PAYMENT_METHODS = [
