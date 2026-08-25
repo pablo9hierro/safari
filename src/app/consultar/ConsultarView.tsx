@@ -96,18 +96,61 @@ function TimelineStep({
   )
 }
 
+function PdfLinks({ pdfUrl, downloadReady, downloadName }: { pdfUrl: string; downloadReady: boolean; downloadName: string }) {
+  return (
+    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+      <a
+        href={pdfUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="text-xs text-vr-red hover:text-vr-red-dark font-semibold flex items-center gap-1"
+      >
+        <Eye className="w-3.5 h-3.5" />
+        Visualizar
+      </a>
+      {downloadReady ? (
+        <button
+          type="button"
+          onClick={() => downloadFile(pdfUrl, downloadName)}
+          className="text-xs text-vr-red hover:text-vr-red-dark font-semibold flex items-center gap-1"
+        >
+          <Download className="w-3.5 h-3.5" />
+          Baixar PDF
+        </button>
+      ) : (
+        <span className="text-xs text-gray-400">Download libera quando o lojista concluir</span>
+      )}
+    </div>
+  )
+}
+
 function RequestStatusTimeline({ request }: { request: ServiceRequest }) {
   const [expanded, setExpanded] = useState(false)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [osClosed, setOsClosed] = useState(false)
+  const [diagnosisPdfUrl, setDiagnosisPdfUrl] = useState<string | null>(null)
+  const [diagnosisFinalized, setDiagnosisFinalized] = useState(false)
 
   useEffect(() => {
     const supabase = createClient()
     supabase
       .from('service_orders')
-      .select('pdf_url')
+      .select('pdf_url, closed_at')
       .eq('request_id', request.id)
       .maybeSingle()
-      .then(({ data }) => setPdfUrl(data?.pdf_url ?? null))
+      .then(({ data }) => {
+        setPdfUrl(data?.pdf_url ?? null)
+        setOsClosed(!!data?.closed_at)
+      })
+    supabase
+      .from('service_diagnostics')
+      .select('pdf_url, finalized')
+      .eq('service_request_id', request.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        setDiagnosisPdfUrl(data?.pdf_url ?? null)
+        setDiagnosisFinalized(!!data?.finalized)
+      })
   }, [request.id])
 
   const current = STATUS_MAP[request.status] ?? STATUS_MAP.pending
@@ -155,6 +198,16 @@ function RequestStatusTimeline({ request }: { request: ServiceRequest }) {
 
       {expanded && (
         <div className="px-4 pb-4 pt-1">
+          {diagnosisPdfUrl && (
+            <div className="mb-3 pb-3 border-b border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-1">📋 PDF de diagnóstico</p>
+              <PdfLinks
+                pdfUrl={diagnosisPdfUrl}
+                downloadReady={diagnosisFinalized}
+                downloadName={`diagnostico-${request.id.slice(0, 8)}.pdf`}
+              />
+            </div>
+          )}
           <ol>
             {isInterrupted ? (
               <>
@@ -167,25 +220,10 @@ function RequestStatusTimeline({ request }: { request: ServiceRequest }) {
                 return (
                   <TimelineStep key={stage.key} icon={stage.icon} label={stage.label} current={isLast} last={isLast}>
                     {isLast && pdfUrl && (
-                      <div className="flex items-center gap-3 mt-1.5">
-                        <a
-                          href={pdfUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-vr-red hover:text-vr-red-dark font-semibold flex items-center gap-1"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          Visualizar OS
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => downloadFile(pdfUrl, `OS-${request.id.slice(0, 8)}.pdf`)}
-                          className="text-xs text-vr-red hover:text-vr-red-dark font-semibold flex items-center gap-1"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          Baixar PDF
-                        </button>
-                      </div>
+                      <>
+                        <p className="text-xs font-semibold text-gray-500 mt-1.5 mb-0.5">🔧 PDF da ordem de serviço</p>
+                        <PdfLinks pdfUrl={pdfUrl} downloadReady={osClosed} downloadName={`OS-${request.id.slice(0, 8)}.pdf`} />
+                      </>
                     )}
                   </TimelineStep>
                 )

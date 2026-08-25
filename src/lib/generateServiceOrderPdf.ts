@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import { ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceRequest, UsedPart } from './types'
 import { SITE_URL, STORE_ADDRESS } from './constants'
+import { isImageUrl, loadImage } from './pdfImages'
 
 function formatPartWarranty(part: UsedPart): string {
   if (part.warranty_days == null) return '—'
@@ -30,44 +31,6 @@ const ACTION_LABELS: Record<string, string> = {
   reopened: 'OS reaberta',
 }
 
-const MIME_TO_FORMAT: Record<string, string> = {
-  'image/jpeg': 'JPEG',
-  'image/jpg': 'JPEG',
-  'image/png': 'PNG',
-  'image/webp': 'WEBP',
-}
-
-function isImageUrl(url: string) {
-  return !/\.(mp4|mov|webm|m4v)$/i.test(url)
-}
-
-async function loadImage(url: string): Promise<{ dataUrl: string; width: number; height: number; format: string } | null> {
-  try {
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const blob = await res.blob()
-    const format = MIME_TO_FORMAT[blob.type]
-    if (!format) return null
-
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsDataURL(blob)
-    })
-
-    const dims = await new Promise<{ width: number; height: number }>((resolve, reject) => {
-      const img = new Image()
-      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
-      img.onerror = reject
-      img.src = dataUrl
-    })
-
-    return { dataUrl, format, ...dims }
-  } catch {
-    return null
-  }
-}
 
 export async function generateServiceOrderPdf({
   request,
@@ -89,7 +52,10 @@ export async function generateServiceOrderPdf({
   warranty: string | null
   finalValue: number | null
   shippingPrice?: number | null
-  closedAt: string
+  // null = prévia (OS ainda em andamento, lojista pode estar só conferindo
+  // como o PDF fica até aqui) -- omite selo "CONCLUÍDA"/data de conclusão
+  // fictícia, que seriam enganosas antes da OS ser de fato fechada.
+  closedAt: string | null
   updates: ServiceOrderUpdate[]
 }): Promise<Blob> {
   const doc = new jsPDF()
@@ -256,22 +222,27 @@ export async function generateServiceOrderPdf({
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8.5)
   setText(GRAY_LIGHT)
-  doc.text(`Nº ${osNumber}  ·  ${new Date(closedAt).toLocaleDateString('pt-BR')}`, pageWidth - marginX, 20, { align: 'right' })
+  doc.text(
+    closedAt ? `Nº ${osNumber}  ·  ${new Date(closedAt).toLocaleDateString('pt-BR')}` : `Nº ${osNumber}  ·  Prévia`,
+    pageWidth - marginX, 20, { align: 'right' },
+  )
 
   const pillW = 36
   const pillH = 8
   const pillX = pageWidth - marginX - pillW
   const pillY = 25
-  setFill(GREEN)
+  setFill(closedAt ? GREEN : GRAY)
   doc.roundedRect(pillX, pillY, pillW, pillH, pillH / 2, pillH / 2, 'F')
-  setDraw(WHITE)
-  doc.setLineWidth(0.55)
-  doc.line(pillX + 6, pillY + pillH / 2, pillX + 7.4, pillY + pillH / 2 + 1.6)
-  doc.line(pillX + 7.4, pillY + pillH / 2 + 1.6, pillX + 10, pillY + pillH / 2 - 1.8)
+  if (closedAt) {
+    setDraw(WHITE)
+    doc.setLineWidth(0.55)
+    doc.line(pillX + 6, pillY + pillH / 2, pillX + 7.4, pillY + pillH / 2 + 1.6)
+    doc.line(pillX + 7.4, pillY + pillH / 2 + 1.6, pillX + 10, pillY + pillH / 2 - 1.8)
+  }
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(7.3)
   setText(WHITE)
-  doc.text('CONCLUÍDA', pillX + pillW / 2 + 4, pillY + pillH / 2 + 1.3, { align: 'center' })
+  doc.text(closedAt ? 'CONCLUÍDA' : 'EM ANDAMENTO', pillX + pillW / 2 + (closedAt ? 4 : 0), pillY + pillH / 2 + 1.3, { align: 'center' })
 
   y = HEADER_HEIGHT + 14
 
@@ -557,7 +528,7 @@ export async function generateServiceOrderPdf({
     }
     field('Valor total do serviço', `R$ ${Number(finalValue ?? 0).toFixed(2)}`)
     if (warranty) field('Garantia geral', warranty)
-    field('Concluído em', new Date(closedAt).toLocaleString('pt-BR'))
+    if (closedAt) field('Concluído em', new Date(closedAt).toLocaleString('pt-BR'))
   }
 
   const renderConclusionFromLog = (entry: ServiceOrderUpdate) => {
@@ -599,11 +570,13 @@ export async function generateServiceOrderPdf({
   bigHeading('Atualizações no reparo')
   await renderTimelineEntries(cycles[0].reparoUpdates)
 
-  bigHeading('Reparo concluído')
-  if (totalReopenings === 0) {
-    renderConclusionStructured()
-  } else if (cycles[0].completed) {
-    renderConclusionFromLog(cycles[0].completed)
+  if (closedAt || totalReopenings > 0) {
+    bigHeading('Reparo concluído')
+    if (totalReopenings === 0) {
+      renderConclusionStructured()
+    } else if (cycles[0].completed) {
+      renderConclusionFromLog(cycles[0].completed)
+    }
   }
 
   endContainer()
@@ -625,11 +598,13 @@ export async function generateServiceOrderPdf({
 
     await renderTimelineEntries(cycle.reparoUpdates)
 
-    bigHeading('Reparo concluído')
-    if (isLastCycle) {
-      renderConclusionStructured()
-    } else if (cycle.completed) {
-      renderConclusionFromLog(cycle.completed)
+    if (closedAt || !isLastCycle) {
+      bigHeading('Reparo concluído')
+      if (isLastCycle) {
+        renderConclusionStructured()
+      } else if (cycle.completed) {
+        renderConclusionFromLog(cycle.completed)
+      }
     }
 
     endContainer()

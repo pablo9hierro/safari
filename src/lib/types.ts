@@ -88,6 +88,10 @@ export interface ServiceDiagnostic {
   pdf_url: string | null
   quote_confirmed: number | null
   created_at: string
+  // false = prévia (lojista ainda ajustando o diagnóstico, cliente já pode
+  // ver como está em /consultar); true = enviado pro cliente, libera download.
+  finalized: boolean
+  media_urls: string[]
 }
 
 export interface ServiceRequestFormData {

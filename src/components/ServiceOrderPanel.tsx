@@ -1,20 +1,19 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { ServiceOrder, ServiceOrderChecklistItem, ServiceOrderUpdate, ServiceRequest, ServiceStatus, StockItem, UsedPart } from '@/lib/types'
 import { SERVICE_ORDER_COMPONENTS } from '@/lib/constants'
 import { generateServiceOrderPdf } from '@/lib/generateServiceOrderPdf'
 import { apiPath } from '@/lib/storeProxyLink'
+import { isVideo, uploadMediaFiles, MediaThumb, MediaPickerButtons } from '@/components/MediaPicker'
 import {
   ClipboardList,
   Loader2,
   CheckSquare,
   Square,
   Plus,
-  Paperclip,
-  Camera,
   X,
   Wrench,
   PackageCheck,
@@ -35,10 +34,6 @@ export function isServiceOrderStatus(status: ServiceStatus) {
   return ACTIVE_STATUSES.includes(status)
 }
 
-function isVideo(url: string) {
-  return /\.(mp4|mov|webm|m4v)$/i.test(url)
-}
-
 // Data em que a garantia de um componente reparado expira (null = sem garantia informada/iniciada ainda).
 function computeWarrantyExpiry(addedAt: string | null | undefined, warrantyDays: number | null | undefined): Date | null {
   if (!warrantyDays || !addedAt) return null
@@ -56,26 +51,24 @@ function buildInitialChecklist(): ServiceOrderChecklistItem[] {
   return SERVICE_ORDER_COMPONENTS.map((component) => ({ component, checked: false, description: '', media_urls: [] }))
 }
 
-async function uploadMedia(supabase: SupabaseClient<any, any, any>, orderId: string, files: File[], prefix: string): Promise<string[]> {
-  const urls: string[] = []
-  for (const file of files) {
-    const ext = file.name.split('.').pop()
-    const fileName = `${orderId}/${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-    const { error } = await supabase.storage.from('service-order-media').upload(fileName, file)
-    if (!error) {
-      const { data: pub } = supabase.storage.from('service-order-media').getPublicUrl(fileName)
-      urls.push(pub.publicUrl)
-    }
-  }
-  return urls
+function uploadMedia(supabase: SupabaseClient<any, any, any>, orderId: string, files: File[], prefix: string): Promise<string[]> {
+  return uploadMediaFiles(supabase, 'service-order-media', `${orderId}/${prefix}`, files)
 }
 
+// Nome ESTÁVEL (sem timestamp) + upsert: tanto a prévia (lojista ainda
+// preenchendo, OS não fechada) quanto a versão final (ao concluir) escrevem
+// no mesmo arquivo -- o cliente sempre vê o estado mais recente em
+// "Visualizar", e "Baixar" só libera quando closed_at é setado (ver
+// ConsultarView). Evita acumular um PDF novo no Storage a cada clique em
+// prévia.
 async function uploadPdf(supabase: SupabaseClient<any, any, any>, orderId: string, blob: Blob): Promise<string | null> {
-  const fileName = `${orderId}/os-${Date.now()}.pdf`
-  const { error } = await supabase.storage.from('service-order-media').upload(fileName, blob, { contentType: 'application/pdf' })
+  const fileName = `${orderId}/os.pdf`
+  const { error } = await supabase.storage.from('service-order-media').upload(fileName, blob, { contentType: 'application/pdf', upsert: true })
   if (error) return null
   const { data: pub } = supabase.storage.from('service-order-media').getPublicUrl(fileName)
-  return pub.publicUrl
+  // Cache-bust: mesmo nome de arquivo faria o browser/CDN servir uma cópia
+  // antiga em cache -- ?v=timestamp força buscar o conteúdo novo.
+  return `${pub.publicUrl}?v=${Date.now()}`
 }
 
 async function downloadPdf(url: string, fileName: string) {
@@ -91,66 +84,6 @@ async function downloadPdf(url: string, fileName: string) {
   URL.revokeObjectURL(objectUrl)
 }
 
-function MediaThumb({ url, size = 'md' }: { url: string; size?: 'sm' | 'md' }) {
-  const cls = size === 'sm'
-    ? 'w-14 h-14 object-cover rounded-lg border border-gray-200'
-    : 'w-28 h-28 object-cover rounded-lg border border-gray-200'
-  return isVideo(url) ? (
-    <video src={url} controls className={cls} />
-  ) : (
-    <a href={url} target="_blank" rel="noreferrer">
-      <img src={url} alt="Mídia da OS" className={cls} />
-    </a>
-  )
-}
-
-function MediaPickerButtons({ onFiles }: { onFiles: (files: File[]) => void }) {
-  const cameraRef = useRef<HTMLInputElement>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  return (
-    <div className="flex items-center gap-1.5">
-      <button
-        type="button"
-        onClick={() => cameraRef.current?.click()}
-        className="flex items-center gap-1 text-xs text-gray-500 hover:text-vr-red transition-colors border border-gray-200 rounded-lg px-2 py-1.5"
-      >
-        <Camera className="w-3.5 h-3.5" />
-        Câmera
-      </button>
-      <input
-        ref={cameraRef}
-        type="file"
-        accept="image/*,video/*"
-        capture="environment"
-        className="hidden"
-        onChange={(e) => {
-          onFiles(Array.from(e.target.files ?? []))
-          e.target.value = ''
-        }}
-      />
-      <button
-        type="button"
-        onClick={() => fileRef.current?.click()}
-        className="flex items-center gap-1 text-xs text-gray-500 hover:text-vr-red transition-colors border border-gray-200 rounded-lg px-2 py-1.5"
-      >
-        <Paperclip className="w-3.5 h-3.5" />
-        Anexar
-      </button>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*,video/*"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          onFiles(Array.from(e.target.files ?? []))
-          e.target.value = ''
-        }}
-      />
-    </div>
-  )
-}
 
 export default function ServiceOrderPanel({
   request,
@@ -185,6 +118,7 @@ export default function ServiceOrderPanel({
   const [completionError, setCompletionError] = useState<string | null>(null)
   const [generatingPdf, setGeneratingPdf] = useState(false)
   const [pdfError, setPdfError] = useState<string | null>(null)
+  const [previewingPdf, setPreviewingPdf] = useState(false)
   const [confirmingReopen, setConfirmingReopen] = useState(false)
   const [reopenReason, setReopenReason] = useState('')
   const [reopening, setReopening] = useState(false)
@@ -618,6 +552,55 @@ export default function ServiceOrderPanel({
     setChecklist((prev) => prev.map((it, i) => (i === idx ? { ...it, note: raw } : it)))
   }
 
+  // Prévia do PDF ENQUANTO a OS ainda está aberta (checklist sendo
+  // preenchida) -- o cliente pode acompanhar em /consultar como o
+  // documento está ficando antes da conclusão. Usa o estado local (não
+  // ainda salvo em `order`), então reflete item recém-marcado/foto recém
+  // anexada. closedAt=null faz o PDF sair sem selo "CONCLUÍDA"/data falsa
+  // (ver generateServiceOrderPdf). Nunca altera status nem dispara WhatsApp
+  // -- é só uma prévia.
+  const handlePreviewPdf = async () => {
+    if (!order) return
+    setPreviewingPdf(true)
+    setPdfError(null)
+    try {
+      const supabase = createClient()
+      const checkedNow = checklist.filter((i) => i.checked)
+      const usedPartsForPdf: UsedPart[] = checkedNow.map((i) => ({
+        stock_item_id: i.stock_item_id ?? null,
+        name: i.component,
+        quantity: 1,
+        unit: 'unidade',
+        price: i.value ?? null,
+        note: i.note ?? null,
+        warranty_days: i.warranty_days ?? null,
+        added_at: i.added_at ?? new Date().toISOString(),
+      }))
+      const pdfBlob = await generateServiceOrderPdf({
+        request,
+        orderId: order.id,
+        checklist,
+        usedParts: usedPartsForPdf,
+        completedServices: completedServices || null,
+        warranty: null,
+        finalValue: checkedNow.reduce((sum, i) => sum + (i.value ?? 0), 0),
+        closedAt: null,
+        updates,
+      })
+      const pdf_url = await uploadPdf(supabase, order.id, pdfBlob)
+      if (pdf_url) {
+        const { data: updated } = await supabase.from('service_orders').update({ pdf_url }).eq('id', order.id).select().single()
+        if (updated) setOrder(updated as ServiceOrder)
+      } else {
+        setPdfError('Não foi possível salvar a prévia do PDF.')
+      }
+    } catch (err) {
+      console.error('Erro ao gerar prévia do PDF:', err)
+      setPdfError('Não foi possível gerar a prévia do PDF.')
+    }
+    setPreviewingPdf(false)
+  }
+
   // Gera o PDF para OS já concluídas antes desta funcionalidade existir (sem pdf_url).
   const handleGeneratePdf = async () => {
     if (!order || !order.closed_at) return
@@ -985,6 +968,16 @@ export default function ServiceOrderPanel({
             />
           </div>
           {completionError && <p className="text-xs text-red-500">{completionError}</p>}
+          {pdfError && <p className="text-xs text-red-500">{pdfError}</p>}
+          <button
+            type="button"
+            onClick={handlePreviewPdf}
+            disabled={previewingPdf}
+            className="w-full flex items-center justify-center gap-1.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl py-2 hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            {previewingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+            {previewingPdf ? 'Gerando prévia...' : 'Atualizar prévia do PDF (cliente já pode ver em /consultar)'}
+          </button>
           <button
             onClick={handleSaveCompletion}
             disabled={savingCompletion}

@@ -2,6 +2,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { sendWhatsAppText } from '@/lib/whatsapp/evolutionClient'
 import { STATUS_MESSAGES } from '@/lib/whatsapp/messages'
 import { renderMessage, isTemplateEnabled } from '@/lib/templates/store'
+import { buildTrackingLink, ensureTrackingLinkPresent } from '@/lib/tracking'
 import type { ServiceRequest, ServiceStatus as MessagesServiceStatus } from '@/lib/types'
 
 const TEMPLATE_KEY: Partial<Record<string, string>> = {
@@ -37,8 +38,13 @@ export async function notifyQuoteDecision(
   const req = data as ServiceRequest
   const templateKey = TEMPLATE_KEY[status]!
   if (!(await isTemplateEnabled(templateKey))) return false
+  // Link de acompanhamento -- faltava aqui por completo (achado real: essa
+  // é a única das duas rotas de notificação de status que o assistente de
+  // IA usa via aprovar_orcamento, então a aprovação feita pelo cliente
+  // dentro da conversa nunca levava o link, mesmo quando o template citava).
+  const link = await buildTrackingLink(req.customer_phone)
   const fallbackFn = STATUS_MESSAGES[status as MessagesServiceStatus]
-  const fallback = fallbackFn ? fallbackFn(req) : ''
+  const fallback = fallbackFn ? fallbackFn(req, null, link) : ''
 
   // /tempo_estimado: minutos entre agora e busy_until (setado por
   // approveServiceQuote logo antes desta notificação).
@@ -46,11 +52,12 @@ export async function notifyQuoteDecision(
     ? `${Math.max(1, Math.round((new Date(req.busy_until).getTime() - Date.now()) / 60_000))} minutos`
     : ''
 
-  const text = await renderMessage(
+  const rendered = await renderMessage(
     templateKey,
-    { nome: req.customer_name, aparelho: req.phone_model, valor: currency(req.quote_value), tempo_estimado: tempoEstimado },
+    { nome: req.customer_name, aparelho: req.phone_model, valor: currency(req.quote_value), tempo_estimado: tempoEstimado, link_acompanhamento: link },
     fallback,
   )
+  const text = ensureTrackingLinkPresent(rendered, link)
   try {
     await sendWhatsAppText(req.customer_phone, text)
     return true

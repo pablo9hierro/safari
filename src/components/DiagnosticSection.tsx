@@ -7,12 +7,16 @@ import { jsPDF } from 'jspdf'
 import { apiPath } from '@/lib/storeProxyLink'
 import { decideQuoteOutcome } from '@/lib/serviceLifecycle/quoteDecision'
 import { computeRepairBusyUntil } from '@/lib/serviceLifecycle/busyUntil'
+import { isImageUrl, loadImage } from '@/lib/pdfImages'
+import { isVideo, uploadMediaFiles, MediaThumb, MediaPickerButtons } from '@/components/MediaPicker'
 import {
   Loader2,
   AlertCircle,
   CheckCircle,
   ExternalLink,
   FileText,
+  Eye,
+  X,
 } from 'lucide-react'
 
 interface SelectedService {
@@ -44,6 +48,14 @@ export default function DiagnosticSection({ request, onSaved }: DiagnosticSectio
   const [saved, setSaved] = useState(false)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
 
+  // Fotos/vídeos que alimentam o PDF de diagnóstico (mesmo padrão já usado
+  // na OS -- ver MediaPicker.tsx). mediaUrls = já enviados (persistidos);
+  // pendingFiles = escolhidos agora, sobem no próximo "prévia"/"salvar".
+  const [mediaUrls, setMediaUrls] = useState<string[]>([])
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [uploadingMedia, setUploadingMedia] = useState(false)
+  const [previewingPdf, setPreviewingPdf] = useState(false)
+
   const supabase = createClient()
 
   useEffect(() => {
@@ -62,6 +74,7 @@ export default function DiagnosticSection({ request, onSaved }: DiagnosticSectio
         setNotes(d.notes ?? '')
         if (d.pdf_url) setPdfUrl(d.pdf_url)
         if (d.quote_confirmed) setCustomTotal(String(d.quote_confirmed))
+        setMediaUrls(d.media_urls ?? [])
       }
     }).finally(() => setLoadingCatalog(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,7 +112,7 @@ export default function DiagnosticSection({ request, onSaved }: DiagnosticSectio
     })
   }
 
-  const generatePdfBlob = useCallback((): Blob => {
+  const generatePdfBlob = useCallback(async (): Promise<Blob> => {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const w = doc.internal.pageSize.getWidth()
     const margin = 14
@@ -175,26 +188,129 @@ export default function DiagnosticSection({ request, onSaved }: DiagnosticSectio
       doc.setFont('helvetica', 'normal')
       const noteLines = doc.splitTextToSize(notes, w - margin * 2) as string[]
       doc.text(noteLines, margin, y)
+      y += noteLines.length * 5 + 5
+    }
+
+    // Fotos/vídeos anexados pelo lojista -- imagem embutida de verdade
+    // (mesmo padrão da OS, ver src/lib/pdfImages.ts); vídeo não dá pra
+    // tocar dentro de um PDF, então vira um link clicável pro arquivo.
+    if (mediaUrls.length > 0) {
+      const imageUrls = mediaUrls.filter(isImageUrl)
+      const videoUrls = mediaUrls.filter(isVideo)
+
+      doc.line(margin, y, w - margin, y); y += 8
+      doc.setFont('helvetica', 'bold')
+      doc.text('Fotos/Vídeos Anexados', margin, y); y += 7
+
+      if (imageUrls.length > 0) {
+        const THUMB = 32
+        const GAP = 4
+        const perRow = Math.floor((w - margin * 2) / (THUMB + GAP))
+        const images = (await Promise.all(imageUrls.map((url) => loadImage(url)))).filter(Boolean) as Array<{
+          dataUrl: string; width: number; height: number; format: string
+        }>
+        let col = 0
+        let rowStartY = y
+        for (const img of images) {
+          if (col >= perRow) { col = 0; y += THUMB + GAP; rowStartY = y }
+          const x = margin + col * (THUMB + GAP)
+          const scale = Math.min(THUMB / img.width, THUMB / img.height, 1)
+          const iw = img.width * scale
+          const ih = img.height * scale
+          doc.addImage(img.dataUrl, img.format, x, rowStartY, iw, ih)
+          doc.setDrawColor(220)
+          doc.rect(x, rowStartY, THUMB, THUMB, 'S')
+          col++
+        }
+        y = rowStartY + THUMB + 6
+      }
+
+      if (videoUrls.length > 0) {
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(9)
+        doc.setTextColor(0, 0, 238)
+        videoUrls.forEach((url, i) => {
+          doc.textWithLink(`Vídeo anexado ${i + 1} (toque para abrir)`, margin, y, { url })
+          y += 5
+        })
+        doc.setTextColor(0)
+        doc.setFontSize(11)
+      }
     }
 
     return doc.output('blob')
-  }, [request, selectedServices, notes, finalTotal, customTotal, autoTotal])
+  }, [request, selectedServices, notes, finalTotal, customTotal, autoTotal, mediaUrls])
+
+  // Nome ESTÁVEL (sem timestamp) + upsert -- prévia e versão final escrevem
+  // no mesmo arquivo, igual à OS (ver ServiceOrderPanel.tsx::uploadPdf).
+  // Cliente em /consultar sempre vê o estado mais recente em "Visualizar";
+  // "Baixar" só libera quando `finalized` vira true.
+  const uploadDiagnosisPdf = async (blob: Blob): Promise<string> => {
+    const fileName = `diagnostics/${request.id}.pdf`
+    const { error: upErr } = await supabase.storage.from('service-images').upload(fileName, blob, {
+      contentType: 'application/pdf',
+      upsert: true,
+    })
+    if (upErr) throw upErr
+    const { data: pub } = supabase.storage.from('service-images').getPublicUrl(fileName)
+    return `${pub.publicUrl}?v=${Date.now()}`
+  }
+
+  const uploadPendingMedia = async (): Promise<string[]> => {
+    if (pendingFiles.length === 0) return mediaUrls
+    setUploadingMedia(true)
+    const uploaded = await uploadMediaFiles(supabase, 'service-order-media', `diagnostics/${request.id}/media`, pendingFiles)
+    setUploadingMedia(false)
+    const next = [...mediaUrls, ...uploaded]
+    setMediaUrls(next)
+    setPendingFiles([])
+    return next
+  }
+
+  // Prévia: gera o PDF com o estado atual (inclusive foto recém-anexada) e
+  // salva com finalized=false -- cliente já pode ver em /consultar, mas o
+  // download só libera quando o lojista de fato enviar (handleSave).
+  // Nunca mexe em status de service_requests nem dispara WhatsApp.
+  const handlePreview = async () => {
+    setPreviewingPdf(true)
+    setError(null)
+    try {
+      const urls = await uploadPendingMedia()
+      const blob = await generatePdfBlob()
+      const url = await uploadDiagnosisPdf(blob)
+      setPdfUrl(url)
+      const diagPayload = {
+        service_request_id: request.id,
+        services_selected: selectedServices,
+        notes: notes || null,
+        pdf_url: url,
+        quote_confirmed: finalTotal,
+        media_urls: urls,
+        finalized: false,
+      }
+      if (existing) {
+        await supabase.from('service_diagnostics').update(diagPayload).eq('id', existing.id)
+      } else {
+        const { data } = await supabase.from('service_diagnostics').insert([diagPayload]).select().single()
+        if (data) setExisting(data as ServiceDiagnostic)
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao gerar prévia do PDF')
+    } finally {
+      setPreviewingPdf(false)
+    }
+  }
 
   const handleSave = async () => {
     setSaving(true)
     setError(null)
     try {
+      const finalMediaUrls = await uploadPendingMedia()
+
       // 1. Generate PDF and upload
       setSavingPdf(true)
-      const blob = generatePdfBlob()
-      const fileName = `diagnostics/${request.id}-${Date.now()}.pdf`
-      const { error: upErr } = await supabase.storage.from('service-images').upload(fileName, blob, {
-        contentType: 'application/pdf',
-        upsert: true,
-      })
-      if (upErr) throw upErr
-      const { data: pub } = supabase.storage.from('service-images').getPublicUrl(fileName)
-      const url = pub.publicUrl
+      const blob = await generatePdfBlob()
+      const url = await uploadDiagnosisPdf(blob)
       setPdfUrl(url)
       setSavingPdf(false)
 
@@ -205,6 +321,8 @@ export default function DiagnosticSection({ request, onSaved }: DiagnosticSectio
         notes: notes || null,
         pdf_url: url,
         quote_confirmed: finalTotal,
+        media_urls: finalMediaUrls,
+        finalized: true,
       }
       if (existing) {
         await supabase.from('service_diagnostics').update(diagPayload).eq('id', existing.id)
@@ -246,12 +364,12 @@ export default function DiagnosticSection({ request, onSaved }: DiagnosticSectio
     }
   }
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (pdfUrl) {
       window.open(pdfUrl, '_blank')
       return
     }
-    const blob = generatePdfBlob()
+    const blob = await generatePdfBlob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -419,6 +537,42 @@ export default function DiagnosticSection({ request, onSaved }: DiagnosticSectio
         />
       </div>
 
+      {/* Fotos/vídeos do diagnóstico */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="label mb-0">Fotos/vídeos do aparelho</label>
+          <MediaPickerButtons onFiles={(files) => setPendingFiles((prev) => [...prev, ...files])} />
+        </div>
+        {(mediaUrls.length > 0 || pendingFiles.length > 0) && (
+          <div className="flex flex-wrap gap-2">
+            {mediaUrls.map((url) => (
+              <div key={url} className="relative">
+                <MediaThumb url={url} size="sm" />
+                <button
+                  type="button"
+                  onClick={() => setMediaUrls((prev) => prev.filter((u) => u !== url))}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+            {pendingFiles.map((file, i) => (
+              <div key={`${file.name}-${i}`} className="relative w-14 h-14 rounded-lg border border-amber-300 bg-amber-50 flex items-center justify-center">
+                <span className="text-[9px] text-amber-700 text-center px-1 leading-tight">Enviando ao salvar</span>
+                <button
+                  type="button"
+                  onClick={() => setPendingFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {error && (
         <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl p-3 text-red-700 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
@@ -428,6 +582,17 @@ export default function DiagnosticSection({ request, onSaved }: DiagnosticSectio
 
       {/* Actions */}
       <div className="space-y-2">
+        <button
+          type="button"
+          onClick={handlePreview}
+          disabled={previewingPdf || uploadingMedia || saved}
+          className="w-full flex items-center justify-center gap-1.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl py-2 hover:bg-gray-50 transition-colors disabled:opacity-50"
+        >
+          {previewingPdf || uploadingMedia
+            ? <Loader2 className="w-4 h-4 animate-spin" />
+            : <Eye className="w-4 h-4" />}
+          {previewingPdf || uploadingMedia ? 'Gerando prévia...' : 'Atualizar prévia do PDF (cliente já pode ver em /consultar)'}
+        </button>
         <button
           type="button"
           onClick={handleSave}

@@ -20,3 +20,18 @@ export async function buildTrackingLink(phone: string): Promise<string> {
     return PUBLIC_CONSULTAR_URL(digits)
   }
 }
+
+/**
+ * Garante que o texto final de uma notificação de status leva o link de
+ * acompanhamento, mesmo que o template (editável em /dashboard/template-zap)
+ * não o mencione mais -- achado real: o texto seedado de
+ * status_aguardando_diagnostico nunca citou /link_acompanhamento, e uma
+ * migration posterior reescreveu status_in_progress sem o link também.
+ * Confiar só no conteúdo do template pra isso acontecer não é garantido
+ * (texto é editável pelo lojista) -- reforça aqui de forma mecânica, mesmo
+ * princípio do enforceTrackingLink do pipeline da IA (pipeline.ts).
+ */
+export function ensureTrackingLinkPresent(text: string, link: string): string {
+  if (text.includes(link)) return text
+  return `${text}\n\nAcompanhe por aqui: ${link}`
+}

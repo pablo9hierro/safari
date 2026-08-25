@@ -5,7 +5,7 @@ import { ownerNewRequestMessage, pendingCustomerMessage, STATUS_MESSAGES, OrderS
 import { ServiceRequest, ServiceStatus } from '@/lib/types'
 import { renderMessage, isTemplateEnabled } from '@/lib/templates/store'
 import type { TemplateVars } from '@/lib/templates/renderer'
-import { buildTrackingLink } from '@/lib/tracking'
+import { buildTrackingLink, ensureTrackingLinkPresent } from '@/lib/tracking'
 
 const OWNER_PHONE = process.env.OWNER_PHONE || '5583920021373'
 
@@ -73,11 +73,12 @@ export async function POST(req: NextRequest) {
         relatedId: requestId,
       })
       const createdLink = await buildTrackingLink(typedRequest.customer_phone)
-      const text = await renderMessage(
+      const createdText = await renderMessage(
         'request_pending',
         requestVars(typedRequest, null, createdLink),
         pendingCustomerMessage(typedRequest),
       )
+      const text = ensureTrackingLinkPresent(createdText, createdLink)
       await deliverReliable(typedRequest.customer_phone, text, {
         priority: 'normal',
         relatedType: 'request_pending',
@@ -124,9 +125,10 @@ export async function POST(req: NextRequest) {
     }
     const link = await buildTrackingLink(typedRequest.customer_phone)
     const fallback = fn(typedRequest, order, link)
-    const text = templateKey
+    const rendered = templateKey
       ? await renderMessage(templateKey, requestVars(typedRequest, order, link), fallback)
       : fallback
+    const text = ensureTrackingLinkPresent(rendered, link)
 
     // em_pagamento/completed são o momento em que o cliente precisa saber
     // que já pode pagar / que o serviço terminou — mesma prioridade alta
