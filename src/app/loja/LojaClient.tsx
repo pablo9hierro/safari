@@ -12,7 +12,7 @@ function currency(v: number) {
   return `R$ ${v.toFixed(2).replace('.', ',')}`
 }
 
-export default function LojaClient({ initialProducts }: { initialProducts: Product[] }) {
+export default function LojaClient({ initialProducts, storeName }: { initialProducts: Product[]; storeName?: string | null }) {
   const [products] = useState<Product[]>(initialProducts)
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [search, setSearch] = useState('')
@@ -61,7 +61,7 @@ export default function LojaClient({ initialProducts }: { initialProducts: Produ
             <ArrowLeft className="w-4 h-4" />
             <span className="hidden sm:inline">Início</span>
           </StoreLink>
-          <Logo size="md" />
+          <Logo size="md" name={storeName} />
         </div>
         <button
           onClick={() => document.getElementById('cart-icon')?.click()}

@@ -16,6 +16,7 @@ import Image from 'next/image'
 import { CartProvider } from '@/lib/carrinho/context'
 import CarrinhoFlutuante from '@/components/CarrinhoFlutuante'
 import { StoreLink } from '@/lib/storeProxyLink'
+import { fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
 
 const SERVICES = [
   { icon: Smartphone, title: 'Troca de tela', desc: 'Telas originais com garantia para todas as marcas.' },
@@ -32,6 +33,7 @@ const HIGHLIGHTS = [
 ]
 
 export default async function Home() {
+  const { logo_url: logoUrl, loja_nome: lojaNome } = await fetchPlatformStoreConfig()
   return (
     <CartProvider>
       <main className="min-h-screen bg-vr-black text-white">
@@ -39,8 +41,8 @@ export default async function Home() {
         <header className="px-5 sm:px-10 py-5 flex items-center justify-between max-w-6xl mx-auto">
           <StoreLink href="/">
             <Image
-              src="https://res.cloudinary.com/dkqhped8y/image/upload/v1783212643/iconelogo_rpcnvw.png"
-              alt="VR Tech"
+              src={logoUrl || 'https://res.cloudinary.com/dkqhped8y/image/upload/v1783212643/iconelogo_rpcnvw.png'}
+              alt={lojaNome || 'VR Tech'}
               width={80}
               height={80}
               className="rounded-lg block"
@@ -136,7 +138,7 @@ export default async function Home() {
         {/* Footer */}
         <footer className="px-5 sm:px-10 py-10 border-t border-white/5">
           <div className="max-w-6xl mx-auto flex flex-col items-center gap-6 text-center">
-            <Logo size="md" showTagline />
+            <Logo size="md" showTagline name={lojaNome} />
             <div className="flex flex-wrap items-center justify-center gap-4">
               {SERVICES.map((s) => (
                 <span key={s.title} className="flex items-center gap-1.5 text-xs text-vr-silver/60">

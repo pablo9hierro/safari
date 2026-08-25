@@ -1,4 +1,5 @@
 import { fetchPublicProducts } from '@/lib/resolutoo/catalog'
+import { fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
 import { CartProvider } from '@/lib/carrinho/context'
 import CarrinhoFlutuante from '@/components/CarrinhoFlutuante'
 import LojaClient from './LojaClient'
@@ -9,11 +10,14 @@ import LojaClient from './LojaClient'
 export const revalidate = 30
 
 export default async function LojaPage() {
-  const products = await fetchPublicProducts()
+  const [products, { loja_nome }] = await Promise.all([
+    fetchPublicProducts(),
+    fetchPlatformStoreConfig(),
+  ])
 
   return (
     <CartProvider>
-      <LojaClient initialProducts={products.sort((a, b) => a.name.localeCompare(b.name))} />
+      <LojaClient initialProducts={products.sort((a, b) => a.name.localeCompare(b.name))} storeName={loja_nome} />
       <CarrinhoFlutuante />
     </CartProvider>
   )

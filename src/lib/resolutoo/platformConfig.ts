@@ -15,6 +15,10 @@ export type PlatformStoreConfig = {
   entrega_reparado_gratis: boolean
   /** Cliente pode escolher pagar produto (+ entrega) no ato da entrega. */
   pagamento_na_retirada: boolean
+  /** Nome da loja cadastrado em /onboarding + editável em /meu-plano/layout. */
+  loja_nome: string | null
+  /** Logo enviada em /meu-plano/layout -- null se o lojista nunca subiu uma. */
+  logo_url: string | null
 }
 
 const FALLBACK: PlatformStoreConfig = {
@@ -26,6 +30,8 @@ const FALLBACK: PlatformStoreConfig = {
   coleta_gratis: false,
   entrega_reparado_gratis: false,
   pagamento_na_retirada: false,
+  loja_nome: null,
+  logo_url: null,
 }
 
 /**
@@ -48,6 +54,8 @@ export async function fetchPlatformStoreConfig(): Promise<PlatformStoreConfig> {
       coleta_gratis: !apenasRetirada && !!data.coleta_gratis,
       entrega_reparado_gratis: !apenasRetirada && !!data.entrega_reparado_gratis,
       pagamento_na_retirada: !!data.pagamento_na_retirada,
+      loja_nome: data.loja_nome || null,
+      logo_url: data.logo_url || null,
     }
   } catch {
     return FALLBACK
