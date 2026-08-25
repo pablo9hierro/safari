@@ -34,6 +34,26 @@ export async function sendWhatsAppText(phone: string, text: string) {
   return res.json()
 }
 
+// Baixa o conteúdo de uma mídia (foto, áudio, etc) recebida pelo WhatsApp --
+// vem criptografada no payload do webhook (locationMessage/imageMessage só
+// tem a URL cifrada), a Evolution API decifra e devolve em base64.
+export async function getBase64FromMediaMessage(messageKey: { remoteJid: string; fromMe: boolean; id: string }) {
+  const { baseUrl, apiKey, instance } = getConfig()
+
+  const res = await fetch(`${baseUrl}/chat/getBase64FromMediaMessage/${instance}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: apiKey },
+    body: JSON.stringify({ message: { key: messageKey } }),
+  })
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Evolution API: falha ao baixar mídia (${res.status}) ${body}`)
+  }
+
+  return res.json() as Promise<{ base64: string; mimetype?: string }>
+}
+
 // Pede pra Evolution API (re)iniciar a conexão da instância e gerar um QR code.
 export async function connectInstance() {
   const { baseUrl, apiKey, instance } = getConfig()

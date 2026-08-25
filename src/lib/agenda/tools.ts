@@ -76,6 +76,7 @@ export const AGENDA_TOOLS: ToolDef[] = [
         endereco_lat: { type: 'number', description: 'Latitude EXATA da localização que o cliente mandou pelo WhatsApp (mensagem de localização) -- OBRIGATÓRIO quando coleta=true. Nunca invente coordenada.' },
         endereco_lng: { type: 'number', description: 'Longitude EXATA da localização que o cliente mandou pelo WhatsApp -- OBRIGATÓRIO quando coleta=true.' },
         endereco_numero: { type: 'string', description: 'Número da casa/apartamento, só quando o cliente informar (pergunte se a resposta desta tool disser "SEM NÚMERO" depois de mandar a localização).' },
+        foto_url: { type: 'string', description: 'URL real da foto do aparelho que o cliente mandou pelo WhatsApp (vem no marcador "[imagem recebida] URL: ..."), quando ele mandou -- opcional, nunca invente uma URL nem obrigue o cliente a mandar foto.' },
       },
       required: ['cliente_nome', 'cliente_telefone', 'data', 'horario', 'coleta'],
     },
@@ -228,6 +229,7 @@ async function criarAgendamento(input: {
   endereco_lat?: number
   endereco_lng?: number
   endereco_numero?: string
+  foto_url?: string
 }): Promise<string> {
   const dateKey = resolveDateKey(input.data)
   if (!dateKey) return 'FALHOU (validation): informe a data como "hoje", "amanhã" ou dd/mm/aaaa.'
@@ -280,6 +282,7 @@ async function criarAgendamento(input: {
     source: 'whatsapp_ai',
     self_pickup: input.coleta === false,
     diagnosis_requested: !!input.diagnostico,
+    image_url: input.foto_url || undefined,
     ...addressFields,
   })
   const appointment = await createAppointment({
@@ -367,6 +370,7 @@ export async function executeAgendaTool(
           endereco_lat: typeof input.endereco_lat === 'number' ? input.endereco_lat : undefined,
           endereco_lng: typeof input.endereco_lng === 'number' ? input.endereco_lng : undefined,
           endereco_numero: input.endereco_numero ? String(input.endereco_numero) : undefined,
+          foto_url: input.foto_url ? String(input.foto_url) : undefined,
         })
       case 'consultar_agendamento':
         return await consultarAgendamento({

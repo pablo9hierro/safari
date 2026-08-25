@@ -364,6 +364,21 @@ export default function RequestDetailModal({
       // A mensagem de "completed" tem dados da OS (serviços/valor/garantia) e só é
       // enviada quando a OS é de fato fechada — ver ServiceOrderPanel.handleSaveCompletion.
       if (next !== 'completed') await notifyWhatsApp(next)
+
+      // Reparo saiu de "em reparo" -- o agendamento de coleta/atendimento
+      // vinculado conclui sozinho, sem depender de baixa manual na Agenda
+      // (achado real: ficava "Agendado" pra sempre até alguém lembrar de
+      // clicar "Concluir" lá, mesmo o serviço já tendo avançado aqui).
+      if (status === 'in_progress' && next !== status) {
+        const { data: linkedAppts } = await supabase
+          .from('appointments')
+          .select('id')
+          .eq('service_request_id', request.id)
+          .in('status', ['agendado', 'remarcado'])
+        for (const appt of linkedAppts ?? []) {
+          await fetch(apiPath(`/api/appointments/${appt.id}/complete`), { method: 'POST' }).catch(() => {})
+        }
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao salvar'
       setError(msg)

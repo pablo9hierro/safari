@@ -2,6 +2,30 @@ import { NextRequest, NextResponse } from 'next/server'
 import { setWhatsAppState as setState } from '@/lib/whatsapp/state'
 import { createServiceClient } from '@/lib/supabase/service'
 import { deliverAssistantMessageReliable } from '@/lib/queue/assistantQueue'
+import { getBase64FromMediaMessage } from '@/lib/whatsapp/evolutionClient'
+
+/** Baixa a foto que o cliente mandou e sobe pro mesmo bucket que o form de
+ * orçamento usa -- devolve a URL pública, ou null se algo falhar (nunca
+ * derruba o processamento do resto da mensagem por causa disso). */
+async function uploadIncomingImage(messageKey: { remoteJid: string; fromMe: boolean; id: string }): Promise<string | null> {
+  try {
+    const { base64, mimetype } = await getBase64FromMediaMessage(messageKey)
+    const ext = mimetype?.split('/')[1]?.split(';')[0] || 'jpg'
+    const fileName = `whatsapp/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+    const supabase = createServiceClient()
+    const buffer = Buffer.from(base64, 'base64')
+    const { error } = await supabase.storage.from('service-images').upload(fileName, buffer, {
+      contentType: mimetype || 'image/jpeg',
+      upsert: true,
+    })
+    if (error) throw error
+    const { data } = supabase.storage.from('service-images').getPublicUrl(fileName)
+    return data.publicUrl
+  } catch (e) {
+    console.error('[webhook] falha ao baixar/subir imagem do WhatsApp:', e)
+    return null
+  }
+}
 
 // Recebe os eventos de webhook da Evolution API.
 // Trata: QR code, status de conexão e mensagens de texto (encaminha pro assistente IA).
@@ -68,13 +92,28 @@ export async function POST(req: NextRequest) {
       // estruturado que a IA sabe extrair (ver instrução em pipeline.ts),
       // em vez de um tipo de mensagem à parte que o pipeline não entende.
       const location = msg?.message?.locationMessage
-      const text: string =
+      // Foto do aparelho: a IA pode pedir opcionalmente (ver serviceConfirmationRule
+      // em pipeline.ts) -- baixa da Evolution API, sobe pro storage, e vira
+      // um marcador estruturado igual à localização, com a legenda (se
+      // houver) na frente, pra IA extrair a URL e mandar em foto_url.
+      const imageMessage = msg?.message?.imageMessage
+      let imageMarker = ''
+      if (imageMessage) {
+        const key = msg?.key
+        if (key?.remoteJid && key?.id) {
+          const url = await uploadIncomingImage({ remoteJid: key.remoteJid, fromMe: !!key.fromMe, id: key.id })
+          if (url) imageMarker = `[imagem recebida] URL: ${url}`
+        }
+      }
+      const text: string = [
         msg?.message?.conversation ??
-        msg?.message?.extendedTextMessage?.text ??
-        msg?.message?.imageMessage?.caption ??
-        (location?.degreesLatitude != null && location?.degreesLongitude != null
-          ? `[localização recebida] latitude: ${location.degreesLatitude}, longitude: ${location.degreesLongitude}`
-          : '')
+          msg?.message?.extendedTextMessage?.text ??
+          imageMessage?.caption ??
+          (location?.degreesLatitude != null && location?.degreesLongitude != null
+            ? `[localização recebida] latitude: ${location.degreesLatitude}, longitude: ${location.degreesLongitude}`
+            : ''),
+        imageMarker,
+      ].filter(Boolean).join('\n')
       if (!text.trim()) continue
 
       const phone = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '')

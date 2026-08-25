@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { CalendarClock, Check, Loader2, Plus, X } from 'lucide-react'
+import { CalendarClock, Check, ChevronDown, Loader2, Plus, X } from 'lucide-react'
 import { apiPath } from '@/lib/storeProxyLink'
 
 const LABEL = 'block text-xs font-semibold text-vr-silver/60 mb-1.5 uppercase tracking-wider'
@@ -36,6 +36,9 @@ export default function AgendaSettingsCard() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Fechado por padrão -- é config que se mexe raramente, não precisa
+  // ocupar a tela toda vez que o lojista só quer ver a grade do dia.
+  const [open, setOpen] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -125,12 +128,21 @@ export default function AgendaSettingsCard() {
   }
 
   return (
-    <div className="bg-vr-graphite rounded-2xl border border-white/5 p-4 space-y-4">
-      <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-        <CalendarClock className="w-4 h-4 text-vr-red" />
-        Agendamento de atendimentos
-      </h2>
+    <div className="bg-vr-graphite rounded-2xl border border-white/5 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 p-4 text-left hover:bg-white/2 transition-colors"
+      >
+        <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+          <CalendarClock className="w-4 h-4 text-vr-red" />
+          Agendamento de atendimentos
+        </h2>
+        <ChevronDown className={`w-4 h-4 text-vr-silver/50 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
 
+      {open && (
+      <div className="p-4 pt-0 space-y-4">
       <label className="flex items-center gap-3 cursor-pointer select-none">
         <input
           type="checkbox"
@@ -235,8 +247,8 @@ export default function AgendaSettingsCard() {
 
       <p className="text-xs text-vr-silver/40">
         A loja agenda apenas para <strong className="text-vr-silver/60">hoje e amanhã</strong>. O
-        tempo que cada atendimento ocupa vem da duração cadastrada no serviço (coleta + manutenção
-        + entrega).
+        tempo que cada visita de coleta ocupa vem do "tempo de deslocamento" configurado em
+        Serviço de deslocamento -- a manutenção em si acontece depois, na loja, e não trava a agenda.
       </p>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
@@ -250,6 +262,8 @@ export default function AgendaSettingsCard() {
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : null}
         {saved ? 'Salvo!' : 'Salvar agendamento'}
       </button>
+      </div>
+      )}
     </div>
   )
 }

@@ -468,6 +468,9 @@ export async function ensureServiceRequestForAppointment(
     address_number?: string
     address_neighborhood?: string
     address_city?: string
+    /** Foto do aparelho -- opcional, mandada pelo cliente no WhatsApp
+     * (baixada e re-hospedada pelo webhook, nunca a URL cifrada crua). */
+    image_url?: string
   },
   db: Db = createServiceClient(),
 ): Promise<string> {
@@ -484,6 +487,7 @@ export async function ensureServiceRequestForAppointment(
       payment_methods: [],
       status: input.status ?? 'em_busca',
       source: input.source,
+      image_url: input.image_url ?? null,
       address_lat: input.address_lat ?? null,
       address_lng: input.address_lng ?? null,
       address_label: input.address_label ?? null,
