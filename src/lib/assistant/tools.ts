@@ -5,6 +5,7 @@ import { SERVICE_TOOLS, DEVICE_TOOLS, executeServiceTool } from '@/lib/serviceLi
 import { fetchApenasRetiradaServer } from '@/lib/resolutoo/platformConfig'
 import { fetchPublicProducts } from '@/lib/resolutoo/catalog'
 import { createAssistantOrderServer, createPixPaymentServer, estimateDeliveryServer } from '@/lib/resolutoo/assistantOrder'
+import { fetchProductOrdersByPhone } from '@/lib/consultar'
 import { PUBLIC_PRODUCT_URL } from '@/lib/constants'
 
 export const TOOLS: ToolDef[] = [
@@ -189,6 +190,23 @@ async function criarPedidoEGerarCobranca(input: {
   if (!input.itens || input.itens.length === 0) return 'FALHOU (validation): informe ao menos um item.'
   if (!input.cliente_nome?.trim() || !input.cliente_telefone?.trim()) {
     return 'FALHOU (validation): nome e telefone do cliente são obrigatórios.'
+  }
+
+  // Trava mecânica contra pedido duplicado -- confiar só na instrução do
+  // prompt ("não chame de nono") não é garantido (achado real: modelo
+  // chamou de novo quando o cliente só mudou a preferência de pagamento
+  // depois do pedido já criado, gerando 2 pedidos reais pro mesmo item).
+  // Pedido pendente pra este telefone criado nos últimos 15min já é
+  // considerado o mesmo atendimento -- devolve ele em vez de criar outro.
+  const digits = input.cliente_telefone.replace(/\D/g, '')
+  const recentOrders = await fetchProductOrdersByPhone(digits).catch(() => [])
+  const dup = recentOrders.find(
+    (o) =>
+      (o.status === 'pending' || o.status === 'confirmed') &&
+      Date.now() - new Date(o.created_at).getTime() < 15 * 60_000,
+  )
+  if (dup) {
+    return `PEDIDO JÁ EXISTE (não crie de novo): ID ${dup.id} | Total: R$ ${Number(dup.total).toFixed(2).replace('.', ',')} | ${dup.payment_status === 'paid' ? 'já pago' : 'pagamento pendente'}. Só confirme pro cliente que esse pedido já está registrado (e que ele pode pagar no ato se preferir, em vez do Pix já gerado) — NUNCA chame esta tool de novo pra este pedido.`
   }
 
   let shippingPrice = 0
