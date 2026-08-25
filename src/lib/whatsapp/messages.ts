@@ -129,6 +129,8 @@ export const STATUS_MESSAGES: Partial<Record<ServiceStatus, StatusMessageFn>> = 
       `Orçamento no valor de: ${currency(order?.final_value ?? req.quote_value ?? 0)}`,
       `Garantia do serviço: ${order?.warranty || 'não informada'}`,
       `Ordem de serviço: ${order?.pdf_url || link || ''}`,
+      '',
+      `Já pode combinar ${req.self_pickup ? 'a retirada na loja' : 'a entrega no seu endereço'} -- me diga o melhor horário que a gente agenda certinho.`,
     ].filter(Boolean).join('\n')
   },
 

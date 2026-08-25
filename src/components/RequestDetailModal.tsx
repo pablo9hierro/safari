@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { PaymentMethodEntry, ServiceRequest, ServiceStatus } from '@/lib/types'
 import { PAYMENT_METHODS } from '@/lib/constants'
 import { createClient } from '@/lib/supabase/client'
@@ -10,6 +10,7 @@ import PatternLockInput from '@/components/PatternLockInput'
 import { formatAddress, googleMapsLink } from '@/lib/formatAddress'
 import { apiPath } from '@/lib/storeProxyLink'
 import { computeDiagnosisBusyUntil, computeRepairBusyUntil } from '@/lib/serviceLifecycle/busyUntil'
+import { createPdvPix, getPdvPixStatus, AdminAuthError } from '@/lib/resolutoo/adminApi'
 import {
   X,
   Smartphone,
@@ -22,7 +23,60 @@ import {
   AlertCircle,
   ExternalLink,
   ArrowRight,
+  QrCode,
+  Check,
 } from 'lucide-react'
+
+type PixState = {
+  amount: number
+  payment_id: string
+  qr_code: string
+  qr_code_base64: string
+  status: 'pendente' | 'aprovado'
+}
+
+/** QR Pix + copia-e-cola com polling do status real na Mercado Pago -- mesmo
+ * mecanismo do PDV (createPdvPix/getPdvPixStatus), reaproveitado aqui pro
+ * pagamento de serviço. Tema claro pra combinar com o resto deste modal
+ * (o Dialog padrão do painel é escuro, não serve aqui). */
+function PixQrDialog({ state, onClose }: { state: PixState; onClose: () => void }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-70 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <QrCode className="w-5 h-5 text-vr-red" />
+          <h3 className="font-bold text-gray-900">Pix — R$ {state.amount.toFixed(2)}</h3>
+        </div>
+        {state.status === 'aprovado' ? (
+          <p className="text-sm text-green-600 flex items-center gap-1.5 py-6 justify-center font-semibold">
+            <Check className="w-5 h-5" /> Pagamento aprovado!
+          </p>
+        ) : (
+          <>
+            {state.qr_code_base64 && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={state.qr_code_base64} alt="QR Code Pix" className="w-full rounded-xl border border-gray-100 p-2" />
+            )}
+            <button
+              type="button"
+              onClick={() => { navigator.clipboard.writeText(state.qr_code); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+              className="w-full px-3 py-2.5 rounded-xl text-xs font-mono text-gray-500 bg-gray-50 border border-gray-200 hover:border-vr-red/40 transition-colors truncate"
+            >
+              {copied ? 'Copiado!' : 'Copiar código copia-e-cola'}
+            </button>
+            <p className="text-xs text-gray-400 flex items-center gap-1.5">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Aguardando pagamento...
+            </p>
+          </>
+        )}
+        <button type="button" onClick={onClose} className="w-full px-4 py-2 rounded-xl text-sm text-gray-500 hover:text-gray-800 transition-colors">
+          Fechar
+        </button>
+      </div>
+    </div>
+  )
+}
 
 const STATUS_LABELS: Record<ServiceStatus, string> = {
   pending:                '🆕 Solicitação nova — aguardando aceite',
@@ -31,7 +85,7 @@ const STATUS_LABELS: Record<ServiceStatus, string> = {
   retirada_local:         '🏠 Retirada/entrega pelo cliente',
   em_busca:               '🛵 Em rota de recolhimento',
   in_progress:            '🔧 Em reparo',
-  completed:              '✅ Reparo concluído',
+  completed:              '✅ Pronto — combinar entrega/retirada',
   em_pagamento:           '💳 Em pagamento',
   em_entrega:             '📦 Em rota de entrega',
   delivered:              '📬 Aparelho entregue',
@@ -223,6 +277,14 @@ export default function RequestDetailModal({
   const [paymentSaved, setPaymentSaved] = useState((request.payment_methods ?? []).length > 0)
   const [savingPayment, setSavingPayment] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
+  // Diálogo de pagamento fecha/reabre por cima do modal (não fica mais
+  // sempre fixo na tela) -- abre sozinho ao entrar em em_pagamento, dá pra
+  // fechar (X) e reabrir depois pelo botão fixo.
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(true)
+  const [pixDialog, setPixDialog] = useState<PixState | null>(null)
+  // finalMethods (incluindo a entrada Pix) fica aqui enquanto o pagamento
+  // Pix está pendente -- só grava no banco depois do polling confirmar.
+  const pendingMethodsRef = useRef<PaymentMethodEntry[]>([])
 
   const phoneDigits = request.customer_phone.replace(/\D/g, '')
 
@@ -245,6 +307,54 @@ export default function RequestDetailModal({
     setSelectedMethods((prev) => (prev.includes(method) ? prev.filter((m) => m !== method) : [...prev, method]))
   }
 
+  const persistPaymentMethods = async (finalMethods: PaymentMethodEntry[]) => {
+    const supabase = createClient()
+    const { data, error: err } = await supabase
+      .from('service_requests')
+      .update({ discount_percent: discountNum || null, payment_methods: finalMethods, quote_value: discountedValue })
+      .eq('id', request.id)
+      .select()
+      .single()
+
+    if (err || !data) {
+      setPaymentError('Não foi possível salvar a forma de pagamento.')
+      setSavingPayment(false)
+      return false
+    }
+
+    // Mantém o valor final da OS em sincronia com o valor efetivamente cobrado (após desconto).
+    await supabase.from('service_orders').update({ final_value: discountedValue }).eq('request_id', request.id)
+
+    setQuoteValue(String(discountedValue))
+    onUpdate(data as ServiceRequest)
+    setPaymentSaved(true)
+    setSavingPayment(false)
+    return true
+  }
+
+  // Pix vira cobrança REAL (QR + copia-cola gerados na Mercado Pago já
+  // conectada pelo lojista, mesmo mecanismo do PDV) -- só marca como pago
+  // depois do polling confirmar de verdade. Cartão/dinheiro continuam baixa
+  // manual (o lojista já recebeu na hora, só está registrando aqui).
+  const startPix = async (amount: number, finalMethods: PaymentMethodEntry[]) => {
+    setPaymentError(null)
+    setSavingPayment(true)
+    try {
+      const pix = await createPdvPix({
+        amount,
+        customer_name: request.customer_name,
+        customer_email: request.customer_email,
+        external_reference: request.id,
+      })
+      setPixDialog({ amount, payment_id: pix.payment_id, qr_code: pix.qr_code, qr_code_base64: pix.qr_code_base64, status: 'pendente' })
+      pendingMethodsRef.current = finalMethods
+    } catch (e) {
+      setPaymentError(e instanceof AdminAuthError ? e.message : e instanceof Error ? e.message : 'Falha ao gerar Pix.')
+    } finally {
+      setSavingPayment(false)
+    }
+  }
+
   const handleSavePayment = async () => {
     setPaymentError(null)
     if (selectedMethods.length === 0) {
@@ -263,29 +373,35 @@ export default function RequestDetailModal({
           { method: lastMethod, value: remainder },
         ]
 
-    setSavingPayment(true)
-    const supabase = createClient()
-    const { data, error: err } = await supabase
-      .from('service_requests')
-      .update({ discount_percent: discountNum || null, payment_methods: finalMethods, quote_value: discountedValue })
-      .eq('id', request.id)
-      .select()
-      .single()
-
-    if (err || !data) {
-      setPaymentError('Não foi possível salvar a forma de pagamento.')
-      setSavingPayment(false)
+    const pixEntry = finalMethods.find((m) => m.method === 'Pix' && m.value > 0)
+    if (pixEntry) {
+      await startPix(pixEntry.value, finalMethods)
       return
     }
 
-    // Mantém o valor final da OS em sincronia com o valor efetivamente cobrado (após desconto).
-    await supabase.from('service_orders').update({ final_value: discountedValue }).eq('request_id', request.id)
-
-    setQuoteValue(String(discountedValue))
-    onUpdate(data as ServiceRequest)
-    setPaymentSaved(true)
-    setSavingPayment(false)
+    setSavingPayment(true)
+    await persistPaymentMethods(finalMethods)
   }
+
+  // Poll do status real na Mercado Pago enquanto o QR Pix está aberto.
+  useEffect(() => {
+    if (!pixDialog || pixDialog.status !== 'pendente') return
+    const t = setInterval(async () => {
+      try {
+        const { status } = await getPdvPixStatus(pixDialog.payment_id)
+        if (status === 'approved') {
+          clearInterval(t)
+          setPixDialog((prev) => (prev ? { ...prev, status: 'aprovado' } : prev))
+          const ok = await persistPaymentMethods(pendingMethodsRef.current)
+          if (ok) setTimeout(() => setPixDialog(null), 1800)
+        }
+      } catch {
+        // erro de rede pontual no polling não trava a UI -- tenta de novo no próximo tick.
+      }
+    }, 3000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pixDialog?.payment_id, pixDialog?.status])
 
   // Dispara o envio via Evolution API no backend, sem qualquer redirecionamento manual.
   const notifyWhatsApp = async (event: ServiceStatus) => {
@@ -650,9 +766,25 @@ export default function RequestDetailModal({
           )}
 
           {/* Pagamento — formulário só durante o status "em pagamento" */}
-          {status === 'em_pagamento' && (
-            <section className="space-y-2">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Pagamento</h3>
+          {status === 'em_pagamento' && !paymentDialogOpen && !paymentSaved && (
+            <button
+              type="button"
+              onClick={() => setPaymentDialogOpen(true)}
+              className="w-full flex items-center justify-center gap-2 text-sm font-semibold text-vr-red border border-vr-red/30 rounded-xl py-2.5 hover:bg-red-50 transition-colors"
+            >
+              💳 Confirmar pagamento
+            </button>
+          )}
+
+          {status === 'em_pagamento' && paymentDialogOpen && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-white w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl max-h-[90vh] overflow-y-auto p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Confirmar pagamento</h3>
+                  <button type="button" onClick={() => setPaymentDialogOpen(false)} className="text-gray-400 hover:text-gray-700">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
                 <div>
                   <label className="label">Desconto (%)</label>
@@ -734,10 +866,17 @@ export default function RequestDetailModal({
                   disabled={savingPayment || paymentSaved}
                   className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                  {savingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : paymentSaved ? '✓ Pagamento registrado' : 'Salvar forma de pagamento'}
+                  {savingPayment
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : paymentSaved
+                      ? '✓ Pagamento registrado'
+                      : selectedMethods.includes('Pix')
+                        ? '📱 Gerar Pix'
+                        : 'Salvar forma de pagamento'}
                 </button>
               </div>
-            </section>
+              </div>
+            </div>
           )}
 
           {/* Pagamento — resumo somente leitura nas etapas seguintes */}
@@ -920,6 +1059,8 @@ export default function RequestDetailModal({
           </p>
         </div>
       </div>
+
+      {pixDialog && <PixQrDialog state={pixDialog} onClose={() => setPixDialog(null)} />}
     </div>
   )
 }

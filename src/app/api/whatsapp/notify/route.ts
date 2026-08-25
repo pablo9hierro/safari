@@ -40,6 +40,10 @@ function requestVars(req: ServiceRequest, order: OrderSummary, link: string): Te
     tempo_estimado: req.busy_until
       ? `${Math.max(1, Math.round((new Date(req.busy_until).getTime() - Date.now()) / 60_000))} minutos`
       : '',
+    // Reparo pronto (status_completed): pede pro cliente escolher a perna
+    // de volta certa -- self_pickup fixo por atendimento, então já sabemos
+    // qual pergunta fazer (nunca oferece a opção errada).
+    retirada_ou_entrega: req.self_pickup ? 'a retirada na loja' : 'a entrega no seu endereço',
   }
 }
 

@@ -32,7 +32,7 @@ export const STATUS_DESCRIPTION: Record<ServiceStatus, string> = {
   retirada_local: 'Aguardando você trazer o aparelho até a loja.',
   em_busca: 'A loja está a caminho para buscar o aparelho.',
   in_progress: 'Aparelho em reparo neste momento.',
-  completed: 'Reparo concluído! Falta combinar a entrega/retirada.',
+  completed: 'Pronto! Falta combinar a entrega/retirada.',
   em_pagamento: 'Reparo concluído, aguardando o pagamento para liberar a entrega.',
   em_entrega: 'Aparelho a caminho de entrega.',
   delivered: 'Aparelho já entregue.',
@@ -99,7 +99,7 @@ export const STATUS_GROUP_LABEL: Record<StatusGroup, string> = {
   aguardando_aparelho: 'Aguardando aparelho',
   em_diagnostico: 'Em diagnóstico',
   em_reparo: 'Em reparo',
-  retiradas: 'Retiradas',
+  retiradas: 'Pronto',
   concluidos: 'Concluídos',
 }
 

@@ -157,7 +157,7 @@ const STATUS_CONFIG: Record<ServiceStatus, { label: string; color: string; bg: s
   retirada_local:          { label: 'Retirada/entrega pelo cliente', color: 'text-teal-700',    bg: 'bg-teal-100'    },
   em_busca:                { label: 'Em rota de recolhimento',      color: 'text-orange-700',  bg: 'bg-orange-100'  },
   in_progress:             { label: 'Em reparo',                    color: 'text-purple-700',  bg: 'bg-purple-100'  },
-  completed:               { label: 'Concluído',                    color: 'text-gray-700',    bg: 'bg-gray-100'    },
+  completed:               { label: 'Pronto',                       color: 'text-gray-700',    bg: 'bg-gray-100'    },
   em_pagamento:            { label: 'Em pagamento',                 color: 'text-lime-700',    bg: 'bg-lime-100'    },
   em_entrega:              { label: 'Em rota de entrega',           color: 'text-indigo-700',  bg: 'bg-indigo-100'  },
   delivered:               { label: 'Aparelho entregue',            color: 'text-cyan-700',    bg: 'bg-cyan-100'    },
