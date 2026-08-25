@@ -67,6 +67,25 @@ export async function estimateDeliveryServer(lat: number, lng: number): Promise<
   return res.json()
 }
 
+/** Cancela um pedido pendente -- usado quando um novo pedido precisa
+ * substituir um anterior ainda não pago (dado do cliente mudou e o
+ * checkout foi refeito), pra nunca deixar 2 pedidos pendentes duplicados
+ * pro mesmo atendimento. Mesmo modelo de confiança do /consultar: o
+ * whatsapp do pedido precisa bater. Bloqueado se já saiu pra entrega
+ * (nesse ponto não é mais "pendente" de qualquer forma). */
+export async function cancelOrderServer(orderId: string, whatsapp: string): Promise<void> {
+  const res = await fetch(`${ECOMMERCE_API_URL}/api/orders/${orderId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(10_000),
+    body: JSON.stringify({ whatsapp }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.message ?? `Erro ao cancelar pedido anterior (${res.status}).`)
+  }
+}
+
 export async function createPixPaymentServer(orderId: string): Promise<OrderDto> {
   const res = await fetch(`${ECOMMERCE_API_URL}/api/orders/${orderId}/create-pix-payment`, {
     method: 'POST',

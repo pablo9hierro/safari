@@ -8,7 +8,8 @@ import { buildTrackingLink } from '@/lib/tracking'
 import type { AssistantConfig } from './types'
 import type { ToolCallRecord } from './aiClient'
 
-export const MSG_SPLIT_MARKER = '|||MSG_SPLIT|||'
+import { MSG_SPLIT_MARKER } from './msgSplit'
+export { MSG_SPLIT_MARKER }
 
 type InterpreterOutput = { intent: string; params: Record<string, unknown> }
 
@@ -165,7 +166,7 @@ async function hydrateOngoingContext(
 ): Promise<string | null> {
   if (history.length > 0 || !phone) return null
   try {
-    const summary = await consultarAtendimentoEmAndamento(phone)
+    const summary = await consultarAtendimentoEmAndamento(phone, false)
     if (summary.startsWith('Nada em andamento')) return null
     return `Contexto pré-carregado (telefone desta conversa já tem algo em andamento -- NÃO faça triagem do zero, dê continuidade com base nisto):\n${summary}`
   } catch {
@@ -284,6 +285,25 @@ function enforceDiagnosisExplanation(reply: string, toolCalls: ToolCallRecord[])
   return `${reply}${MSG_SPLIT_MARKER}${explanation}`
 }
 
+// consultar_pedido/consultar_atendimento_em_andamento já devolvem texto rico
+// pré-formatado (uma mensagem por item, separada por MSG_SPLIT_MARKER) --
+// mas o texto final que o WhatsApp recebe é gerado pelo MODELO a partir
+// desse resultado de tool, e nada garante que o modelo repasse o texto ao
+// pé da letra (na prática ele parafraseava, perdendo detalhe e os
+// marcadores de split -- causa raiz do bug de resposta vaga/genérica).
+// Reforça de forma mecânica: se uma dessas tools foi a última chamada e
+// devolveu conteúdo de verdade (não "nenhum pedido/atendimento"), usa o
+// texto da tool direto como resposta final, ignorando a paráfrase do modelo.
+function enforceAtendimentoDetail(reply: string, toolCalls: ToolCallRecord[]): string {
+  const call = [...toolCalls]
+    .reverse()
+    .find((t) => t.tool === 'consultar_pedido' || t.tool === 'consultar_atendimento_em_andamento')
+  if (!call) return reply
+  if (!call.output || call.output.trim().length === 0) return reply
+  if (!call.output.includes(MSG_SPLIT_MARKER)) return reply
+  return call.output
+}
+
 export type PipelineResult = {
   reply: string
   interpreterOutput: InterpreterOutput
@@ -300,8 +320,9 @@ export async function runPipeline(
   const { reply, toolCalls } = await runResponder(config, history, userMessage, interpreterOutput, conversationPhone)
   const withPayment = enforcePaymentSplit(reply || 'Desculpe, não consegui processar sua mensagem agora.', toolCalls)
   const withDiagnosisExplanation = enforceDiagnosisExplanation(withPayment, toolCalls)
+  const withAtendimentoDetail = enforceAtendimentoDetail(withDiagnosisExplanation, toolCalls)
   return {
-    reply: await enforceTrackingLink(withDiagnosisExplanation, toolCalls, conversationPhone),
+    reply: await enforceTrackingLink(withAtendimentoDetail, toolCalls, conversationPhone),
     interpreterOutput,
     toolCalls,
   }

@@ -4,8 +4,12 @@ import { AGENDA_TOOLS, agendaToolsEnabled, executeAgendaTool } from '@/lib/agend
 import { SERVICE_TOOLS, DEVICE_TOOLS, executeServiceTool } from '@/lib/serviceLifecycle/tools'
 import { fetchApenasRetiradaServer } from '@/lib/resolutoo/platformConfig'
 import { fetchPublicProducts } from '@/lib/resolutoo/catalog'
-import { createAssistantOrderServer, createPixPaymentServer, estimateDeliveryServer } from '@/lib/resolutoo/assistantOrder'
+import { createAssistantOrderServer, createPixPaymentServer, estimateDeliveryServer, cancelOrderServer } from '@/lib/resolutoo/assistantOrder'
 import { fetchProductOrdersByPhone } from '@/lib/consultar'
+import { STATUS_DESCRIPTION, type ServiceStatus } from '@/lib/serviceLifecycle/types'
+import { formatAddress } from '@/lib/formatAddress'
+import { buildTrackingLink } from '@/lib/tracking'
+import { MSG_SPLIT_MARKER } from './msgSplit'
 import { PUBLIC_PRODUCT_URL } from '@/lib/constants'
 
 export const TOOLS: ToolDef[] = [
@@ -39,7 +43,7 @@ export const TOOLS: ToolDef[] = [
       'Se o cliente mudar de ideia no meio do fluxo (ex: pediu entrega mas depois disse que prefere retirar, ou vice-versa), siga a intenção mais recente dele, não a antiga. ' +
       'IMPORTANTE sobre pagamento: pagar_agora=false (pagar no ato/entrega) é uma opção VÁLIDA e NORMAL — feche o pedido normalmente com pagar_agora=false sempre que o cliente preferir isso, EXCETO quando as regras fixas desta conversa disserem explicitamente que esta loja não oferece pagamento depois (aí sempre pagar_agora=true). Nunca recuse fechar o pedido dizendo "não é possível" ou mandando o cliente pro site só porque ele quer pagar depois — isso É possível e é o comportamento padrão. ' +
       'Se pagar_agora=true, o retorno inclui o código Pix copia-e-cola real na última linha — repasse esse código pro cliente exatamente como veio, sem reescrever. Se pagar_agora=false, o pedido fica pendente pra pagamento no ato. ' +
-      'Se o pedido já foi criado nesta conversa (você já chamou esta tool e recebeu "PEDIDO CRIADO") e o cliente só disser que prefere pagar de outro jeito (ex: já tem Pix mas quer pagar na entrega), NÃO chame a tool de novo e NÃO recuse — apenas informe que ele pode simplesmente pagar no ato em vez de usar o Pix, o pedido já está confirmado do mesmo jeito.',
+      'Se o pedido já foi criado nesta conversa (você já chamou esta tool e recebeu "PEDIDO CRIADO") e o cliente só disser que prefere pagar de outro jeito (ex: já tem Pix mas quer pagar na entrega), NÃO chame a tool de novo e NÃO recuse — apenas informe que ele pode simplesmente pagar no ato em vez de usar o Pix, o pedido já está confirmado do mesmo jeito. Se mesmo assim você chamar de novo com um pedido pendente recente pra este telefone, o sistema cancela o antigo automaticamente antes de criar o novo (nunca fica pendente duplicado) — mas isso é rede de segurança, não desculpa pra chamar de novo por hábito.',
     parameters: {
       type: 'object',
       properties: {
@@ -206,20 +210,21 @@ async function criarPedidoEGerarCobranca(input: {
   }
 
   // Trava mecânica contra pedido duplicado -- confiar só na instrução do
-  // prompt ("não chame de nono") não é garantido (achado real: modelo
+  // prompt ("não chame de novo") não é garantido (achado real: modelo
   // chamou de novo quando o cliente só mudou a preferência de pagamento
   // depois do pedido já criado, gerando 2 pedidos reais pro mesmo item).
-  // Pedido pendente pra este telefone criado nos últimos 15min já é
-  // considerado o mesmo atendimento -- devolve ele em vez de criar outro.
+  // Regra: se essa tool acaba sendo chamada de novo com um pedido pendente
+  // (não pago) recente pra este telefone, o pedido velho é CANCELADO antes
+  // de criar o novo -- nunca fica pendente duplicado sobrando. Pedido já
+  // PAGO nunca é mexido (nem cancelado, nem ignorado silenciosamente).
   const digits = input.cliente_telefone.replace(/\D/g, '')
   const recentOrders = await fetchProductOrdersByPhone(digits).catch(() => [])
-  const dup = recentOrders.find(
-    (o) =>
-      (o.status === 'pending' || o.status === 'confirmed') &&
-      Date.now() - new Date(o.created_at).getTime() < 15 * 60_000,
-  )
-  if (dup) {
-    return `PEDIDO JÁ EXISTE (não crie de novo): ID ${dup.id} | Total: R$ ${Number(dup.total).toFixed(2).replace('.', ',')} | ${dup.payment_status === 'paid' ? 'já pago' : 'pagamento pendente'}. Só confirme pro cliente que esse pedido já está registrado (e que ele pode pagar no ato se preferir, em vez do Pix já gerado) — NUNCA chame esta tool de novo pra este pedido.`
+  const recentDup = recentOrders.find((o) => Date.now() - new Date(o.created_at).getTime() < 15 * 60_000)
+  if (recentDup?.payment_status === 'paid') {
+    return `PEDIDO JÁ EXISTE E JÁ FOI PAGO (não crie outro): ID ${recentDup.id} | Total: R$ ${Number(recentDup.total).toFixed(2).replace('.', ',')}. Só confirme pro cliente que esse pedido já está pago e registrado — NUNCA chame esta tool de novo pra este pedido.`
+  }
+  if (recentDup && (recentDup.status === 'pending' || recentDup.status === 'confirmed')) {
+    await cancelOrderServer(recentDup.id, digits).catch(() => {})
   }
 
   let shippingPrice = 0
@@ -280,11 +285,24 @@ async function consultarPedido(phone: string): Promise<string> {
   const orders = await fetchProductOrdersByPhone(cleanPhone).catch(() => [])
   if (orders.length === 0) return 'Nenhum pedido encontrado para este número.'
 
+  const link = await buildTrackingLink(cleanPhone).catch(() => null)
+  // Cada pedido vira um bloco separado por MSG_SPLIT_MARKER -- pipeline.ts
+  // manda cada um como mensagem própria do WhatsApp (ver enforceMsgSplitPassthrough).
+  // Confiar só no modelo pra "detalhar bem, um por um" não é garantido
+  // (achado real: 2+ pedidos viravam uma frase genérica só, tipo "você tem
+  // dois pedidos pendentes de R$51,06" sem dizer qual é qual).
   return orders.slice(0, 5).map((o) => {
-    const pago = o.payment_status === 'paid' ? 'pago' : 'pagamento pendente'
-    const entrega = o.delivery_type === 'delivery' ? 'entrega' : 'retirada na loja'
-    return `Pedido #${o.short_id} — Status: ${o.status} — ${entrega} — ${pago} — Total: R$ ${Number(o.total).toFixed(2).replace('.', ',')} — ${new Date(o.created_at).toLocaleDateString('pt-BR')}`
-  }).join('\n')
+    const pago = o.payment_status === 'paid' ? 'Pago ✅' : 'Pagamento pendente ⏳'
+    const entrega = o.delivery_type === 'delivery' ? 'Entrega no endereço' : 'Retirada na loja'
+    return [
+      `📦 *Pedido #${o.short_id}*`,
+      `Status: ${o.status}`,
+      `${entrega} · ${pago}`,
+      `Total: R$ ${Number(o.total).toFixed(2).replace('.', ',')}`,
+      `Feito em ${new Date(o.created_at).toLocaleDateString('pt-BR')}`,
+      link ? `Acompanhe: ${link}` : null,
+    ].filter(Boolean).join('\n')
+  }).join(MSG_SPLIT_MARKER)
 }
 
 const ACTIVE_SERVICE_STATUSES = [
@@ -300,7 +318,7 @@ const ACTIVE_SERVICE_STATUSES = [
  * função separada da entrada do executor de tools, reaproveitável nos dois
  * casos sem duplicar a query.
  */
-export async function consultarAtendimentoEmAndamento(phone: string): Promise<string> {
+export async function consultarAtendimentoEmAndamento(phone: string, forReply = true): Promise<string> {
   const cleanPhone = phone.replace(/\D/g, '')
   if (!cleanPhone) return 'Informe um telefone válido.'
   const supabase = createServiceClient()
@@ -308,7 +326,7 @@ export async function consultarAtendimentoEmAndamento(phone: string): Promise<st
   const [reqRes, apptRes, orders] = await Promise.all([
     supabase
       .from('service_requests')
-      .select('id, status, phone_model, problem_description, created_at')
+      .select('id, status, phone_model, problem_description, quote_value, self_pickup, address_street, address_neighborhood, address_number, address_cep, created_at')
       .eq('customer_phone', cleanPhone)
       .in('status', ACTIVE_SERVICE_STATUSES)
       .order('created_at', { ascending: false })
@@ -326,33 +344,58 @@ export async function consultarAtendimentoEmAndamento(phone: string): Promise<st
     fetchProductOrdersByPhone(cleanPhone).catch(() => []),
   ])
 
+  const link = forReply ? await buildTrackingLink(cleanPhone).catch(() => null) : null
   const partes: string[] = []
   const reqs = reqRes.data ?? []
-  if (reqs.length > 0) {
-    // Numerado + aparelho em destaque -- cada solicitação é claramente
-    // distinta na resposta (achado real: com 2+ atendimentos o modelo
-    // colapsava tudo numa frase genérica só, sem dizer qual é qual).
+  for (const r of reqs) {
+    const statusDesc = STATUS_DESCRIPTION[r.status as ServiceStatus] ?? r.status
+    const endereco = r.self_pickup ? 'Você vai levar/buscar o aparelho' : formatAddress(r)
     partes.push(
-      `Solicitações de serviço ativas (responda distinguindo cada uma pelo aparelho, nunca um resumo genérico só):\n${reqs
-        .map((r, i) => `${i + 1}) Aparelho: ${r.phone_model ?? 'não informado'} | ID ${r.id} | status: ${r.status} | problema: ${r.problem_description ?? '—'}`)
-        .join('\n')}`,
+      [
+        `🔧 *Solicitação de serviço — ${r.phone_model ?? 'aparelho não informado'}*`,
+        `Status: ${statusDesc}`,
+        `Problema relatado: ${r.problem_description ?? '—'}`,
+        r.quote_value ? `Orçamento: R$ ${Number(r.quote_value).toFixed(2).replace('.', ',')}` : null,
+        `${endereco}`,
+        `Aberto em ${new Date(r.created_at).toLocaleDateString('pt-BR')}`,
+        link ? `Acompanhe: ${link}` : null,
+      ].filter(Boolean).join('\n'),
     )
   }
   const appts = apptRes.data ?? []
-  if (appts.length > 0) {
+  for (const a of appts) {
     partes.push(
-      `Agendamentos futuros:\n${appts.map((a) => `- ID ${a.id} | ${a.service_label} | ${new Date(a.starts_at).toLocaleString('pt-BR')} | status: ${a.status}`).join('\n')}`,
+      [
+        `📅 *Agendamento — ${a.service_label}*`,
+        `${new Date(a.starts_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`,
+        `Status: ${a.status === 'remarcado' ? 'remarcado' : 'confirmado'}`,
+      ].join('\n'),
     )
   }
   const pendingOrders = orders.filter((o) => o.status !== 'cancelled' && o.status !== 'completed')
-  if (pendingOrders.length > 0) {
+  for (const o of pendingOrders) {
+    const pago = o.payment_status === 'paid' ? 'Pago ✅' : 'Pagamento pendente ⏳'
+    const entrega = o.delivery_type === 'delivery' ? 'Entrega no endereço' : 'Retirada na loja'
     partes.push(
-      `Pedidos de produto em andamento:\n${pendingOrders.map((o) => `- Pedido #${o.short_id} | status: ${o.status} | ${o.payment_status === 'paid' ? 'pago' : 'pagamento pendente'} | R$ ${Number(o.total).toFixed(2).replace('.', ',')}`).join('\n')}`,
+      [
+        `📦 *Pedido #${o.short_id}*`,
+        `Status: ${o.status}`,
+        `${entrega} · ${pago}`,
+        `Total: R$ ${Number(o.total).toFixed(2).replace('.', ',')}`,
+        link ? `Acompanhe: ${link}` : null,
+      ].filter(Boolean).join('\n'),
     )
   }
 
   if (partes.length === 0) return `Nada em andamento para o telefone ${cleanPhone}.`
-  return partes.join('\n\n')
+  // forReply=true (chamada como tool, respondendo o cliente): cada item
+  // separado por MSG_SPLIT_MARKER vira sua própria mensagem do WhatsApp --
+  // confiar só no modelo pra "detalhar bem, um por um" não é garantido
+  // (achado real: 3 atendimentos viravam uma frase genérica só, repetida
+  // igual em toda pergunta de acompanhamento). forReply=false (contexto
+  // pré-carregado no início da conversa, nunca mandado como está pro
+  // cliente) usa só \n\n, sem poluir o prompt com o marcador.
+  return partes.join(forReply ? MSG_SPLIT_MARKER : '\n\n')
 }
 
 /**
