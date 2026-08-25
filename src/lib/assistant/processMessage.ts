@@ -99,44 +99,51 @@ export async function processAssistantMessage(input: AssistantMessageInput): Pro
     .update({ last_message_at: new Date().toISOString(), customer_name: customerName ?? conversation.customer_name })
     .eq('id', conversation.id)
 
+  // Agrupa mensagens em sequência do cliente numa resposta só (1 ou mais
+  // mensagens recebidas : 1 resposta) -- NUNCA responde mensagem por
+  // mensagem quando o cliente manda várias seguidas. Achado real: a versão
+  // antiga só esperava enquanto `customer_typing_until` estivesse no
+  // futuro (indicador de "digitando..." do WhatsApp) -- pra texto digitado
+  // rápido e mandado em pedaços separados, esse indicador quase nunca
+  // chega a tempo/dura o suficiente, então o código saía do loop na
+  // primeira iteração e respondia cada mensagem isolada na hora. Agora
+  // sempre espera `message_batch_window_seconds` de SILÊNCIO de verdade
+  // (nenhuma mensagem nova) antes de processar, reiniciando a contagem
+  // sempre que uma mensagem mais nova aparece -- e toda execução mais
+  // antiga que descobre ter sido ultrapassada desiste (só a execução
+  // disparada pela mensagem mais recente sobrevive até o silêncio e
+  // processa TODO o histórico acumulado numa resposta só).
   const windowMs = (config.message_batch_window_seconds || 8) * 1000
-  const hardCapMs = windowMs * 2.5
+  const hardCapMs = windowMs * 4
   const waitStarted = Date.now()
   for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
     const { data: conv } = await supabase
       .from('assistant_conversations')
-      .select('customer_typing_until, lojista_typing_until, human_override')
+      .select('human_override')
       .eq('id', conversation.id)
       .single()
     if (!conv || conv.human_override) {
       return { ok: true, skipped: 'human_override_during_wait' }
     }
-    const now = Date.now()
-    const stillTyping =
-      (conv.customer_typing_until && new Date(conv.customer_typing_until).getTime() > now) ||
-      (conv.lojista_typing_until && new Date(conv.lojista_typing_until).getTime() > now)
-    if (!stillTyping) break
-    if (now - waitStarted > hardCapMs) {
-      if (conv.lojista_typing_until && new Date(conv.lojista_typing_until).getTime() > now) {
-        return { ok: true, skipped: 'lojista_typing_timeout' }
-      }
-      break
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-  }
 
-  if (insertedMsg) {
     const { data: latest } = await supabase
       .from('assistant_messages')
-      .select('id')
+      .select('id, created_at')
       .eq('conversation_id', conversation.id)
       .eq('direction', 'inbound')
       .order('created_at', { ascending: false })
       .limit(1)
       .single()
-    if (latest && latest.id !== insertedMsg.id) {
+
+    if (latest && insertedMsg && latest.id !== insertedMsg.id) {
       return { ok: true, skipped: 'superseded_by_newer_message' }
     }
+
+    const elapsedSinceLatest = latest ? Date.now() - new Date(latest.created_at).getTime() : windowMs
+    if (elapsedSinceLatest >= windowMs) break
+    if (Date.now() - waitStarted > hardCapMs) break
   }
 
   const { data: historyRows } = await supabase
