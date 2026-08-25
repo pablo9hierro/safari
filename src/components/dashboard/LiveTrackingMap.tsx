@@ -82,7 +82,12 @@ export default function LiveTrackingMap({ destLat, destLng }: { destLat: number;
     L.control.attribution({ prefix: false }).addTo(map)
     destMarkerRef.current = L.marker([destLat, destLng], { icon: destIcon }).addTo(map)
     mapRef.current = map
-    return () => { map.remove(); mapRef.current = null }
+    // Card entra no layout depois do mount (troca de aba/filtro, modal
+    // fechando por cima, etc.) -- o container às vezes tem 0 de tamanho no
+    // instante exato da criação, e o Leaflet cacheia esse tamanho errado
+    // pra sempre até alguém mandar recalcular.
+    const t = setTimeout(() => map.invalidateSize(), 100)
+    return () => { clearTimeout(t); map.remove(); mapRef.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -101,8 +106,13 @@ export default function LiveTrackingMap({ destLat, destLng }: { destLat: number;
     } else {
       driverMarkerRef.current.setLatLng([driver.lat, driver.lng])
     }
+    // Enquadramento tipo Uber/99: os dois pontos sempre visíveis, com
+    // margem proporcional ao tamanho pequeno do card (não os 36px de antes,
+    // que num container de 160px de altura sobrava pouco espaço de mapa de
+    // verdade) e um teto de zoom pra não colar demais quando A e B estão perto.
     const bounds = L.latLngBounds([[destLat, destLng], [driver.lat, driver.lng]])
-    map.fitBounds(bounds, { padding: [36, 36], maxZoom: 16 })
+    map.invalidateSize()
+    map.fitBounds(bounds, { paddingTopLeft: [20, 20], paddingBottomRight: [20, 20], maxZoom: 16 })
 
     // Só busca rota nova se o lojista se moveu de verdade (~30m) --
     // evita bater no OSRM a cada poll sem necessidade.
@@ -123,8 +133,14 @@ export default function LiveTrackingMap({ destLat, destLng }: { destLat: number;
     : null
 
   return (
-    <div className="rounded-xl overflow-hidden border border-gray-100" onClick={(e) => e.stopPropagation()}>
-      <div className="relative h-40 w-full">
+    <div className="rounded-xl overflow-hidden border border-gray-100 isolate" onClick={(e) => e.stopPropagation()}>
+      {/* isolate + z-0: os panes internos do Leaflet usam z-index até 1000
+          (controles) -- sem isolar o contexto de empilhamento aqui, esses
+          valores competem com o resto da PÁGINA (inclusive modais fixed
+          acima), e o mapa "vaza" por cima de tudo em vez de ficar preso
+          dentro do card. Achado real: mapa aparecendo flutuando sobre o
+          modal de detalhes, fora do lugar. */}
+      <div className="relative isolate z-0 h-40 w-full">
         <div ref={divRef} className="absolute inset-0" />
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
