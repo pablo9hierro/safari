@@ -285,3 +285,49 @@
     Apos corrigir as 3 env vars (URL, instancia, chave) e redeploy, o botao
     Conectar em /dashboard/conta passou a gerar QR code normalmente, sem o
     erro 404.
+
+- id: VRTECH-BUG-009
+  title: "catalog_models (cadastro mestre de 'Modelo') contaminado com frases de servico, nao modelo de aparelho"
+  area: [frontend, database]
+  service: vrtech (caralho)
+  severity: critical
+  status: fixed
+  reported_at: "2026-08-25"
+  fixed_at: "2026-08-25"
+  symptom: >
+    Na busca de "Modelo(s)" do cadastro de produto (e nos cards da aba
+    Aparelho/Marca/Modelo), apareciam entradas que sao claramente descricao
+    de SERVICO, nao modelo de aparelho -- ex.: "Troca de Tela Samsung
+    Galaxy A54", "Compra de Aparelho Usado", "Reparo de Placa Motorola",
+    "Troca de Tela Xiaomi Redmi Note 12". Um servico cadastrado virava
+    "modelo" selecionavel pra produto, misturando as duas entidades.
+  root_cause: >
+    A migration 20260821000006_catalogo_many_to_many.sql fez backfill de
+    vrtech.catalog_models a partir de
+    "SELECT DISTINCT category_id, model_name FROM service_catalog_items"
+    sem NENHUMA validacao de que model_name era de fato um nome de modelo
+    de aparelho. Historicamente (antes do multi-select por busca existir),
+    o campo "Modelo" do cadastro de servico era texto livre, e em ~20
+    servicos o lojista (ou uma carga anterior) digitou ali a propria
+    descricao do servico (ex. "Troca de Tela Samsung Galaxy A54") em vez
+    do modelo do aparelho (ex. "Galaxy A54", que ja existe cadastrado
+    separadamente). A migration promoveu esse texto sujo pro cadastro
+    mestre igual a um modelo de verdade, e ficou invisivel ate a tela de
+    produto (fase 1 do pedido do usuario) comecar a listar esse cadastro
+    numa busca de verdade.
+  fix_commit: "20260825000002_clean_bogus_catalog_models.sql + catalogModelGuard.ts"
+  fix_files:
+    - "supabase/migrations/20260825000002_clean_bogus_catalog_models.sql"
+    - "src/lib/catalogModelGuard.ts (novo)"
+    - "src/app/dashboard/produtos/ProdutosTab.tsx"
+    - "src/app/dashboard/produtos/ServicosTab.tsx"
+    - "src/app/dashboard/produtos/AparelhoMarcaModeloTab.tsx"
+  manual_verification: >
+    Apos a migration, SELECT name FROM vrtech.catalog_models WHERE name ~*
+    '^(troca|reparo|conserto|manutencao|formatacao|avaliacao|compra|
+    entrega|instalacao|atualizacao|backup|diagnostico)\y' nao retorna
+    nenhuma linha. Tentar cadastrar um "Modelo" novo com esse padrao (ex.:
+    "Troca de Tela X") pelas 3 telas (Produtos, Servicos, Aparelho/Marca/
+    Modelo) mostra erro amigavel em vez de contaminar o cadastro; forcar
+    via SQL direto tambem falha (CHECK constraint no banco, ultima linha
+    de defesa mesmo se algum código futuro pular a validação client-side).

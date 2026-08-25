@@ -7,6 +7,7 @@ import { Product, ProductCategory } from '@/lib/types'
 import { logStockEvent, stockTransitionEvent } from '@/lib/stockActivityLog'
 import { Package, Search, X, Pencil, Trash2, Loader2, ImagePlus, ChevronDown, ChevronRight } from 'lucide-react'
 import SearchCreateMultiSelect from '@/components/ui/SearchCreateMultiSelect'
+import { isLikelyServicePhrase, SERVICE_PHRASE_ERROR } from '@/lib/catalogModelGuard'
 
 const MAX_IMAGES = 3
 
@@ -209,6 +210,7 @@ export default function ProdutosTab({
   const createModelInline = async (modelName: string, brandIds: string[]) => {
     const brandId = brandIds[0]
     if (!brandId) throw new Error('Selecione ao menos uma marca antes de cadastrar um modelo.')
+    if (isLikelyServicePhrase(modelName)) throw new Error(SERVICE_PHRASE_ERROR)
     const supabase = createClient()
     const { data, error } = await supabase
       .from('catalog_models')

@@ -7,6 +7,7 @@ import { AdminToStoreLink, apiPath } from '@/lib/storeProxyLink'
 import type { StockItem } from '@/lib/types'
 import Dialog from '@/components/ui/Dialog'
 import SearchCreateMultiSelect from '@/components/ui/SearchCreateMultiSelect'
+import { isLikelyServicePhrase, SERVICE_PHRASE_ERROR } from '@/lib/catalogModelGuard'
 
 interface Category { id: string; name: string; slug: string; sort_order: number; device_type_id: string | null }
 interface DeviceType { id: string; name: string; slug: string; icon_key: string; sort_order: number }
@@ -299,6 +300,7 @@ const slugify = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]
   const createModelInline = async (name: string) => {
     const brandId = newBrandIds[0]
     if (!brandId) throw new Error('Selecione ao menos uma marca antes de cadastrar um modelo.')
+    if (isLikelyServicePhrase(name)) throw new Error(SERVICE_PHRASE_ERROR)
     const supabase = createClient()
     const { data, error } = await supabase
       .from('catalog_models')

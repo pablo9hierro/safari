@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Smartphone, Tag, Boxes, Plus, Trash2, Pencil, Loader2, Check } from 'lucide-react'
 import Dialog from '@/components/ui/Dialog'
 import { capitalizeFirst } from '@/lib/utils/text'
+import { isLikelyServicePhrase, SERVICE_PHRASE_ERROR } from '@/lib/catalogModelGuard'
 
 interface Category { id: string; name: string; slug: string; sort_order: number; device_type_id: string | null }
 interface DeviceType { id: string; name: string; slug: string; icon_key: string; sort_order: number }
@@ -52,6 +53,7 @@ export default function AparelhoMarcaModeloTab({
   const [modelName, setModelName] = useState('')
   const [modelBrandId, setModelBrandId] = useState('')
   const [savingModel, setSavingModel] = useState(false)
+  const [modelError, setModelError] = useState<string | null>(null)
 
   // Confirmação de exclusão (compartilhada pelos 3 tipos)
   const [confirmDelete, setConfirmDelete] = useState<{ kind: 'device' | 'brand' | 'model'; id: string; name: string } | null>(null)
@@ -124,12 +126,17 @@ export default function AparelhoMarcaModeloTab({
     setModels((prev) => prev.filter((m) => m.brand_id !== id))
   }
 
-  const openNewModel = () => { setEditingModel(null); setModelName(''); setModelBrandId(categories[0]?.id ?? ''); setModelDialogOpen(true) }
-  const openEditModel = (m: CatalogModel) => { setEditingModel(m); setModelName(m.name); setModelBrandId(m.brand_id); setModelDialogOpen(true) }
+  const openNewModel = () => { setEditingModel(null); setModelName(''); setModelBrandId(categories[0]?.id ?? ''); setModelError(null); setModelDialogOpen(true) }
+  const openEditModel = (m: CatalogModel) => { setEditingModel(m); setModelName(m.name); setModelBrandId(m.brand_id); setModelError(null); setModelDialogOpen(true) }
 
   const saveModel = async () => {
     const name = capitalizeFirst(modelName)
     if (!name || !modelBrandId) return
+    // "Modelo" é nome de aparelho (ex: iPhone 12), nunca descrição de
+    // serviço -- ver VRTECH-BUG-009 (uma migration antiga contaminou este
+    // cadastro mestre com ~20 frases de serviço, sem validação nenhuma).
+    if (isLikelyServicePhrase(name)) { setModelError(SERVICE_PHRASE_ERROR); return }
+    setModelError(null)
     setSavingModel(true)
     const supabase = createClient()
     if (editingModel) {
@@ -139,7 +146,7 @@ export default function AparelhoMarcaModeloTab({
         .eq('id', editingModel.id)
         .select().single()
       setSavingModel(false)
-      if (error || !data) return
+      if (error || !data) { setModelError('Não foi possível salvar o modelo.'); return }
       setModels((prev) => prev.map((m) => (m.id === editingModel.id ? (data as CatalogModel) : m)))
     } else {
       const { data, error } = await supabase
@@ -147,7 +154,7 @@ export default function AparelhoMarcaModeloTab({
         .insert({ name, brand_id: modelBrandId, sort_order: models.length })
         .select().single()
       setSavingModel(false)
-      if (error || !data) return
+      if (error || !data) { setModelError('Não foi possível salvar o modelo.'); return }
       setModels((prev) => [...prev, data as CatalogModel])
     }
     setModelDialogOpen(false)
@@ -273,6 +280,7 @@ export default function AparelhoMarcaModeloTab({
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
+          {modelError && <p className="text-xs text-red-400">{modelError}</p>}
           <button onClick={saveModel} disabled={savingModel || !modelName.trim() || !modelBrandId} className="w-full bg-vr-red text-white font-semibold py-2.5 rounded-xl hover:bg-vr-red/90 transition-colors text-sm disabled:opacity-40 flex items-center justify-center gap-2">
             {savingModel ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
             {savingModel ? 'Salvando…' : 'Salvar'}
