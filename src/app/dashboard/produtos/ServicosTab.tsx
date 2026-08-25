@@ -253,6 +253,15 @@ export default function ServicosTab({
     }
 
     setItems((prev) => prev.map((i) => (i.id === editingItem.id ? { ...(updated as Item), service_catalog_item_parts: parts, service_catalog_item_extra_costs: extras } : i)))
+
+    // Dado de compatibilidade/preço mudou -- regenera tags e resincroniza
+    // com o catálogo público real (ver /api/catalog/tags).
+    fetch(apiPath('/api/catalog/tags'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'service', id: editingItem.id }),
+    }).catch(() => {})
+
     setSavingEdit(false)
     setEditingItem(null)
   }

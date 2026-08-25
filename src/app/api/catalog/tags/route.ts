@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/agenda/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { generateProductTags, generateServiceTags, type CompatContext } from '@/lib/catalogTags/generate'
+import { syncCatalogItem } from '@/lib/resolutoo/catalogSync'
 
 type Db = ReturnType<typeof createServiceClient>
 
@@ -61,23 +62,51 @@ export async function POST(req: NextRequest) {
     const db = createServiceClient()
 
     if (type === 'product') {
-      const { data, error } = await db.from('products').select('id, name, description').eq('id', id).maybeSingle()
+      const { data, error } = await db
+        .from('products')
+        .select('id, name, description, price, quantity, image_url, phone_brand, phone_model')
+        .eq('id', id)
+        .maybeSingle()
       if (error || !data) return NextResponse.json({ error: 'Produto não encontrado.' }, { status: 404 })
       const compat = await fetchCompat(db, 'product', id)
       const tags = await generateProductTags(data.name, data.description, compat)
       await db.from('products').update({ tags }).eq('id', id)
+      await syncCatalogItem({
+        kind: 'product',
+        sourceId: data.id,
+        name: data.name,
+        description: data.description,
+        price: Number(data.price),
+        quantity: Number(data.quantity),
+        imageUrl: data.image_url,
+        categoryName: compat.brands?.[0] ?? null,
+        phoneBrand: data.phone_brand,
+        phoneModel: data.phone_model,
+        tags,
+      })
       return NextResponse.json({ tags })
     }
 
     const { data, error } = await db
       .from('service_catalog_items')
-      .select('id, model_name, repair_type, description')
+      .select('id, model_name, repair_type, description, price')
       .eq('id', id)
       .maybeSingle()
     if (error || !data) return NextResponse.json({ error: 'Serviço não encontrado.' }, { status: 404 })
     const compat = await fetchCompat(db, 'service', id)
     const tags = await generateServiceTags(data.model_name, data.repair_type, data.description, compat)
     await db.from('service_catalog_items').update({ tags }).eq('id', id)
+    await syncCatalogItem({
+      kind: 'service',
+      sourceId: data.id,
+      name: `${compat.brands?.[0] ?? ''} ${data.model_name ?? ''} ${data.repair_type}`.trim() || data.repair_type,
+      description: data.description,
+      price: Number(data.price),
+      categoryName: compat.brands?.[0] ?? null,
+      modelName: data.model_name,
+      repairType: data.repair_type,
+      tags,
+    })
     return NextResponse.json({ tags })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 })
