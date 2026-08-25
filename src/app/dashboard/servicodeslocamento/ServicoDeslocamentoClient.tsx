@@ -13,6 +13,7 @@ interface ShippingSettings {
   store_address: string
   cobrar_coleta: boolean
   cobrar_entrega: boolean
+  minutes_per_km: number
 }
 
 const INPUT = 'w-full px-4 py-3 rounded-xl border border-white/10 bg-vr-black text-white placeholder-white/25 focus:border-vr-red/60 outline-none transition-all'
@@ -56,6 +57,7 @@ export default function ServicoDeslocamentoClient({ initial }: { initial: Shippi
         {
           id: 1,
           price_per_km: settings.price_per_km,
+          minutes_per_km: settings.minutes_per_km,
           max_km: settings.max_km,
           store_address: settings.store_address.trim(),
           store_lat: lat,
@@ -108,6 +110,28 @@ export default function ServicoDeslocamentoClient({ initial }: { initial: Shippi
           </div>
           <p className="text-xs text-vr-silver/40 mt-1.5">
             Ex: cliente pede só entrega, 5 km → R$ {(5 * settings.price_per_km).toFixed(2)}. Se pedir coleta + entrega, 5 km cada → R$ {(10 * settings.price_per_km).toFixed(2)} no total.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-vr-silver/80 mb-1.5">
+            Tempo de deslocamento <span className="text-vr-silver/40 font-normal">(minutos por km)</span>
+          </label>
+          <div className="relative">
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.5"
+              min="0"
+              value={settings.minutes_per_km}
+              onChange={(e) => setSettings((s) => ({ ...s, minutes_per_km: Number(e.target.value) }))}
+              className={`${INPUT} pr-16`}
+              placeholder="3"
+            />
+            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-vr-silver/40 text-sm">min/km</span>
+          </div>
+          <p className="text-xs text-vr-silver/40 mt-1.5">
+            Usado pra informar ao cliente quanto tempo leva a coleta/entrega (ex: 5 km → ~{(5 * settings.minutes_per_km).toFixed(0)} min), no mapa em /consultar e no painel.
           </p>
         </div>
 

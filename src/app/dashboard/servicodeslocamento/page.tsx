@@ -6,7 +6,7 @@ export default async function ServicoDeslocamentoPage() {
 
   const { data } = await supabase
     .from('shipping_settings')
-    .select('price_per_km, store_lat, store_lng, max_km, store_address, cobrar_coleta, cobrar_entrega')
+    .select('price_per_km, store_lat, store_lng, max_km, store_address, cobrar_coleta, cobrar_entrega, minutes_per_km')
     .eq('id', 1)
     .single()
 
@@ -18,6 +18,7 @@ export default async function ServicoDeslocamentoPage() {
     store_address: '',
     cobrar_coleta: true,
     cobrar_entrega: true,
+    minutes_per_km: 3,
   }
 
   return (
@@ -27,6 +28,7 @@ export default async function ServicoDeslocamentoPage() {
         store_address: initial.store_address ?? '',
         cobrar_coleta: initial.cobrar_coleta ?? true,
         cobrar_entrega: initial.cobrar_entrega ?? true,
+        minutes_per_km: initial.minutes_per_km ?? 3,
       }}
     />
   )

@@ -28,14 +28,14 @@ const storeIcon = L.divIcon({
   iconAnchor: [15, 15],
 })
 
-type StoreLocation = { lat: number; lng: number; address: string | null }
+type StoreLocation = { lat: number; lng: number; address: string | null; minutes_per_km: number }
 
 let storeLocationCache: Promise<StoreLocation> | null = null
 function getStoreLocation(): Promise<StoreLocation> {
   if (!storeLocationCache) {
     storeLocationCache = fetch(apiPath('/api/store-location'))
       .then((r) => r.json())
-      .catch(() => ({ lat: null, lng: null, address: null }))
+      .catch(() => ({ lat: null, lng: null, address: null, minutes_per_km: 3 }))
   }
   return storeLocationCache
 }
@@ -106,6 +106,9 @@ export default function LiveTrackingMap({ destLat, destLng }: { destLat: number;
   const distanceKm = store?.lat && store?.lng
     ? straightLineDistanceKm({ lat: destLat, lng: destLng }, { lat: store.lat, lng: store.lng })
     : null
+  // Estimativa de tempo -- distância x minutos/km configurado em
+  // /dashboard/servicodeslocamento, mesmo número usado no cálculo de frete.
+  const etaMin = distanceKm !== null && store ? Math.round(distanceKm * store.minutes_per_km) : null
 
   return (
     <div className="rounded-xl overflow-hidden border border-gray-100 isolate" onClick={(e) => e.stopPropagation()}>
@@ -121,7 +124,7 @@ export default function LiveTrackingMap({ destLat, destLng }: { destLat: number;
         <Store className="w-3.5 h-3.5 text-green-600 shrink-0" />
         {store?.lat && store?.lng
           ? distanceKm !== null
-            ? `~${distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`} da loja até o endereço`
+            ? `~${distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`} da loja${etaMin !== null ? ` · ~${etaMin} min` : ''}`
             : 'Trajeto até o endereço'
           : 'Endereço da loja não configurado em /dashboard/servicodeslocamento'}
       </div>

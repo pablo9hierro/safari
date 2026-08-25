@@ -12,14 +12,19 @@ export async function GET() {
     const supabase = createServiceClient()
     const { data } = await supabase
       .from('shipping_settings')
-      .select('store_lat, store_lng, store_address')
+      .select('store_lat, store_lng, store_address, minutes_per_km')
       .eq('id', 1)
       .maybeSingle()
     if (!data?.store_lat || !data?.store_lng) {
-      return NextResponse.json({ lat: null, lng: null, address: null })
+      return NextResponse.json({ lat: null, lng: null, address: null, minutes_per_km: 3 })
     }
-    return NextResponse.json({ lat: data.store_lat, lng: data.store_lng, address: data.store_address ?? null })
+    return NextResponse.json({
+      lat: data.store_lat,
+      lng: data.store_lng,
+      address: data.store_address ?? null,
+      minutes_per_km: data.minutes_per_km ?? 3,
+    })
   } catch {
-    return NextResponse.json({ lat: null, lng: null, address: null })
+    return NextResponse.json({ lat: null, lng: null, address: null, minutes_per_km: 3 })
   }
 }
