@@ -35,7 +35,7 @@ export const TOOLS: ToolDef[] = [
       'Fecha a compra de produto(s) — cria o pedido de verdade (visível pro lojista) e, se o cliente quiser pagar agora, gera a cobrança Pix real. Cria um pedido REAL, com valor real — NUNCA chame mais de uma vez pros mesmos itens na mesma conversa (isso duplicaria o pedido e cobraria em dobro). Se você já chamou esta tool nesta conversa e ela retornou "PEDIDO CRIADO" com um ID, o pedido já existe — não chame de novo, só confirme o que já foi feito (reenvie o código Pix se o cliente pedir de novo, não gere um pedido novo). ' +
       'ANTES de chamar: peça nome e sobrenome do cliente (não precisa nome completo/documento, só nome e sobrenome mesmo) — o WhatsApp já é o desta conversa, não precisa perguntar/confirmar isso. Depois pergunte se ele quer RETIRAR na loja ou receber por ENTREGA. ' +
       'Se for retirada (entrega=false): não precisa de localização, chame direto. ' +
-      'Se for entrega (entrega=true): peça pro cliente enviar a localização pelo próprio WhatsApp (o botão de localização/localização atual) — só chame esta tool depois de já ter latitude/longitude reais extraídos da localização recebida (endereco_lat/endereco_lng). Esta tool calcula o valor da entrega automaticamente pela localização — nunca invente esse valor. Se a tool retornar que o endereço está fora da área de entrega, ofereça retirada em vez disso. Depois de calcular a entrega, pergunte se o cliente quer pagar agora ou pagar na entrega, antes de gerar a cobrança. ' +
+      'Se for entrega (entrega=true): peça pro cliente enviar a localização FIXA pelo WhatsApp (nunca em tempo real, ver calcular_frete) — depois de ter latitude/longitude reais, chame calcular_frete PRIMEIRO, informe o valor do frete ao cliente e espere ele confirmar explicitamente antes de chamar esta tool. Nunca chame esta tool com entrega=true sem essa confirmação do valor já ter acontecido na conversa. Se o endereço estiver fora da área de entrega, ofereça retirada em vez disso. Depois de calcular e confirmar a entrega, pergunte se o cliente quer pagar agora ou pagar na entrega, antes de gerar a cobrança. ' +
       'Se o cliente mudar de ideia no meio do fluxo (ex: pediu entrega mas depois disse que prefere retirar, ou vice-versa), siga a intenção mais recente dele, não a antiga. ' +
       'IMPORTANTE sobre pagamento: pagar_agora=false (pagar no ato/entrega) é uma opção VÁLIDA e NORMAL — feche o pedido normalmente com pagar_agora=false sempre que o cliente preferir isso, EXCETO quando as regras fixas desta conversa disserem explicitamente que esta loja não oferece pagamento depois (aí sempre pagar_agora=true). Nunca recuse fechar o pedido dizendo "não é possível" ou mandando o cliente pro site só porque ele quer pagar depois — isso É possível e é o comportamento padrão. ' +
       'Se pagar_agora=true, o retorno inclui o código Pix copia-e-cola real na última linha — repasse esse código pro cliente exatamente como veio, sem reescrever. Se pagar_agora=false, o pedido fica pendente pra pagamento no ato. ' +
@@ -63,6 +63,19 @@ export const TOOLS: ToolDef[] = [
         pagar_agora: { type: 'boolean', description: 'true = gera Pix agora. false = paga no ato (retirada ou entrega).' },
       },
       required: ['itens', 'cliente_nome', 'cliente_telefone', 'entrega', 'pagar_agora'],
+    },
+  },
+  {
+    name: 'calcular_frete',
+    description:
+      'Calcula o valor da entrega a partir da localização real do cliente -- OBRIGATÓRIO chamar esta tool e informar o valor ao cliente, pedindo confirmação explícita ("posso fechar o pedido com a entrega de R$X?"), ANTES de chamar criar_pedido_e_gerar_cobranca com entrega=true. Nunca pule direto pra criar o pedido só porque já tem a localização — o cliente precisa concordar com o valor do frete primeiro. Só aceita localização FIXA (mensagem de localização normal do WhatsApp) -- se a mensagem recebida for de localização EM TEMPO REAL (compartilhamento ao vivo), a conversa vai trazer um aviso "[localização em tempo real recebida]" em vez de coordenadas -- nesse caso, NÃO chame esta tool: peça pro cliente parar de compartilhar em tempo real e mandar a localização fixa (clipe → Localização → Localização atual, sem marcar "Compartilhar em tempo real").',
+    parameters: {
+      type: 'object',
+      properties: {
+        endereco_lat: { type: 'number', description: 'Latitude real da localização fixa que o cliente mandou.' },
+        endereco_lng: { type: 'number', description: 'Longitude real da localização fixa que o cliente mandou.' },
+      },
+      required: ['endereco_lat', 'endereco_lng'],
     },
   },
   {
@@ -379,6 +392,20 @@ export async function executeTool(name: string, input: Record<string, unknown>):
         endereco_lng: typeof input.endereco_lng === 'number' ? input.endereco_lng : undefined,
         pagar_agora: !!input.pagar_agora,
       })
+    }
+    if (name === 'calcular_frete') {
+      const lat = typeof input.endereco_lat === 'number' ? input.endereco_lat : null
+      const lng = typeof input.endereco_lng === 'number' ? input.endereco_lng : null
+      if (lat == null || lng == null) return 'FALHOU (validation): informe endereco_lat/endereco_lng reais da localização recebida.'
+      try {
+        const est = await estimateDeliveryServer(lat, lng)
+        if (!est.within_range) {
+          return 'FORA DA ÁREA DE ENTREGA: ofereça retirada na loja em vez disso.'
+        }
+        return `FRETE: R$ ${est.price.toFixed(2).replace('.', ',')} — informe esse valor ao cliente e peça confirmação explícita antes de chamar criar_pedido_e_gerar_cobranca.`
+      } catch (e) {
+        return `FALHOU (frete): ${e instanceof Error ? e.message : String(e)}`
+      }
     }
     if (name === 'consultar_pedido') return await consultarPedido(String(input.phone ?? ''))
     if (name === 'consultar_atendimento_em_andamento') return await consultarAtendimentoEmAndamento(String(input.phone ?? ''))

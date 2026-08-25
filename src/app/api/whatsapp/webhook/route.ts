@@ -91,7 +91,11 @@ export async function POST(req: NextRequest) {
       // vem em locationMessage com lat/lng reais -- converte pra um texto
       // estruturado que a IA sabe extrair (ver instrução em pipeline.ts),
       // em vez de um tipo de mensagem à parte que o pipeline não entende.
+      // liveLocationMessage é OUTRO tipo (compartilhamento em tempo real,
+      // sem coordenada fixa nenhuma útil pro checkout) -- nunca aceito pra
+      // calcular frete/coleta, só avisa a IA pra pedir a localização fixa.
       const location = msg?.message?.locationMessage
+      const isLiveLocation = !!msg?.message?.liveLocationMessage
       // Foto do aparelho: a IA pode pedir opcionalmente (ver serviceConfirmationRule
       // em pipeline.ts) -- baixa da Evolution API, sobe pro storage, e vira
       // um marcador estruturado igual à localização, com a legenda (se
@@ -111,7 +115,9 @@ export async function POST(req: NextRequest) {
           imageMessage?.caption ??
           (location?.degreesLatitude != null && location?.degreesLongitude != null
             ? `[localização recebida] latitude: ${location.degreesLatitude}, longitude: ${location.degreesLongitude}`
-            : ''),
+            : isLiveLocation
+              ? '[localização em tempo real recebida] -- não aceita pra calcular frete/coleta, peça a localização FIXA (clipe → Localização → Localização atual, sem "Compartilhar em tempo real")'
+              : ''),
         imageMarker,
       ].filter(Boolean).join('\n')
       if (!text.trim()) continue
