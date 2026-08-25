@@ -24,7 +24,7 @@ import LiveTrackingMap from '@/components/dashboard/LiveTrackingMap'
 import { fetchOrders, AdminAuthError, type Order } from '@/lib/resolutoo/adminApi'
 import { adminAwareHref } from '@/lib/storeProxyLink'
 import { createClient } from '@/lib/supabase/client'
-import { formatAddress } from '@/lib/formatAddress'
+import { formatAddress, googleMapsLink } from '@/lib/formatAddress'
 
 const PAYMENT_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   pendente: { label: 'Pagamento pendente', color: 'text-yellow-700', bg: 'bg-yellow-100' },
@@ -346,6 +346,17 @@ export default function DashboardClient({
                           <span className="truncate">
                             {req.self_pickup ? 'Retirada pelo cliente' : formatAddress(req)}
                           </span>
+                          {!req.self_pickup && req.address_lat != null && req.address_lng != null && (
+                            <a
+                              href={googleMapsLink(req.address_lat, req.address_lng)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-blue-400 hover:underline shrink-0"
+                            >
+                              📍
+                            </a>
+                          )}
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-2 shrink-0">

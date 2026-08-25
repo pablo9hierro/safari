@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import ServiceOrderPanel, { isServiceOrderStatus } from '@/components/ServiceOrderPanel'
 import DiagnosticSection from '@/components/DiagnosticSection'
 import PatternLockInput from '@/components/PatternLockInput'
-import { formatAddress } from '@/lib/formatAddress'
+import { formatAddress, googleMapsLink } from '@/lib/formatAddress'
 import { apiPath } from '@/lib/storeProxyLink'
 import { computeDiagnosisBusyUntil, computeRepairBusyUntil } from '@/lib/serviceLifecycle/busyUntil'
 import {
@@ -509,6 +509,16 @@ export default function RequestDetailModal({
                 <MapPin className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
                 <div>
                   <p className="text-sm text-gray-900">{fullAddress}</p>
+                  {!request.self_pickup && request.address_lat != null && request.address_lng != null && (
+                    <a
+                      href={googleMapsLink(request.address_lat, request.address_lng)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:underline mt-0.5 inline-block"
+                    >
+                      📍 Ver localização exata no mapa
+                    </a>
+                  )}
                   {!request.self_pickup && request.address_reference && (
                     <p className="text-xs text-gray-500 mt-0.5">Ref: {request.address_reference}</p>
                   )}

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import Logo from '@/components/ui/Logo'
 import {StoreLink, apiPath } from '@/lib/storeProxyLink'
-import { formatAddress } from '@/lib/formatAddress'
+import { formatAddress, googleMapsLink } from '@/lib/formatAddress'
 import dynamic from 'next/dynamic'
 
 const LiveTrackingMap = dynamic(() => import('@/components/dashboard/LiveTrackingMap'), { ssr: false })
@@ -578,11 +578,23 @@ function ConsultarContent({ initialPhone, initialOtp }: { initialPhone?: string;
 
                         <div className="flex items-start gap-2">
                           <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
-                          <span className="text-sm text-gray-500">
-                            {req.self_pickup
-                              ? 'Você vai levar/buscar o aparelho — sem coleta/entrega'
-                              : formatAddress(req)}
-                          </span>
+                          <div>
+                            <span className="text-sm text-gray-500">
+                              {req.self_pickup
+                                ? 'Você vai levar/buscar o aparelho — sem coleta/entrega'
+                                : formatAddress(req)}
+                            </span>
+                            {!req.self_pickup && req.address_lat != null && req.address_lng != null && (
+                              <a
+                                href={googleMapsLink(req.address_lat, req.address_lng)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block text-xs text-blue-600 hover:underline mt-0.5"
+                              >
+                                📍 Ver localização exata no mapa
+                              </a>
+                            )}
+                          </div>
                         </div>
 
                         {(req.status === 'em_busca' || req.status === 'em_entrega') &&

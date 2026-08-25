@@ -7,7 +7,7 @@ import { fetchPublicProducts } from '@/lib/resolutoo/catalog'
 import { createAssistantOrderServer, createPixPaymentServer, estimateDeliveryServer, cancelOrderServer } from '@/lib/resolutoo/assistantOrder'
 import { fetchProductOrdersByPhone } from '@/lib/consultar'
 import { STATUS_DESCRIPTION, type ServiceStatus } from '@/lib/serviceLifecycle/types'
-import { formatAddress } from '@/lib/formatAddress'
+import { formatAddressWithMapLink } from '@/lib/formatAddress'
 import { buildTrackingLink } from '@/lib/tracking'
 import { MSG_SPLIT_MARKER } from './msgSplit'
 import { PUBLIC_PRODUCT_URL } from '@/lib/constants'
@@ -330,7 +330,7 @@ export async function consultarAtendimentoEmAndamento(phone: string, forReply = 
   const [reqRes, apptRes, orders] = await Promise.all([
     supabase
       .from('service_requests')
-      .select('id, status, phone_model, problem_description, quote_value, self_pickup, address_street, address_neighborhood, address_number, address_cep, created_at')
+      .select('id, status, phone_model, problem_description, quote_value, self_pickup, address_street, address_neighborhood, address_number, address_cep, address_lat, address_lng, created_at')
       .eq('customer_phone', cleanPhone)
       .in('status', ACTIVE_SERVICE_STATUSES)
       .order('created_at', { ascending: false })
@@ -353,7 +353,7 @@ export async function consultarAtendimentoEmAndamento(phone: string, forReply = 
   const reqs = reqRes.data ?? []
   for (const r of reqs) {
     const statusDesc = STATUS_DESCRIPTION[r.status as ServiceStatus] ?? r.status
-    const endereco = r.self_pickup ? 'Você vai levar/buscar o aparelho' : formatAddress(r)
+    const endereco = r.self_pickup ? 'Você vai levar/buscar o aparelho' : formatAddressWithMapLink(r)
     partes.push(
       [
         `🔧 *Solicitação de serviço — ${r.phone_model ?? 'aparelho não informado'}*`,
