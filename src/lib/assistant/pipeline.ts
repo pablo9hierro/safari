@@ -231,6 +231,37 @@ async function runResponder(
   return completeWithTools(config, system, history, userMessage, tools, executeTool)
 }
 
+// Agendamento/serviço já saem com mensagem fixa de confirmação (templates
+// appointment_created/request_pending etc., em whatsapp_templates) -- mas
+// pedido de PRODUTO fechado pela IA (criar_pedido_e_gerar_cobranca) nunca
+// tinha isso: a confirmação era só o texto livre que o modelo gerava em
+// cima do retorno da tool, então variava (às vezes sem link, às vezes
+// resumido demais). Reforça de forma mecânica igual as outras: se o pedido
+// foi criado nesta rodada, troca a resposta inteira por uma mensagem fixa
+// com os detalhes reais + link de acompanhamento. O código Pix (se houver)
+// continua sendo tratado à parte por enforcePaymentSplit, que roda DEPOIS.
+function parseOrderConfirmation(output: string): { id: string; total: string; modo: string } | null {
+  const m = output.match(/^PEDIDO CRIADO: ID (\S+) \| Total: (R\$ [\d.,]+) \| ([^\n]+)/)
+  if (!m) return null
+  return { id: m[1], total: m[2], modo: m[3] }
+}
+
+async function enforceOrderConfirmationTemplate(reply: string, toolCalls: ToolCallRecord[], phone?: string): Promise<string> {
+  if (!phone) return reply
+  const call = [...toolCalls].reverse().find((t) => t.tool === 'criar_pedido_e_gerar_cobranca' && t.output.startsWith('PEDIDO CRIADO'))
+  if (!call) return reply
+  const parsed = parseOrderConfirmation(call.output)
+  if (!parsed) return reply
+  const link = await buildTrackingLink(phone).catch(() => null)
+  return [
+    '📦 *Pedido confirmado!*',
+    `Pedido #${parsed.id.slice(0, 8)}`,
+    `Total: ${parsed.total}`,
+    parsed.modo,
+    link ? `Acompanhe: ${link}` : null,
+  ].filter(Boolean).join('\n')
+}
+
 function enforcePaymentSplit(reply: string, toolCalls: ToolCallRecord[]): string {
   const chargeCall = [...toolCalls].reverse().find((t) => t.tool === 'criar_pedido_e_gerar_cobranca')
   if (!chargeCall) return reply
@@ -294,6 +325,35 @@ function enforceDiagnosisExplanation(reply: string, toolCalls: ToolCallRecord[])
 // Reforça de forma mecânica: se uma dessas tools foi a última chamada e
 // devolveu conteúdo de verdade (não "nenhum pedido/atendimento"), usa o
 // texto da tool direto como resposta final, ignorando a paráfrase do modelo.
+// Achado real: perguntas tipo "e o serviço?"/"tem notícia do meu produto?"
+// vinham respondidas de duas formas erradas -- (1) o modelo chamava a tool
+// ERRADA (consultar_pedido pra pergunta de serviço, ou vice-versa) e a
+// resposta saía com o dado do outro assunto; (2) o modelo respondia direto
+// do contexto pré-carregado no início da conversa (hydrateOngoingContext),
+// sem chamar tool nenhuma nesta rodada, e parafraseava de forma vaga/igual
+// pra qualquer pergunta ("você tem três atendimentos, todos com status X").
+// Reforça de forma mecânica: se a mensagem do cliente tem cara de pergunta
+// de status/andamento, busca os dados de novo agora (fonte real, nunca
+// contexto velho) e usa isso como resposta final, ignorando tanto a escolha
+// de tool do modelo quanto a paráfrase dele. Não entra em cima de uma
+// rodada que criou/alterou algo (WRITE_TOOLS) pra não atropelar a
+// confirmação daquela ação.
+const STATUS_INQUIRY_RE =
+  /\b(novidade|notici|status|andamento|atualiza[cç][aã]o|lembrou|lembra|chegou|pronto|meu pedido|meus pedidos|meu produto|meu servi[cç]o|meus servi[cç]os|meu atendimento|meus atendimentos|meu aparelho)\b/i
+const WRITE_TOOLS = new Set([
+  'criar_pedido_e_gerar_cobranca', 'criar_agendamento', 'remarcar_agendamento', 'cancelar_agendamento',
+  'agendar_coleta_aparelho', 'agendar_entrega_aparelho', 'agendar_retirada_aparelho',
+])
+
+async function enforceStatusInquiry(reply: string, toolCalls: ToolCallRecord[], userMessage: string, phone?: string): Promise<string> {
+  if (!phone) return reply
+  if (!STATUS_INQUIRY_RE.test(userMessage)) return reply
+  if (toolCalls.some((t) => WRITE_TOOLS.has(t.tool))) return reply
+  const fresh = await consultarAtendimentoEmAndamento(phone, true).catch(() => null)
+  if (!fresh || fresh.startsWith('Nada em andamento')) return reply
+  return fresh
+}
+
 function enforceAtendimentoDetail(reply: string, toolCalls: ToolCallRecord[]): string {
   const call = [...toolCalls]
     .reverse()
@@ -318,11 +378,17 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   const interpreterOutput = await runInterpreter(config, userMessage)
   const { reply, toolCalls } = await runResponder(config, history, userMessage, interpreterOutput, conversationPhone)
-  const withPayment = enforcePaymentSplit(reply || 'Desculpe, não consegui processar sua mensagem agora.', toolCalls)
+  const withOrderTemplate = await enforceOrderConfirmationTemplate(
+    reply || 'Desculpe, não consegui processar sua mensagem agora.',
+    toolCalls,
+    conversationPhone,
+  )
+  const withPayment = enforcePaymentSplit(withOrderTemplate, toolCalls)
   const withDiagnosisExplanation = enforceDiagnosisExplanation(withPayment, toolCalls)
   const withAtendimentoDetail = enforceAtendimentoDetail(withDiagnosisExplanation, toolCalls)
+  const withStatusInquiry = await enforceStatusInquiry(withAtendimentoDetail, toolCalls, userMessage, conversationPhone)
   return {
-    reply: await enforceTrackingLink(withAtendimentoDetail, toolCalls, conversationPhone),
+    reply: await enforceTrackingLink(withStatusInquiry, toolCalls, conversationPhone),
     interpreterOutput,
     toolCalls,
   }

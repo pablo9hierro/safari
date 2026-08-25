@@ -84,7 +84,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'consultar_pedido',
-    description: 'Consulta pedidos de produto do cliente por telefone. Confirme com o cliente qual número está cadastrado no pedido antes de chamar — normalmente é o da conversa, mas pode ser outro (ex: pedido feito com outro número, ou atendimento que começou em outro canal). Retorna status e itens.',
+    description: 'Consulta SÓ pedidos de PRODUTO (compra na loja) do cliente por telefone — nunca use pra pergunta sobre SERVIÇO/conserto/reparo/assistência técnica, pra isso é consultar_atendimento_em_andamento. Confirme com o cliente qual número está cadastrado no pedido antes de chamar — normalmente é o da conversa, mas pode ser outro (ex: pedido feito com outro número, ou atendimento que começou em outro canal). Retorna status e itens.',
     parameters: {
       type: 'object',
       properties: { phone: { type: 'string', description: 'Telefone cadastrado no pedido (confirmado com o cliente), apenas dígitos.' } },
@@ -93,7 +93,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'consultar_atendimento_em_andamento',
-    description: 'Verifica TUDO que está em andamento pra um telefone: solicitação de serviço ativa, agendamento futuro e pedido de produto não finalizado, de qualquer origem (vitrine ou WhatsApp). Use quando o cliente informar um número diferente do da conversa atual dizendo que o atendimento dele está nesse outro número — aí você passa a dar continuidade usando os dados encontrados, sem repetir perguntas de triagem.',
+    description: 'Verifica TUDO que está em andamento pra um telefone: solicitação de SERVIÇO/conserto/reparo ativa, agendamento futuro e pedido de produto não finalizado, de qualquer origem (vitrine ou WhatsApp). Use SEMPRE que o cliente perguntar sobre status/andamento/novidade de um SERVIÇO, aparelho em conserto ou atendimento — mesmo sendo o mesmo número da conversa atual, não é só pra número diferente. Também use quando o cliente informar um número diferente dizendo que o atendimento dele está nesse outro número.',
     parameters: {
       type: 'object',
       properties: { phone: { type: 'string', description: 'Telefone a consultar, apenas dígitos.' } },
@@ -282,7 +282,11 @@ async function criarPedidoEGerarCobranca(input: {
 // criar por criar_pedido_e_gerar_cobranca, porque consultava a base errada.
 async function consultarPedido(phone: string): Promise<string> {
   const cleanPhone = phone.replace(/\D/g, '')
-  const orders = await fetchProductOrdersByPhone(cleanPhone).catch(() => [])
+  const allOrders = await fetchProductOrdersByPhone(cleanPhone).catch(() => [])
+  // Pedido cancelado (ex.: duplicata auto-cancelada ao recriar com dado
+  // novo do cliente) nunca é mostrado ao cliente -- pra ele não interpretar
+  // como "pedido perdido/errado" um artefato interno de troca de dado.
+  const orders = allOrders.filter((o) => o.status !== 'cancelled')
   if (orders.length === 0) return 'Nenhum pedido encontrado para este número.'
 
   const link = await buildTrackingLink(cleanPhone).catch(() => null)
