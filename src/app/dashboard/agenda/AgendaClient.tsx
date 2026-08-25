@@ -181,8 +181,6 @@ export default function AgendaClient() {
   const [blocks, setBlocks] = useState<AgendaBlock[]>([])
   const [error, setError] = useState<string | null>(null)
 
-  const [chooser, setChooser] = useState(false)
-  const [creating, setCreating] = useState(false)
   const [blocking, setBlocking] = useState(false)
   const [detail, setDetail] = useState<(Appointment & { events: AppointmentEvent[] }) | null>(null)
   const [reschedulingId, setReschedulingId] = useState<string | null>(null)
@@ -251,12 +249,12 @@ export default function AgendaClient() {
           </p>
         </div>
         <button
-          onClick={() => setChooser(true)}
+          onClick={() => setBlocking(true)}
           className="shrink-0 flex items-center gap-1.5 bg-vr-red hover:bg-vr-red/90 text-white
             text-sm font-medium px-3.5 py-2 rounded-xl transition-colors"
         >
           <Plus className="w-4 h-4" />
-          Novo
+          Indisponibilizar horário
         </button>
       </div>
 
@@ -440,35 +438,10 @@ export default function AgendaClient() {
         )}
       </section>
 
-      {chooser && (
-        <Dialog title="O que você quer fazer?" onClose={() => setChooser(false)}>
-          <button
-            onClick={() => { setChooser(false); setCreating(true) }}
-            className="w-full text-left rounded-xl border border-white/10 bg-vr-black px-4 py-3 hover:border-vr-red transition-colors"
-          >
-            <span className="flex items-center gap-2 text-white font-medium">
-              <CalendarPlus className="w-4 h-4 text-vr-red" /> Agendar um atendimento
-            </span>
-            <span className="block text-xs text-vr-silver/50 mt-1">
-              Marca um serviço para um cliente. O horário fica ocupado pela duração do serviço.
-            </span>
-          </button>
-          <button
-            onClick={() => { setChooser(false); setBlocking(true) }}
-            className="w-full text-left rounded-xl border border-white/10 bg-vr-black px-4 py-3 hover:border-yellow-500 transition-colors"
-          >
-            <span className="flex items-center gap-2 text-white font-medium">
-              <Lock className="w-4 h-4 text-yellow-400" /> Indisponibilizar um horário
-            </span>
-            <span className="block text-xs text-vr-silver/50 mt-1">
-              Fecha um intervalo para agendamento. O cliente vê só que está indisponível — sua
-              justificativa fica visível apenas para você.
-            </span>
-          </button>
-        </Dialog>
-      )}
-
-      {creating && <CreateDialog date={date} onClose={() => setCreating(false)} onDone={() => { setCreating(false); load() }} />}
+      {/* "Agendar um atendimento" (CreateDialog/chooser) saiu daqui --
+          registrar serviço/agendamento novo agora é só via /dashboard
+          "Registrar serviço" (NovoServicoDialog). "+ Novo" abre direto o
+          bloqueio de horário, única ação que ainda faz sentido aqui. */}
       {blocking && <BlockDialog date={date} onClose={() => setBlocking(false)} onDone={() => { setBlocking(false); load() }} />}
 
       {actionChooserId && (
@@ -509,164 +482,10 @@ export default function AgendaClient() {
   )
 }
 
-type ServiceCatalogItem = {
-  id: string
-  model_name: string
-  repair_type: string
-  price: number
-}
-
-/** Barra de busca com resultados em dropdown, puxando do mesmo cadastro de
- * serviços que Produtos/Serviços gerencia (service_catalog_items) — antes
- * o campo era texto livre, sem ligação nenhuma com o cadastro real. */
-function ServicePicker({
-  value, onChange,
-}: { value: { id: string | null; label: string }; onChange: (v: { id: string | null; label: string }) => void }) {
-  const [query, setQuery] = useState(value.label)
-  const [results, setResults] = useState<ServiceCatalogItem[]>([])
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (!open) return
-    const t = setTimeout(async () => {
-      setLoading(true)
-      const supabase = createClient()
-      let q = supabase
-        .from('service_catalog_items')
-        .select('id, model_name, repair_type, price')
-        .eq('active', true)
-        .order('model_name')
-        .limit(20)
-      if (query.trim()) {
-        q = q.or(`model_name.ilike.%${query.trim()}%,repair_type.ilike.%${query.trim()}%`)
-      }
-      const { data } = await q
-      setResults(data ?? [])
-      setLoading(false)
-    }, 250)
-    return () => clearTimeout(t)
-  }, [query, open])
-
-  const select = (item: ServiceCatalogItem) => {
-    const label = `${item.model_name} — ${item.repair_type}`
-    setQuery(label)
-    onChange({ id: item.id, label })
-    setOpen(false)
-  }
-
-  return (
-    <div className="relative">
-      <div className="relative">
-        <Search className="w-4 h-4 text-vr-silver/40 absolute left-3 top-1/2 -translate-y-1/2" />
-        <input
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value)
-            onChange({ id: null, label: e.target.value }) // digitou livre sem selecionar -- mantém como texto, sem service_id
-            setOpen(true)
-          }}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
-          placeholder="Buscar no cadastro de serviços..."
-          className={`${INPUT} pl-9`}
-        />
-      </div>
-      {open && (
-        <div className="absolute z-10 mt-1 w-full bg-vr-graphite border border-white/10 rounded-xl shadow-xl max-h-56 overflow-y-auto">
-          {loading ? (
-            <div className="px-3 py-2.5 text-sm text-vr-silver/50 flex items-center gap-2">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Buscando...
-            </div>
-          ) : results.length === 0 ? (
-            <div className="px-3 py-2.5 text-sm text-vr-silver/50">
-              Nenhum serviço encontrado no cadastro — o texto digitado será usado como está.
-            </div>
-          ) : (
-            results.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onMouseDown={() => select(item)}
-                className="w-full text-left px-3 py-2.5 hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
-              >
-                <p className="text-sm text-white">{item.model_name} — {item.repair_type}</p>
-                <p className="text-xs text-vr-silver/50">R$ {Number(item.price).toFixed(2)}</p>
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function CreateDialog({ date, onClose, onDone }: { date: string; onClose: () => void; onDone: () => void }) {
-  const [form, setForm] = useState({ customer_name: '', customer_phone: '', service_label: '', service_id: '', notes: '' })
-  const [dia, setDia] = useState(date)
-  const [horario, setHorario] = useState('09:00')
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-
-  const submit = async () => {
-    setSaving(true); setErr(null)
-    try {
-      const { service_id, ...rest } = form
-      const res = await fetch(apiPath('/api/appointments'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...rest, service_id: service_id || undefined, data: dia, horario }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? 'Falha ao criar agendamento.')
-      onDone()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Falha ao criar agendamento.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const field = (k: 'customer_name' | 'customer_phone' | 'notes', label: string) => (
-    <div>
-      <label className="block text-sm text-vr-silver mb-1.5">{label}</label>
-      <input value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className={INPUT} />
-    </div>
-  )
-
-  return (
-    <Dialog title="Novo agendamento" onClose={onClose}>
-      {field('customer_name', 'Cliente')}
-      {field('customer_phone', 'WhatsApp')}
-      <div>
-        <label className="block text-sm text-vr-silver mb-1.5">Serviço</label>
-        <ServicePicker
-          value={{ id: form.service_id || null, label: form.service_label }}
-          onChange={(v) => setForm({ ...form, service_id: v.id ?? '', service_label: v.label })}
-        />
-      </div>
-      <div>
-        <label className="block text-sm text-vr-silver mb-1.5">Data</label>
-        <DateDropdown value={dia} onChange={setDia} />
-      </div>
-      <div>
-        <label className="block text-sm text-vr-silver mb-1.5">Horário de início</label>
-        <TimeDropdown value={horario} onChange={setHorario} />
-      </div>
-      {field('notes', 'Observações')}
-      {err && <p className="text-sm text-red-400">{err}</p>}
-      <button
-        onClick={submit}
-        disabled={saving || !form.customer_name || !form.customer_phone || !form.service_label}
-        className="w-full bg-vr-red hover:bg-vr-red/90 disabled:opacity-40 disabled:cursor-not-allowed
-          text-white font-medium py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2"
-      >
-        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-        Agendar
-      </button>
-    </Dialog>
-  )
-}
+// CreateDialog/ServicePicker ("Agendar um atendimento" daqui) removidos --
+// registrar serviço/agendamento novo agora é só via /dashboard
+// "Registrar serviço" (NovoServicoDialog), que já tem a mesma busca no
+// catálogo real de serviços.
 
 function BlockDialog({ date, onClose, onDone }: { date: string; onClose: () => void; onDone: () => void }) {
   const [dia, setDia] = useState(date)
