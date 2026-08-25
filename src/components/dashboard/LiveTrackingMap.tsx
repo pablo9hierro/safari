@@ -3,10 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { Bike, Loader2 } from 'lucide-react'
-import { fetchDriverLocation, isFresh, straightLineDistanceKm, type DriverLocation } from '@/lib/driverLocation'
-
-const POLL_MS = 5000
+import { Store, Loader2 } from 'lucide-react'
+import { apiPath } from '@/lib/storeProxyLink'
+import { straightLineDistanceKm } from '@/lib/driverLocation'
 
 // Mapa normal (colorido), diferente do dark_all usado no LocationPicker --
 // pedido explícito: essa tela não precisa ser preto e cinza.
@@ -20,18 +19,30 @@ const destIcon = L.divIcon({
   iconAnchor: [8, 8],
 })
 
-const driverIcon = L.divIcon({
+const storeIcon = L.divIcon({
   className: '',
   html: `<div style="width:30px;height:30px;border-radius:9999px;background:#111827;border:3px solid #22c55e;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4)">
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M3 9V6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v3"/><path d="M9 21V13h6v8"/></svg>
   </div>`,
   iconSize: [30, 30],
   iconAnchor: [15, 15],
 })
 
+type StoreLocation = { lat: number; lng: number; address: string | null }
+
+let storeLocationCache: Promise<StoreLocation> | null = null
+function getStoreLocation(): Promise<StoreLocation> {
+  if (!storeLocationCache) {
+    storeLocationCache = fetch(apiPath('/api/store-location'))
+      .then((r) => r.json())
+      .catch(() => ({ lat: null, lng: null, address: null }))
+  }
+  return storeLocationCache
+}
+
 /** Rota real por ruas (não linha reta) via OSRM demo público -- ponto A
- * (lojista) até ponto B (endereço do cliente). Sem chave, sem custo, mas
- * é um serviço demo/melhor-esforço: falha vira fallback pra linha reta,
+ * (loja) até ponto B (endereço do cliente). Sem chave, sem custo, mas é
+ * um serviço demo/melhor-esforço: falha vira fallback sem rota desenhada,
  * nunca quebra o card. */
 async function fetchRoute(a: { lat: number; lng: number }, b: { lat: number; lng: number }): Promise<[number, number][] | null> {
   try {
@@ -48,98 +59,56 @@ async function fetchRoute(a: { lat: number; lng: number }, b: { lat: number; lng
 }
 
 /**
- * Mapa "tipo Uber" ao vivo dentro do card de coleta/entrega em andamento:
- * pino do endereço do cliente (fixo) + pino do lojista (se movendo,
- * atualizado por polling em cima de driver_location). Sem localização
- * recente compartilhada, mostra um aviso em vez de fingir uma rota.
+ * Mapa dentro do card de coleta/entrega em andamento: pino fixo da loja
+ * (endereço já configurado em /dashboard/servicodeslocamento -- a loja não
+ * anda de lugar, não depende de ninguém compartilhar GPS) + pino do
+ * endereço do cliente + trajeto real por ruas entre os dois, igual
+ * Uber/99. Enquadramento automático nos dois pontos.
  */
 export default function LiveTrackingMap({ destLat, destLng }: { destLat: number; destLng: number }) {
   const divRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
-  const destMarkerRef = useRef<L.Marker | null>(null)
-  const driverMarkerRef = useRef<L.Marker | null>(null)
-  const routeLineRef = useRef<L.Polyline | null>(null)
-  const lastRouteFor = useRef<string | null>(null)
-  const [driver, setDriver] = useState<DriverLocation | null>(null)
+  const [store, setStore] = useState<StoreLocation | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
-    const poll = async () => {
-      const loc = await fetchDriverLocation().catch(() => null)
-      if (!cancelled) { setDriver(loc); setLoading(false) }
-    }
-    poll()
-    const t = setInterval(poll, POLL_MS)
-    return () => { cancelled = true; clearInterval(t) }
+    getStoreLocation().then((loc) => { if (!cancelled) { setStore(loc); setLoading(false) } })
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
-    if (!divRef.current || mapRef.current) return
+    if (!divRef.current || mapRef.current || loading) return
     const map = L.map(divRef.current, { zoomControl: false, attributionControl: false })
       .setView([destLat, destLng], 14)
     L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(map)
     L.control.attribution({ prefix: false }).addTo(map)
-    destMarkerRef.current = L.marker([destLat, destLng], { icon: destIcon }).addTo(map)
+    L.marker([destLat, destLng], { icon: destIcon }).addTo(map)
     mapRef.current = map
-    // Card entra no layout depois do mount (troca de aba/filtro, modal
-    // fechando por cima, etc.) -- o container às vezes tem 0 de tamanho no
-    // instante exato da criação, e o Leaflet cacheia esse tamanho errado
-    // pra sempre até alguém mandar recalcular.
+
+    if (store?.lat && store?.lng) {
+      L.marker([store.lat, store.lng], { icon: storeIcon }).addTo(map)
+      const bounds = L.latLngBounds([[destLat, destLng], [store.lat, store.lng]])
+      map.fitBounds(bounds, { paddingTopLeft: [20, 20], paddingBottomRight: [20, 20], maxZoom: 16 })
+      fetchRoute(store, { lat: destLat, lng: destLng }).then((coords) => {
+        if (mapRef.current !== map || !coords) return
+        L.polyline(coords, { color: '#dc2626', weight: 4, opacity: 0.85, className: 'vr-route-flow' }).addTo(map)
+      })
+    }
+
+    // Card às vezes nasce com 0 de altura (troca de aba/filtro) -- o
+    // Leaflet cacheia esse tamanho errado até alguém mandar recalcular.
     const t = setTimeout(() => map.invalidateSize(), 100)
     return () => { clearTimeout(t); map.remove(); mapRef.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [loading, store, destLat, destLng])
 
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    if (!driver || !isFresh(driver.updated_at)) {
-      if (driverMarkerRef.current) { driverMarkerRef.current.remove(); driverMarkerRef.current = null }
-      if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null }
-      lastRouteFor.current = null
-      map.setView([destLat, destLng], 14)
-      return
-    }
-    if (!driverMarkerRef.current) {
-      driverMarkerRef.current = L.marker([driver.lat, driver.lng], { icon: driverIcon }).addTo(map)
-    } else {
-      driverMarkerRef.current.setLatLng([driver.lat, driver.lng])
-    }
-    // Enquadramento tipo Uber/99: os dois pontos sempre visíveis, com
-    // margem proporcional ao tamanho pequeno do card (não os 36px de antes,
-    // que num container de 160px de altura sobrava pouco espaço de mapa de
-    // verdade) e um teto de zoom pra não colar demais quando A e B estão perto.
-    const bounds = L.latLngBounds([[destLat, destLng], [driver.lat, driver.lng]])
-    map.invalidateSize()
-    map.fitBounds(bounds, { paddingTopLeft: [20, 20], paddingBottomRight: [20, 20], maxZoom: 16 })
-
-    // Só busca rota nova se o lojista se moveu de verdade (~30m) --
-    // evita bater no OSRM a cada poll sem necessidade.
-    const key = `${driver.lat.toFixed(4)},${driver.lng.toFixed(4)}`
-    if (lastRouteFor.current === key) return
-    lastRouteFor.current = key
-    fetchRoute(driver, { lat: destLat, lng: destLng }).then((coords) => {
-      if (mapRef.current !== map) return
-      if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null }
-      if (coords) {
-        routeLineRef.current = L.polyline(coords, { color: '#dc2626', weight: 4, opacity: 0.8 }).addTo(map)
-      }
-    })
-  }, [driver, destLat, destLng])
-
-  const distanceKm = driver && isFresh(driver.updated_at)
-    ? straightLineDistanceKm({ lat: destLat, lng: destLng }, driver)
+  const distanceKm = store?.lat && store?.lng
+    ? straightLineDistanceKm({ lat: destLat, lng: destLng }, { lat: store.lat, lng: store.lng })
     : null
 
   return (
     <div className="rounded-xl overflow-hidden border border-gray-100 isolate" onClick={(e) => e.stopPropagation()}>
-      {/* isolate + z-0: os panes internos do Leaflet usam z-index até 1000
-          (controles) -- sem isolar o contexto de empilhamento aqui, esses
-          valores competem com o resto da PÁGINA (inclusive modais fixed
-          acima), e o mapa "vaza" por cima de tudo em vez de ficar preso
-          dentro do card. Achado real: mapa aparecendo flutuando sobre o
-          modal de detalhes, fora do lugar. */}
       <div className="relative isolate z-0 h-40 w-full">
         <div ref={divRef} className="absolute inset-0" />
         {loading && (
@@ -149,12 +118,12 @@ export default function LiveTrackingMap({ destLat, destLng }: { destLat: number;
         )}
       </div>
       <div className="flex items-center gap-1.5 px-3 py-2 bg-gray-50 text-xs text-gray-500">
-        <Bike className="w-3.5 h-3.5 text-green-600 shrink-0" />
-        {driver && isFresh(driver.updated_at)
+        <Store className="w-3.5 h-3.5 text-green-600 shrink-0" />
+        {store?.lat && store?.lng
           ? distanceKm !== null
-            ? `A ~${distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`} do endereço`
-            : 'Localização ao vivo'
-          : 'Aguardando o lojista compartilhar a localização'}
+            ? `~${distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`} da loja até o endereço`
+            : 'Trajeto até o endereço'
+          : 'Endereço da loja não configurado em /dashboard/servicodeslocamento'}
       </div>
     </div>
   )

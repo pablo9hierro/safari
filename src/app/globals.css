@@ -45,3 +45,14 @@ body {
 .error-msg {
   @apply text-vr-red text-xs mt-1;
 }
+
+/* Linha de trajeto do LiveTrackingMap (dashboard) -- efeito de "fluxo"
+   animado no traço, pra dar a sensação de movimento tipo Uber/99 mesmo
+   sem tracking de GPS ao vivo (loja é ponto fixo). */
+.vr-route-flow {
+  stroke-dasharray: 10 8;
+  animation: vr-route-dash 1s linear infinite;
+}
+@keyframes vr-route-dash {
+  to { stroke-dashoffset: -18; }
+}

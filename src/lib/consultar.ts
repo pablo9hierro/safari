@@ -6,7 +6,7 @@ const ECOMMERCE_API_URL =
 const TENANT_SLUG = envOr(process.env.NEXT_PUBLIC_ECOMMERCE_TENANT_SLUG, 'vrtech')
 
 const SERVICE_REQUEST_COLS =
-  'id, created_at, phone_model, problem_description, address_cep, address_number, address_street, address_neighborhood, address_city, status, quote_value, owner_notes, self_pickup, customer_phone'
+  'id, created_at, phone_model, problem_description, address_cep, address_number, address_street, address_neighborhood, address_city, address_lat, address_lng, status, quote_value, owner_notes, self_pickup, customer_phone'
 
 export type PublicOrderStatus = {
   id: string

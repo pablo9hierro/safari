@@ -20,7 +20,6 @@ import {
 } from 'lucide-react'
 import RequestDetailModal from '@/components/RequestDetailModal'
 import NovoServicoDialog from '@/components/dashboard/NovoServicoDialog'
-import LocationShareToggle from '@/components/dashboard/LocationShareToggle'
 import LiveTrackingMap from '@/components/dashboard/LiveTrackingMap'
 import { fetchOrders, AdminAuthError, type Order } from '@/lib/resolutoo/adminApi'
 import { adminAwareHref } from '@/lib/storeProxyLink'
@@ -229,7 +228,6 @@ export default function DashboardClient({
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <h1 className="text-lg font-bold text-white">Solicitações</h1>
           <div className="flex items-center gap-2">
-            <LocationShareToggle />
             <button
               onClick={() => setNovoServicoOpen(true)}
               className="shrink-0 flex items-center gap-1.5 bg-vr-red hover:bg-vr-red/90 text-white

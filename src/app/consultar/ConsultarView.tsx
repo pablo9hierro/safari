@@ -12,6 +12,9 @@ import {
 import Logo from '@/components/ui/Logo'
 import {StoreLink, apiPath } from '@/lib/storeProxyLink'
 import { formatAddress } from '@/lib/formatAddress'
+import dynamic from 'next/dynamic'
+
+const LiveTrackingMap = dynamic(() => import('@/components/dashboard/LiveTrackingMap'), { ssr: false })
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   pending:        { label: 'Aguardando avaliação',      color: 'text-yellow-700', bg: 'bg-yellow-100', icon: <Clock className="w-3.5 h-3.5" /> },
@@ -581,6 +584,13 @@ function ConsultarContent({ initialPhone, initialOtp }: { initialPhone?: string;
                               : formatAddress(req)}
                           </span>
                         </div>
+
+                        {(req.status === 'em_busca' || req.status === 'em_entrega') &&
+                          !req.self_pickup &&
+                          typeof req.address_lat === 'number' &&
+                          typeof req.address_lng === 'number' && (
+                            <LiveTrackingMap destLat={req.address_lat} destLng={req.address_lng} />
+                        )}
 
                         {req.quote_value && (
                           <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-2.5 mt-1">
