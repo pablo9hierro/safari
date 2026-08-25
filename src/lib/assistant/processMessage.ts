@@ -163,7 +163,7 @@ export async function processAssistantMessage(input: AssistantMessageInput): Pro
 
   let reply: string
   try {
-    const result = await runPipeline(config, history, text, cleanPhone)
+    const result = await runPipeline(config, history, text, cleanPhone, isTest)
     reply = result.reply
   } catch (e) {
     console.error('[assistant] pipeline error:', e)

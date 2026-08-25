@@ -464,4 +464,20 @@ export async function executeTool(name: string, input: Record<string, unknown>):
   }
 }
 
+// Tools que criam/alteram dado real (pedido, agendamento, aprovação de
+// orçamento, cancelamento) -- em conversa de TESTE (isTest=true, usada por
+// /dashboard/chat e pelo botão "Simular localização") nenhuma delas pode
+// rodar de verdade. Achado real (VRTECH-BUG-010): uma conversa de teste
+// simulando localização acabou criando um agendamento REAL no banco --
+// nome "Cliente", telefone da própria conversa de teste, coordenadas da
+// simulação -- indistinguível de um cliente de verdade no painel. Lista
+// única reaproveitada tanto pelo bloqueio de teste (pipeline.ts) quanto
+// por outras checagens que precisam saber "isso é uma ação transacional".
+export const TRANSACTIONAL_TOOL_NAMES = new Set([
+  'criar_pedido_e_gerar_cobranca',
+  'criar_agendamento', 'remarcar_agendamento', 'cancelar_agendamento',
+  'agendar_coleta_aparelho', 'agendar_entrega_aparelho', 'agendar_retirada_aparelho',
+  'aprovar_orcamento', 'recusar_orcamento', 'cancelar_atendimento',
+])
+
 export type { ToolCallRecord }

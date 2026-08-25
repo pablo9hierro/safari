@@ -260,6 +260,42 @@
     "railway up --service ecommerce-api --detach" completou com sucesso
     apos o fix (deployment SUCCESS na lista de "railway deployment list").
 
+- id: VRTECH-BUG-010
+  title: "Conversa de TESTE do assistente criava agendamento/service_request REAL no banco"
+  area: [frontend, backend, database]
+  service: vrtech (caralho)
+  severity: critical
+  status: fixed
+  reported_at: "2026-08-25"
+  fixed_at: "2026-08-25"
+  symptom: >
+    Cards no Kanban de /solicitacoes (aba "Em deslocamento") apareciam com
+    nome "Cliente" (literal, nao um nome de verdade), telefone claramente
+    falso ("0000628228581") e coordenadas identicas ao botao de teste
+    "Simular localizacao" do /dashboard/chat -- indistinguivel de um
+    cliente real pro lojista.
+  root_cause: >
+    /dashboard/chat (isTest=true) e o botao "Simular localizacao"
+    permitiam a conversa de teste chamar QUALQUER tool do assistente,
+    inclusive as que criam dado real (criar_agendamento,
+    criar_pedido_e_gerar_cobranca, aprovar_orcamento, etc.) -- nao havia
+    NENHUMA checagem de isTest no ponto de execucao das tools. O modelo,
+    seguindo a instrucao de "usar sempre o telefone real desta conversa",
+    usou o proprio numero de teste (fake) como cliente_telefone, e a
+    localizacao simulada virou coordenada real de coleta -- 3 agendamentos
+    reais criados a partir de uma sessao de QA.
+  fix_commit: "testSafeExecuteTool em pipeline.ts + TRANSACTIONAL_TOOL_NAMES em tools.ts"
+  fix_files:
+    - "src/lib/assistant/tools.ts (TRANSACTIONAL_TOOL_NAMES, novo)"
+    - "src/lib/assistant/pipeline.ts (testSafeExecuteTool, novo)"
+    - "src/lib/assistant/processMessage.ts (isTest threaded ate runPipeline)"
+  manual_verification: >
+    Mandar mensagem via /dashboard/chat (Novo chat, isTest=true) pedindo
+    pra agendar um servico ate o fim -- a IA confirma a acao na conversa,
+    mas nenhuma linha nova aparece em service_requests/appointments/orders
+    depois. As 3 linhas contaminadas anteriores (nome "Cliente", telefone
+    "0000628228581") foram apagadas do banco de producao.
+
 - id: VRTECH-BUG-008
   title: "EVOLUTION_API_URL/EVOLUTION_INSTANCE em producao apontavam pra recursos antigos/mortos"
   area: [config, whatsapp]

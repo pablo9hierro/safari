@@ -1,5 +1,5 @@
 import { completeSimple, completeWithTools } from './aiClient'
-import { resolveTools, executeTool, consultarAtendimentoEmAndamento } from './tools'
+import { resolveTools, executeTool, consultarAtendimentoEmAndamento, TRANSACTIONAL_TOOL_NAMES } from './tools'
 import { AGENDA_TOOL_NAMES } from '@/lib/agenda/tools'
 import { fetchPaymentOnDeliveryEnabledServer, fetchPlatformStoreConfig } from '@/lib/resolutoo/platformConfig'
 import { STORE_ADDRESS } from '@/lib/constants'
@@ -190,12 +190,29 @@ async function fetchStoreAddressText(): Promise<string> {
   return `${STORE_ADDRESS.street}, ${STORE_ADDRESS.neighborhood}, ${STORE_ADDRESS.city}`
 }
 
+// Conversa de teste (isTest=true, /dashboard/chat ou o botão "Simular
+// localização") nunca pode criar dado real -- achado real (VRTECH-BUG-010):
+// uma conversa de teste simulando localização criou um agendamento REAL no
+// banco (nome "Cliente", telefone da própria conversa de teste), invisível
+// como teste pro lojista no painel. Intercepta ANTES da tool rodar, não
+// depois -- devolve uma mensagem clara de "seria criado" pro modelo poder
+// confirmar a ação na conversa sem nunca tocar o banco de verdade.
+function testSafeExecuteTool(realExecuteTool: typeof executeTool): typeof executeTool {
+  return async (name: string, input: Record<string, unknown>): Promise<string> => {
+    if (TRANSACTIONAL_TOOL_NAMES.has(name)) {
+      return `TESTE (não executado de verdade): em produção isso criaria/alteraria um registro real (${name}). Confirme a ação normalmente na conversa, mas nenhum dado foi gravado -- isto é uma conversa de teste.`
+    }
+    return realExecuteTool(name, input)
+  }
+}
+
 async function runResponder(
   config: AssistantConfig,
   history: { role: 'user' | 'assistant'; content: string }[],
   userMessage: string,
   interpreterOutput: InterpreterOutput,
   conversationPhone?: string,
+  isTest?: boolean,
 ): Promise<{ reply: string; toolCalls: ToolCallRecord[] }> {
   const tools = await resolveTools()
   const withAgenda = tools.some((t) => AGENDA_TOOL_NAMES.includes(t.name))
@@ -228,7 +245,7 @@ async function runResponder(
     'Use as ferramentas necessárias pra buscar dados reais antes de responder. Sua última mensagem de texto vai direto pro cliente.',
   ].filter(Boolean).join('\n\n')
 
-  return completeWithTools(config, system, history, userMessage, tools, executeTool)
+  return completeWithTools(config, system, history, userMessage, tools, isTest ? testSafeExecuteTool(executeTool) : executeTool)
 }
 
 // Agendamento/serviço já saem com mensagem fixa de confirmação (templates
@@ -340,15 +357,11 @@ function enforceDiagnosisExplanation(reply: string, toolCalls: ToolCallRecord[])
 // confirmação daquela ação.
 const STATUS_INQUIRY_RE =
   /\b(novidade|notici|status|andamento|atualiza[cç][aã]o|lembrou|lembra|chegou|pronto|meu pedido|meus pedidos|meu produto|meu servi[cç]o|meus servi[cç]os|meu atendimento|meus atendimentos|meu aparelho)\b/i
-const WRITE_TOOLS = new Set([
-  'criar_pedido_e_gerar_cobranca', 'criar_agendamento', 'remarcar_agendamento', 'cancelar_agendamento',
-  'agendar_coleta_aparelho', 'agendar_entrega_aparelho', 'agendar_retirada_aparelho',
-])
 
 async function enforceStatusInquiry(reply: string, toolCalls: ToolCallRecord[], userMessage: string, phone?: string): Promise<string> {
   if (!phone) return reply
   if (!STATUS_INQUIRY_RE.test(userMessage)) return reply
-  if (toolCalls.some((t) => WRITE_TOOLS.has(t.tool))) return reply
+  if (toolCalls.some((t) => TRANSACTIONAL_TOOL_NAMES.has(t.tool))) return reply
   const fresh = await consultarAtendimentoEmAndamento(phone, true).catch(() => null)
   if (!fresh || fresh.startsWith('Nada em andamento')) return reply
   return fresh
@@ -375,9 +388,10 @@ export async function runPipeline(
   history: { role: 'user' | 'assistant'; content: string }[],
   userMessage: string,
   conversationPhone?: string,
+  isTest?: boolean,
 ): Promise<PipelineResult> {
   const interpreterOutput = await runInterpreter(config, userMessage)
-  const { reply, toolCalls } = await runResponder(config, history, userMessage, interpreterOutput, conversationPhone)
+  const { reply, toolCalls } = await runResponder(config, history, userMessage, interpreterOutput, conversationPhone, isTest)
   const withOrderTemplate = await enforceOrderConfirmationTemplate(
     reply || 'Desculpe, não consegui processar sua mensagem agora.',
     toolCalls,
