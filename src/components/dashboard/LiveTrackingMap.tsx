@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { Store, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { apiPath } from '@/lib/storeProxyLink'
 import { straightLineDistanceKm } from '@/lib/driverLocation'
 
@@ -121,10 +121,9 @@ export default function LiveTrackingMap({ destLat, destLng }: { destLat: number;
         )}
       </div>
       <div className="flex items-center gap-1.5 px-3 py-2 bg-gray-50 text-xs text-gray-500">
-        <Store className="w-3.5 h-3.5 text-green-600 shrink-0" />
         {store?.lat && store?.lng
           ? distanceKm !== null
-            ? `~${distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`} da loja${etaMin !== null ? ` · ~${etaMin} min` : ''}`
+            ? `~${distanceKm.toFixed(1)} km da loja${etaMin !== null ? ` · ~${etaMin} min` : ''}`
             : 'Trajeto até o endereço'
           : 'Endereço da loja não configurado em /dashboard/servicodeslocamento'}
       </div>
