@@ -6,6 +6,7 @@ import { apiPath } from '@/lib/storeProxyLink'
 import { Product, ProductCategory } from '@/lib/types'
 import { logStockEvent, stockTransitionEvent } from '@/lib/stockActivityLog'
 import { Package, Search, X, Pencil, Trash2, Loader2, ImagePlus, ChevronDown, ChevronRight } from 'lucide-react'
+import SearchCreateMultiSelect from '@/components/ui/SearchCreateMultiSelect'
 
 const MAX_IMAGES = 3
 
@@ -70,20 +71,54 @@ function ImageSlotsPicker({ slots, onChange }: { slots: ImageSlot[]; onChange: (
   )
 }
 
+interface Category { id: string; name: string; slug: string; sort_order: number; device_type_id: string | null }
+interface DeviceType { id: string; name: string; slug: string; icon_key: string; sort_order: number }
+interface CatalogModel { id: string; brand_id: string; name: string; sort_order: number }
+interface ProductDeviceLink { product_id: string; device_type_id: string }
+interface ProductBrandLink { product_id: string; brand_id: string }
+interface ProductModelLink { product_id: string; model_id: string }
+
+const slugify = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+
 interface Props {
   initialProducts: Product[]
   initialCategories: ProductCategory[]
+  // Aparelho/marca/modelo -- mesmo cadastro mestre compartilhado com
+  // Serviços e a aba dedicada Aparelho/Marca/Modelo (elevado no
+  // ProdutosClient), pra criar um aparelho/marca/modelo novo aqui já
+  // refletir nas outras abas sem recarregar a página.
+  categories: Category[]
+  setCategories: React.Dispatch<React.SetStateAction<Category[]>>
+  deviceTypes: DeviceType[]
+  setDeviceTypes: React.Dispatch<React.SetStateAction<DeviceType[]>>
+  models: CatalogModel[]
+  setModels: React.Dispatch<React.SetStateAction<CatalogModel[]>>
+  initialProductDevices: ProductDeviceLink[]
+  initialProductBrands: ProductBrandLink[]
+  initialProductModels: ProductModelLink[]
 }
 
-export default function ProdutosTab({ initialProducts, initialCategories }: Props) {
+export default function ProdutosTab({
+  initialProducts, initialCategories,
+  categories, setCategories, deviceTypes, setDeviceTypes, models, setModels,
+  initialProductDevices, initialProductBrands, initialProductModels,
+}: Props) {
   const [products, setProducts] = useState<Product[]>(initialProducts)
-  const [categories, setCategories] = useState<ProductCategory[]>(initialCategories)
   const [showForm, setShowForm] = useState(false)
+
+  const [productDevices, setProductDevices] = useState<ProductDeviceLink[]>(initialProductDevices)
+  const [productBrands, setProductBrands] = useState<ProductBrandLink[]>(initialProductBrands)
+  const [productModels, setProductModels] = useState<ProductModelLink[]>(initialProductModels)
 
   // Create form
   const [name, setName] = useState('')
-  const [phoneBrand, setPhoneBrand] = useState('')
-  const [phoneModel, setPhoneModel] = useState('')
+  // Aparelho(s)/marca(s)/modelo(s) via busca multi-select -- TODOS
+  // opcionais. Vazio numa dimensão = universal PRA AQUELA DIMENSÃO (ver
+  // matchesFilter): aparelho vazio + marca=Samsung + modelo vazio serve
+  // pra qualquer aparelho Samsung de qualquer modelo, por exemplo.
+  const [newDeviceIds, setNewDeviceIds] = useState<string[]>([])
+  const [newBrandIds, setNewBrandIds] = useState<string[]>([])
+  const [newModelIds, setNewModelIds] = useState<string[]>([])
   const [price, setPrice] = useState('')
   const [quantity, setQuantity] = useState('')
   const [description, setDescription] = useState('')
@@ -101,8 +136,9 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
 
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [editName, setEditName] = useState('')
-  const [editPhoneBrand, setEditPhoneBrand] = useState('')
-  const [editPhoneModel, setEditPhoneModel] = useState('')
+  const [editDeviceIds, setEditDeviceIds] = useState<string[]>([])
+  const [editBrandIds, setEditBrandIds] = useState<string[]>([])
+  const [editModelIds, setEditModelIds] = useState<string[]>([])
   const [editPrice, setEditPrice] = useState('')
   const [editQuantity, setEditQuantity] = useState('')
   const [editDescription, setEditDescription] = useState('')
@@ -111,22 +147,28 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
   const [editError, setEditError] = useState<string | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
 
-  // Unique brands from existing products
+  // Marcas com pelo menos um produto vinculado -- pros chips de filtro da
+  // listagem (mesmo papel do antigo filtro por phone_brand texto, agora
+  // batendo no vínculo many-to-many de verdade).
   const brands = useMemo(() => {
-    const set = new Set<string>()
-    for (const p of products) { if (p.phone_brand) set.add(p.phone_brand) }
-    return Array.from(set).sort()
-  }, [products])
+    const ids = new Set(productBrands.map((l) => l.brand_id))
+    return categories.filter((c) => ids.has(c.id)).sort((a, b) => a.name.localeCompare(b.name))
+  }, [categories, productBrands])
 
   const filteredProducts = useMemo(() => {
     let base = products
-    if (activeBrand) base = base.filter((p) => p.phone_brand === activeBrand)
+    if (activeBrand) {
+      const productIds = new Set(productBrands.filter((l) => l.brand_id === activeBrand).map((l) => l.product_id))
+      base = base.filter((p) => productIds.has(p.id))
+    }
     const q = searchQuery.trim().toLowerCase()
     if (!q) return base
     return base.filter((p) => p.name.toLowerCase().includes(q) || (p.phone_model ?? '').toLowerCase().includes(q))
-  }, [products, activeBrand, searchQuery])
+  }, [products, activeBrand, searchQuery, productBrands])
 
-  // Group by phone_model (or "Sem modelo" if not set)
+  // Group by phone_model (coluna de compatibilidade, sincronizada a partir
+  // do 1º modelo selecionado -- "Sem modelo" cobre tanto produto universal
+  // quanto produto com mais de um modelo selecionado).
   const byModel = useMemo(() => {
     const map = new Map<string, Product[]>()
     for (const p of filteredProducts) {
@@ -138,21 +180,48 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
     return map
   }, [filteredProducts])
 
-  const resolveCategoryId = async (supabase: ReturnType<typeof createClient>, rawName: string): Promise<string | null> => {
-    const trimmed = rawName.trim()
-    if (!trimmed) return null
-    const existing = categories.find((c) => c.name.toLowerCase() === trimmed.toLowerCase())
-    if (existing) return existing.id
-    const { data: created } = await supabase.from('product_categories').insert({ name: trimmed }).select().single()
-    if (created) {
-      setCategories((prev) => [...prev, created as ProductCategory].sort((a, b) => a.name.localeCompare(b.name)))
-      return (created as ProductCategory).id
-    }
-    return null
+  const modelOptionsForNewItem = newBrandIds.length > 0 ? models.filter((m) => newBrandIds.includes(m.brand_id)) : models
+  const modelOptionsForEdit = editBrandIds.length > 0 ? models.filter((m) => editBrandIds.includes(m.brand_id)) : models
+
+  const createDeviceInline = async (deviceName: string) => {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('device_types')
+      .insert({ name: deviceName, slug: slugify(deviceName) || crypto.randomUUID(), icon_key: 'generic', sort_order: deviceTypes.length })
+      .select().single()
+    if (error || !data) throw new Error('Não foi possível cadastrar o aparelho.')
+    setDeviceTypes((prev) => [...prev, data as DeviceType])
+    return { id: data.id as string, name: data.name as string }
+  }
+
+  const createBrandInline = async (brandName: string, deviceIds: string[]) => {
+    const deviceId = deviceIds[0] ?? deviceTypes[0]?.id
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('service_catalog_categories')
+      .insert({ name: brandName, slug: slugify(brandName) || crypto.randomUUID(), sort_order: categories.length, device_type_id: deviceId ?? null })
+      .select().single()
+    if (error || !data) throw new Error('Não foi possível cadastrar a marca.')
+    setCategories((prev) => [...prev, data as Category])
+    return { id: data.id as string, name: data.name as string }
+  }
+
+  const createModelInline = async (modelName: string, brandIds: string[]) => {
+    const brandId = brandIds[0]
+    if (!brandId) throw new Error('Selecione ao menos uma marca antes de cadastrar um modelo.')
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('catalog_models')
+      .insert({ brand_id: brandId, name: modelName, sort_order: models.length })
+      .select().single()
+    if (error || !data) throw new Error('Não foi possível cadastrar o modelo.')
+    setModels((prev) => [...prev, data as CatalogModel])
+    return { id: data.id as string, name: data.name as string }
   }
 
   const resetForm = () => {
-    setName(''); setPhoneBrand(''); setPhoneModel(''); setPrice(''); setQuantity(''); setDescription('')
+    setName(''); setNewDeviceIds([]); setNewBrandIds([]); setNewModelIds([])
+    setPrice(''); setQuantity(''); setDescription('')
     setLowStockThreshold(''); setImageSlots(emptySlots())
     setCreateError(null); setShowForm(false)
   }
@@ -169,8 +238,14 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
 
     setCreating(true)
     const supabase = createClient()
-    const categoryId = phoneBrand.trim() ? await resolveCategoryId(supabase, phoneBrand.trim()) : null
     const imageUrls = await uploadSlots(supabase, imageSlots)
+
+    // phone_brand/phone_model continuam sincronizados (coluna de
+    // compatibilidade) a partir da 1ª marca/1º modelo selecionado -- só
+    // fica null quando nenhum foi escolhido (produto universal) ou mais de
+    // um foi escolhido (não dá pra representar "vários" numa coluna só).
+    const brandName = newBrandIds.length === 1 ? categories.find((c) => c.id === newBrandIds[0])?.name ?? null : null
+    const modelName = newModelIds.length === 1 ? models.find((m) => m.id === newModelIds[0])?.name ?? null : null
 
     const { data: created, error } = await supabase
       .from('products')
@@ -179,9 +254,9 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
         price: priceNum,
         quantity: qtyNum,
         description: description.trim() || null,
-        category_id: categoryId,
-        phone_brand: phoneBrand.trim() || null,
-        phone_model: phoneModel.trim() || null,
+        category_id: null,
+        phone_brand: brandName,
+        phone_model: modelName,
         image_url: imageUrls[0] ?? null,
         image_urls: imageUrls,
         low_stock_threshold: lowStockThreshold.trim() ? Number(lowStockThreshold) : null,
@@ -193,6 +268,20 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
       setCreateError('Não foi possível cadastrar o produto.')
       setCreating(false)
       return
+    }
+
+    const productId = created.id as string
+    if (newDeviceIds.length > 0) {
+      await supabase.from('product_devices').insert(newDeviceIds.map((device_type_id) => ({ product_id: productId, device_type_id })))
+      setProductDevices((prev) => [...prev, ...newDeviceIds.map((device_type_id) => ({ product_id: productId, device_type_id }))])
+    }
+    if (newBrandIds.length > 0) {
+      await supabase.from('product_brands').insert(newBrandIds.map((brand_id) => ({ product_id: productId, brand_id })))
+      setProductBrands((prev) => [...prev, ...newBrandIds.map((brand_id) => ({ product_id: productId, brand_id }))])
+    }
+    if (newModelIds.length > 0) {
+      await supabase.from('product_models').insert(newModelIds.map((model_id) => ({ product_id: productId, model_id })))
+      setProductModels((prev) => [...prev, ...newModelIds.map((model_id) => ({ product_id: productId, model_id }))])
     }
 
     setProducts((prev) => [...prev, created as Product].sort((a, b) => a.name.localeCompare(b.name)))
@@ -212,8 +301,9 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
   const openEdit = (product: Product) => {
     setEditProduct(product)
     setEditName(product.name)
-    setEditPhoneBrand(product.phone_brand ?? '')
-    setEditPhoneModel(product.phone_model ?? '')
+    setEditDeviceIds(productDevices.filter((l) => l.product_id === product.id).map((l) => l.device_type_id))
+    setEditBrandIds(productBrands.filter((l) => l.product_id === product.id).map((l) => l.brand_id))
+    setEditModelIds(productModels.filter((l) => l.product_id === product.id).map((l) => l.model_id))
     setEditPrice(String(Number(product.price)))
     setEditQuantity(String(Number(product.quantity)))
     setEditDescription(product.description ?? '')
@@ -234,8 +324,10 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
 
     setSavingEdit(true)
     const supabase = createClient()
-    const categoryId = editPhoneBrand.trim() ? await resolveCategoryId(supabase, editPhoneBrand.trim()) : null
     const imageUrls = await uploadSlots(supabase, editImageSlots)
+
+    const brandName = editBrandIds.length === 1 ? categories.find((c) => c.id === editBrandIds[0])?.name ?? null : null
+    const modelName = editModelIds.length === 1 ? models.find((m) => m.id === editModelIds[0])?.name ?? null : null
 
     const { data: updated, error } = await supabase
       .from('products')
@@ -244,9 +336,8 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
         price: priceNum,
         quantity: qtyNum,
         description: editDescription.trim() || null,
-        category_id: categoryId,
-        phone_brand: editPhoneBrand.trim() || null,
-        phone_model: editPhoneModel.trim() || null,
+        phone_brand: brandName,
+        phone_model: modelName,
         image_url: imageUrls[0] ?? null,
         image_urls: imageUrls,
         low_stock_threshold: editLowStockThreshold.trim() ? Number(editLowStockThreshold) : null,
@@ -262,10 +353,29 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
       return
     }
 
+    await supabase.from('product_devices').delete().eq('product_id', editProduct.id)
+    await supabase.from('product_brands').delete().eq('product_id', editProduct.id)
+    await supabase.from('product_models').delete().eq('product_id', editProduct.id)
+    if (editDeviceIds.length > 0) await supabase.from('product_devices').insert(editDeviceIds.map((device_type_id) => ({ product_id: editProduct.id, device_type_id })))
+    if (editBrandIds.length > 0) await supabase.from('product_brands').insert(editBrandIds.map((brand_id) => ({ product_id: editProduct.id, brand_id })))
+    if (editModelIds.length > 0) await supabase.from('product_models').insert(editModelIds.map((model_id) => ({ product_id: editProduct.id, model_id })))
+    setProductDevices((prev) => [...prev.filter((l) => l.product_id !== editProduct.id), ...editDeviceIds.map((device_type_id) => ({ product_id: editProduct.id, device_type_id }))])
+    setProductBrands((prev) => [...prev.filter((l) => l.product_id !== editProduct.id), ...editBrandIds.map((brand_id) => ({ product_id: editProduct.id, brand_id }))])
+    setProductModels((prev) => [...prev.filter((l) => l.product_id !== editProduct.id), ...editModelIds.map((model_id) => ({ product_id: editProduct.id, model_id }))])
+
     setProducts((prev) => prev.map((p) => (p.id === editProduct.id ? (updated as Product) : p)).sort((a, b) => a.name.localeCompare(b.name)))
     logStockEvent(supabase, 'product', editProduct.id, (updated as Product).name, 'updated')
     const transition = stockTransitionEvent(Number(editProduct.quantity), qtyNum, (updated as Product).low_stock_threshold)
     if (transition) logStockEvent(supabase, 'product', editProduct.id, (updated as Product).name, transition)
+
+    // Dado de compatibilidade mudou -- tags de busca reaproveitam o
+    // aparelho/marca/modelo novo (ver /api/catalog/tags).
+    fetch(apiPath('/api/catalog/tags'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'product', id: editProduct.id }),
+    }).catch(() => {})
+
     setSavingEdit(false)
     setEditProduct(null)
   }
@@ -309,21 +419,35 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Tela OLED"
                 className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Marca</label>
-                <input value={phoneBrand} onChange={(e) => setPhoneBrand(e.target.value)} placeholder="Ex: iPhone"
-                  list="brand-suggestions"
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red" />
-                <datalist id="brand-suggestions">
-                  {brands.map((b) => <option key={b} value={b} />)}
-                </datalist>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Modelo do aparelho</label>
-                <input value={phoneModel} onChange={(e) => setPhoneModel(e.target.value)} placeholder="Ex: iPhone 14 Pro"
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white placeholder-vr-silver/40 text-sm outline-none focus:border-vr-red" />
-              </div>
+            <p className="text-xs text-vr-silver/40">
+              Aparelho, marca e modelo são opcionais — deixe vazio pra "serve pra todos" naquela dimensão
+              (ex: marca Samsung sem modelo = qualquer Samsung; tudo vazio = serve pra qualquer aparelho).
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <SearchCreateMultiSelect
+                label="Aparelho(s) — opcional"
+                placeholder="Buscar aparelho..."
+                options={deviceTypes}
+                selectedIds={newDeviceIds}
+                onChange={setNewDeviceIds}
+                onCreate={(n) => createDeviceInline(n)}
+              />
+              <SearchCreateMultiSelect
+                label="Marca(s) — opcional"
+                placeholder="Buscar marca..."
+                options={categories}
+                selectedIds={newBrandIds}
+                onChange={(ids) => { setNewBrandIds(ids); setNewModelIds([]) }}
+                onCreate={(n) => createBrandInline(n, newDeviceIds)}
+              />
+              <SearchCreateMultiSelect
+                label="Modelo(s) — opcional"
+                placeholder="Buscar modelo..."
+                options={modelOptionsForNewItem}
+                selectedIds={newModelIds}
+                onChange={setNewModelIds}
+                onCreate={(n) => createModelInline(n, newBrandIds)}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -371,10 +495,10 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
               Todos
             </button>
             {brands.map((b) => (
-              <button key={b} onClick={() => setActiveBrand(b)}
+              <button key={b.id} onClick={() => setActiveBrand(b.id)}
                 className={`shrink-0 px-4 py-1.5 rounded-xl text-xs font-semibold transition-all
-                  ${activeBrand === b ? 'bg-vr-red text-white' : 'bg-vr-graphite border border-white/5 text-vr-silver hover:border-vr-red/30'}`}>
-                {b}
+                  ${activeBrand === b.id ? 'bg-vr-red text-white' : 'bg-vr-graphite border border-white/5 text-vr-silver hover:border-vr-red/30'}`}>
+                {b.name}
               </button>
             ))}
           </div>
@@ -489,20 +613,31 @@ export default function ProdutosTab({ initialProducts, initialCategories }: Prop
               <input value={editName} onChange={(e) => setEditName(e.target.value)}
                 className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Marca</label>
-                <input value={editPhoneBrand} onChange={(e) => setEditPhoneBrand(e.target.value)} list="brand-suggestions-edit"
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red" />
-                <datalist id="brand-suggestions-edit">
-                  {brands.map((b) => <option key={b} value={b} />)}
-                </datalist>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-vr-silver/60 uppercase tracking-wide">Modelo</label>
-                <input value={editPhoneModel} onChange={(e) => setEditPhoneModel(e.target.value)}
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl bg-vr-black border border-white/10 text-white text-sm outline-none focus:border-vr-red" />
-              </div>
+            <div className="grid grid-cols-1 gap-2">
+              <SearchCreateMultiSelect
+                label="Aparelho(s) — opcional"
+                placeholder="Buscar aparelho..."
+                options={deviceTypes}
+                selectedIds={editDeviceIds}
+                onChange={setEditDeviceIds}
+                onCreate={(n) => createDeviceInline(n)}
+              />
+              <SearchCreateMultiSelect
+                label="Marca(s) — opcional"
+                placeholder="Buscar marca..."
+                options={categories}
+                selectedIds={editBrandIds}
+                onChange={(ids) => { setEditBrandIds(ids); setEditModelIds([]) }}
+                onCreate={(n) => createBrandInline(n, editDeviceIds)}
+              />
+              <SearchCreateMultiSelect
+                label="Modelo(s) — opcional"
+                placeholder="Buscar modelo..."
+                options={modelOptionsForEdit}
+                selectedIds={editModelIds}
+                onChange={setEditModelIds}
+                onCreate={(n) => createModelInline(n, editBrandIds)}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

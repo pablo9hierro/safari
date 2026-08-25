@@ -24,6 +24,9 @@ interface CatalogModel { id: string; brand_id: string; name: string; sort_order:
 interface ItemDeviceLink { service_catalog_item_id: string; device_type_id: string }
 interface ItemBrandLink { service_catalog_item_id: string; brand_id: string }
 interface ItemModelLink { service_catalog_item_id: string; model_id: string }
+interface ProductDeviceLink { product_id: string; device_type_id: string }
+interface ProductBrandLink { product_id: string; brand_id: string }
+interface ProductModelLink { product_id: string; model_id: string }
 
 type Tab = 'produtos' | 'servicos' | 'estoque' | 'aparelho_marca_modelo' | 'alertas' | 'em_falta'
 
@@ -48,6 +51,9 @@ interface Props {
   initialItemDevices: ItemDeviceLink[]
   initialItemBrands: ItemBrandLink[]
   initialItemModels: ItemModelLink[]
+  initialProductDevices: ProductDeviceLink[]
+  initialProductBrands: ProductBrandLink[]
+  initialProductModels: ProductModelLink[]
 }
 
 export default function ProdutosClient(props: Props) {
@@ -85,6 +91,15 @@ export default function ProdutosClient(props: Props) {
         <ProdutosTab
           initialProducts={props.initialProducts}
           initialCategories={props.initialCategories}
+          categories={categories}
+          setCategories={setCategories}
+          deviceTypes={deviceTypes}
+          setDeviceTypes={setDeviceTypes}
+          models={models}
+          setModels={setModels}
+          initialProductDevices={props.initialProductDevices}
+          initialProductBrands={props.initialProductBrands}
+          initialProductModels={props.initialProductModels}
         />
       )}
       {tab === 'servicos' && (

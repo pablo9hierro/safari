@@ -16,6 +16,9 @@ export default async function ProdutosPage() {
     { data: itemDevices },
     { data: itemBrands },
     { data: itemModels },
+    { data: productDevices },
+    { data: productBrands },
+    { data: productModels },
   ] = await Promise.all([
     supabase.from('products').select('*, product_categories(name)').order('name'),
     supabase.from('product_categories').select('*').order('name'),
@@ -31,6 +34,9 @@ export default async function ProdutosPage() {
     supabase.from('service_item_devices').select('*'),
     supabase.from('service_item_brands').select('*'),
     supabase.from('service_item_models').select('*'),
+    supabase.from('product_devices').select('*'),
+    supabase.from('product_brands').select('*'),
+    supabase.from('product_models').select('*'),
   ])
 
   return (
@@ -46,6 +52,9 @@ export default async function ProdutosPage() {
       initialItemDevices={itemDevices ?? []}
       initialItemBrands={itemBrands ?? []}
       initialItemModels={itemModels ?? []}
+      initialProductDevices={productDevices ?? []}
+      initialProductBrands={productBrands ?? []}
+      initialProductModels={productModels ?? []}
     />
   )
 }
