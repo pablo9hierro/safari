@@ -270,23 +270,20 @@ async function criarPedidoEGerarCobranca(input: {
   }
 }
 
+// Pedido de PRODUTO real vive no ecommerce-api (mesma fonte que /consultar
+// usa) -- 'store_orders' no Supabase do vrtech é tabela morta/legada, sem
+// nenhum pedido de assistente real gravado ali. Achado real: consultar_pedido
+// sempre respondia "nenhum pedido encontrado" mesmo pra pedido acabado de
+// criar por criar_pedido_e_gerar_cobranca, porque consultava a base errada.
 async function consultarPedido(phone: string): Promise<string> {
-  const supabase = createServiceClient()
   const cleanPhone = phone.replace(/\D/g, '')
-  const { data, error } = await supabase
-    .from('store_orders')
-    .select('id, customer_name, status, total_value, created_at, store_order_items(product_name, quantity, status)')
-    .or(`customer_whatsapp.ilike.%${cleanPhone}%`)
-    .order('created_at', { ascending: false })
-    .limit(3)
+  const orders = await fetchProductOrdersByPhone(cleanPhone).catch(() => [])
+  if (orders.length === 0) return 'Nenhum pedido encontrado para este número.'
 
-  if (error) return `Erro ao consultar pedido: ${error.message}`
-  if (!data || data.length === 0) return 'Nenhum pedido encontrado para este número.'
-
-  return data.map((o) => {
-    const items = (o.store_order_items as { product_name: string; quantity: number; status: string }[] | null) ?? []
-    const itensStr = items.map((i) => `${i.quantity}x ${i.product_name} (${i.status})`).join(', ')
-    return `Pedido ${o.id.slice(0, 8)} — Status: ${o.status} — R$ ${Number(o.total_value).toFixed(2).replace('.', ',')} — ${itensStr} — ${new Date(o.created_at).toLocaleDateString('pt-BR')}`
+  return orders.slice(0, 5).map((o) => {
+    const pago = o.payment_status === 'paid' ? 'pago' : 'pagamento pendente'
+    const entrega = o.delivery_type === 'delivery' ? 'entrega' : 'retirada na loja'
+    return `Pedido #${o.short_id} — Status: ${o.status} — ${entrega} — ${pago} — Total: R$ ${Number(o.total).toFixed(2).replace('.', ',')} — ${new Date(o.created_at).toLocaleDateString('pt-BR')}`
   }).join('\n')
 }
 
@@ -308,7 +305,7 @@ export async function consultarAtendimentoEmAndamento(phone: string): Promise<st
   if (!cleanPhone) return 'Informe um telefone válido.'
   const supabase = createServiceClient()
 
-  const [reqRes, apptRes, orderRes] = await Promise.all([
+  const [reqRes, apptRes, orders] = await Promise.all([
     supabase
       .from('service_requests')
       .select('id, status, phone_model, problem_description, created_at')
@@ -324,20 +321,21 @@ export async function consultarAtendimentoEmAndamento(phone: string): Promise<st
       .gte('starts_at', new Date().toISOString())
       .order('starts_at')
       .limit(3),
-    supabase
-      .from('store_orders')
-      .select('id, status, total_value, created_at')
-      .ilike('customer_whatsapp', `%${cleanPhone}%`)
-      .eq('status', 'pendente')
-      .order('created_at', { ascending: false })
-      .limit(3),
+    // Pedido de produto real vive no ecommerce-api, não em 'store_orders'
+    // (tabela morta do vrtech) -- mesma correção de consultarPedido acima.
+    fetchProductOrdersByPhone(cleanPhone).catch(() => []),
   ])
 
   const partes: string[] = []
   const reqs = reqRes.data ?? []
   if (reqs.length > 0) {
+    // Numerado + aparelho em destaque -- cada solicitação é claramente
+    // distinta na resposta (achado real: com 2+ atendimentos o modelo
+    // colapsava tudo numa frase genérica só, sem dizer qual é qual).
     partes.push(
-      `Solicitações de serviço ativas:\n${reqs.map((r) => `- ID ${r.id} | ${r.phone_model ?? 'aparelho'} | status: ${r.status} | ${r.problem_description ?? ''}`).join('\n')}`,
+      `Solicitações de serviço ativas (responda distinguindo cada uma pelo aparelho, nunca um resumo genérico só):\n${reqs
+        .map((r, i) => `${i + 1}) Aparelho: ${r.phone_model ?? 'não informado'} | ID ${r.id} | status: ${r.status} | problema: ${r.problem_description ?? '—'}`)
+        .join('\n')}`,
     )
   }
   const appts = apptRes.data ?? []
@@ -346,10 +344,10 @@ export async function consultarAtendimentoEmAndamento(phone: string): Promise<st
       `Agendamentos futuros:\n${appts.map((a) => `- ID ${a.id} | ${a.service_label} | ${new Date(a.starts_at).toLocaleString('pt-BR')} | status: ${a.status}`).join('\n')}`,
     )
   }
-  const orders = orderRes.data ?? []
-  if (orders.length > 0) {
+  const pendingOrders = orders.filter((o) => o.status !== 'cancelled' && o.status !== 'completed')
+  if (pendingOrders.length > 0) {
     partes.push(
-      `Pedidos de produto em andamento:\n${orders.map((o) => `- ID ${o.id.slice(0, 8)} | status: ${o.status} | R$ ${Number(o.total_value).toFixed(2).replace('.', ',')}`).join('\n')}`,
+      `Pedidos de produto em andamento:\n${pendingOrders.map((o) => `- Pedido #${o.short_id} | status: ${o.status} | ${o.payment_status === 'paid' ? 'pago' : 'pagamento pendente'} | R$ ${Number(o.total).toFixed(2).replace('.', ',')}`).join('\n')}`,
     )
   }
 
